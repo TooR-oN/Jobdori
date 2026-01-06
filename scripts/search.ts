@@ -1,0 +1,210 @@
+import 'dotenv/config';
+import { SearchResult, Config } from './types/index.js';
+import {
+  getRandomDelay,
+  sleep,
+  extractDomain,
+  loadConfig,
+  loadTitles,
+  loadKeywords,
+  saveJson,
+  getTimestamp,
+} from './utils.js';
+
+// ============================================
+// Serper.dev API 설정
+// ============================================
+
+const SERPER_API_KEY = process.env.SERPER_API_KEY;
+const SERPER_API_URL = 'https://google.serper.dev/search';
+
+interface SerperResult {
+  title: string;
+  link: string;
+  snippet?: string;
+  position: number;
+}
+
+interface SerperResponse {
+  organic: SerperResult[];
+  searchParameters: {
+    q: string;
+    gl: string;
+    hl: string;
+    num: number;
+    page: number;
+  };
+}
+
+// ============================================
+// Serper.dev API 검색
+// ============================================
+
+/**
+ * Serper.dev API를 통한 구글 검색
+ */
+async function searchWithSerper(
+  query: string,
+  page: number = 1,
+  num: number = 10
+): Promise<SerperResult[]> {
+  if (!SERPER_API_KEY) {
+    throw new Error('SERPER_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.');
+  }
+
+  const response = await fetch(SERPER_API_URL, {
+    method: 'POST',
+    headers: {
+      'X-API-KEY': SERPER_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      q: query,
+      gl: 'us',
+      hl: 'en',
+      num: num,
+      page: page,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Serper API 오류: ${response.status} ${response.statusText}`);
+  }
+
+  const data: SerperResponse = await response.json();
+  return data.organic || [];
+}
+
+/**
+ * 단일 검색 쿼리 실행 (페이지 1-3)
+ */
+async function executeSearch(
+  query: string,
+  titleName: string,
+  config: Config
+): Promise<SearchResult[]> {
+  const results: SearchResult[] = [];
+  let globalRank = 1;
+
+  console.log(`  🔍 검색 중: "${query}"`);
+
+  for (let pageNum = 1; pageNum <= config.search.maxPages; pageNum++) {
+    try {
+      // Serper API 호출
+      const pageResults = await searchWithSerper(query, pageNum, config.search.resultsPerPage);
+
+      console.log(`    📄 페이지 ${pageNum}: ${pageResults.length}개 결과`);
+
+      // 결과 저장
+      for (const item of pageResults) {
+        if (globalRank > config.search.maxResults) break;
+
+        results.push({
+          title: titleName,
+          domain: extractDomain(item.link),
+          url: item.link,
+          search_query: query,
+          page: pageNum,
+          rank: globalRank,
+        });
+        globalRank++;
+      }
+
+      // 최대 결과 수 도달 시 중단
+      if (globalRank > config.search.maxResults) break;
+
+      // 다음 페이지가 있으면 딜레이
+      if (pageNum < config.search.maxPages && pageResults.length > 0) {
+        const delay = getRandomDelay(
+          config.search.delayBetweenPages.min,
+          config.search.delayBetweenPages.max
+        );
+        console.log(`    ⏳ 페이지 간 딜레이: ${(delay / 1000).toFixed(1)}초`);
+        await sleep(delay);
+      }
+    } catch (error) {
+      console.error(`    ❌ 페이지 ${pageNum} 검색 실패:`, error);
+      continue;
+    }
+  }
+
+  return results;
+}
+
+// ============================================
+// 메인 검색 함수
+// ============================================
+
+export async function runSearch(): Promise<SearchResult[]> {
+  console.log('🚀 구글 검색 모듈 시작 (Serper.dev API)\n');
+
+  // API 키 확인
+  if (!SERPER_API_KEY) {
+    console.error('❌ SERPER_API_KEY가 설정되지 않았습니다.');
+    console.error('   .env 파일에 SERPER_API_KEY를 설정해주세요.');
+    process.exit(1);
+  }
+
+  // 설정 로드
+  const config = loadConfig();
+
+  // 작품 제목 로드
+  const titles = loadTitles(config.paths.titlesFile);
+  console.log(`📚 작품 수: ${titles.length}개`);
+
+  // 키워드 로드
+  const keywords = loadKeywords(config.paths.keywordsFile);
+  console.log(`🏷️  키워드: ${keywords.join(', ')}`);
+
+  const totalSearches = titles.length * keywords.length;
+  console.log(`🔢 총 검색 횟수: ${totalSearches}회`);
+  console.log(`📊 예상 API 호출: ${totalSearches * config.search.maxPages}회\n`);
+
+  const allResults: SearchResult[] = [];
+  let searchCount = 0;
+
+  for (const title of titles) {
+    console.log(`\n📖 작품: ${title}`);
+
+    for (const keyword of keywords) {
+      searchCount++;
+      const query = `${title} ${keyword}`;
+
+      console.log(`\n[${searchCount}/${totalSearches}]`);
+
+      // 검색 실행
+      const results = await executeSearch(query, title, config);
+      allResults.push(...results);
+
+      console.log(`    ✅ 수집 완료: ${results.length}개 결과`);
+
+      // 다음 검색 전 딜레이 (마지막 검색 제외)
+      if (searchCount < totalSearches) {
+        const delay = getRandomDelay(
+          config.search.delayBetweenSearches.min,
+          config.search.delayBetweenSearches.max
+        );
+        console.log(`    ⏳ 검색 간 딜레이: ${(delay / 1000).toFixed(1)}초`);
+        await sleep(delay);
+      }
+    }
+  }
+
+  console.log(`\n\n✅ 검색 완료!`);
+  console.log(`📊 총 수집 결과: ${allResults.length}개`);
+
+  return allResults;
+}
+
+// ============================================
+// 직접 실행 시
+// ============================================
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runSearch()
+    .then(results => {
+      const timestamp = getTimestamp();
+      saveJson(results, `output/search-results-${timestamp}.json`);
+    })
+    .catch(console.error);
+}
