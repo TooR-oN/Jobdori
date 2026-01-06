@@ -1,1 +1,59 @@
-[]
+[
+  {
+    "id": "1",
+    "domain": "w17.sololevelinganime.com",
+    "urls": [
+      "https://w17.sololevelinganime.com/manga/solo-leveling",
+      "https://w17.sololevelinganime.com/chapter/1"
+    ],
+    "titles": ["Solo Leveling"],
+    "llm_judgment": "likely_illegal",
+    "llm_reason": "도메인명에 'anime'와 'manga' 관련 키워드 포함, 무료 만화 스트리밍 사이트로 추정",
+    "created_at": "2025-01-06T10:00:00Z"
+  },
+  {
+    "id": "2",
+    "domain": "mangareader.to",
+    "urls": [
+      "https://mangareader.to/solo-leveling",
+      "https://mangareader.to/tower-of-god"
+    ],
+    "titles": ["Solo Leveling", "Tower of God"],
+    "llm_judgment": "likely_illegal",
+    "llm_reason": "도메인명에 'mangareader' 포함, 무료 만화 읽기 사이트 패턴",
+    "created_at": "2025-01-06T10:05:00Z"
+  },
+  {
+    "id": "3",
+    "domain": "readmanhwa.com",
+    "urls": [
+      "https://readmanhwa.com/en/webtoon/the-beginning-after-the-end"
+    ],
+    "titles": ["The Beginning After the End"],
+    "llm_judgment": "likely_illegal",
+    "llm_reason": "'readmanhwa' 도메인, 무료 웹툰 읽기 사이트로 강력히 의심",
+    "created_at": "2025-01-06T10:10:00Z"
+  },
+  {
+    "id": "4",
+    "domain": "goodreads.com",
+    "urls": [
+      "https://www.goodreads.com/book/show/solo-leveling"
+    ],
+    "titles": ["Solo Leveling"],
+    "llm_judgment": "likely_legal",
+    "llm_reason": "Goodreads는 합법적인 도서 리뷰/추천 사이트",
+    "created_at": "2025-01-06T10:15:00Z"
+  },
+  {
+    "id": "5",
+    "domain": "scanmanga.xyz",
+    "urls": [
+      "https://scanmanga.xyz/omniscient-reader"
+    ],
+    "titles": ["Omniscient Reader"],
+    "llm_judgment": "uncertain",
+    "llm_reason": "'scan'과 'manga' 키워드가 포함되어 있으나, .xyz 도메인으로 추가 확인 필요",
+    "created_at": "2025-01-06T10:20:00Z"
+  }
+]

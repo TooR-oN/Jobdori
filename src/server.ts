@@ -1,6 +1,7 @@
+import { serve } from '@hono/node-server'
+import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { serveStatic } from 'hono/cloudflare-workers'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -24,7 +25,7 @@ interface ReviewAction {
 }
 
 // ============================================
-// 파일 경로 (로컬 개발용)
+// 파일 경로
 // ============================================
 
 const DATA_DIR = path.join(process.cwd(), 'data')
@@ -125,6 +126,8 @@ app.post('/api/review', async (c) => {
       items.splice(itemIndex, 1)
       savePendingReviews(items)
       
+      console.log(`✅ 승인: ${item.domain} → 불법 사이트 리스트에 추가됨`)
+      
       return c.json({
         success: true,
         message: `${item.domain}이(가) 불법 사이트 리스트에 추가되었습니다.`,
@@ -138,6 +141,8 @@ app.post('/api/review', async (c) => {
       items.splice(itemIndex, 1)
       savePendingReviews(items)
       
+      console.log(`❌ 거절: ${item.domain} → 합법 사이트 리스트에 추가됨`)
+      
       return c.json({
         success: true,
         message: `${item.domain}이(가) 합법 사이트 리스트에 추가되었습니다.`,
@@ -145,7 +150,8 @@ app.post('/api/review', async (c) => {
         domain: item.domain,
       })
     } else if (action === 'hold') {
-      // 보류 - 목록에 유지
+      console.log(`⏸️ 보류: ${item.domain}`)
+      
       return c.json({
         success: true,
         message: `${item.domain}이(가) 보류되었습니다.`,
@@ -330,6 +336,11 @@ app.get('/', (c) => {
               <div class="text-sm text-gray-600 mb-2">
                 <i class="fas fa-link mr-1"></i>
                 관련 URL: \${item.urls.length}개
+                <span class="ml-2 text-blue-500 cursor-pointer" onclick="toggleUrls('\${item.id}')">[보기]</span>
+              </div>
+              
+              <div id="urls-\${item.id}" class="hidden bg-gray-50 rounded p-2 mb-2 text-xs">
+                \${item.urls.map(url => \`<div class="truncate"><a href="\${url}" target="_blank" class="text-blue-500 hover:underline">\${url}</a></div>\`).join('')}
               </div>
               
               <div class="text-sm text-gray-600 mb-2">
@@ -368,6 +379,12 @@ app.get('/', (c) => {
       loadStats();
     }
 
+    // URL 토글
+    function toggleUrls(id) {
+      const el = document.getElementById('urls-' + id);
+      el.classList.toggle('hidden');
+    }
+
     // 승인/거절/보류 처리
     async function handleReview(id, action) {
       const actionText = action === 'approve' ? '승인(불법 등록)' : 
@@ -398,4 +415,22 @@ app.get('/', (c) => {
   `)
 })
 
-export default app
+// ============================================
+// 서버 시작
+// ============================================
+
+const port = 3000
+
+console.log(`
+🚀 웹툰 불법사이트 모니터링 서버 시작!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📍 URL: http://localhost:${port}
+📋 승인 대기 API: http://localhost:${port}/api/pending
+📊 통계 API: http://localhost:${port}/api/stats
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`)
+
+serve({
+  fetch: app.fetch,
+  port,
+})
