@@ -13,6 +13,21 @@ import {
 // ============================================
 
 /**
+ * 도메인이 리스트에 있는지 확인 (서브도메인 포함)
+ */
+function checkDomainInList(domain: string, list: Set<string>): boolean {
+  // 정확히 일치
+  if (list.has(domain)) return true;
+  // 서브도메인 체크 (예: en.wikipedia.org → wikipedia.org)
+  const parts = domain.split('.');
+  for (let i = 1; i < parts.length - 1; i++) {
+    const parentDomain = parts.slice(i).join('.');
+    if (list.has(parentDomain)) return true;
+  }
+  return false;
+}
+
+/**
  * 검색 결과를 불법/합법 리스트와 대조하여 분류
  */
 export function classifyResults(
@@ -33,10 +48,10 @@ export function classifyResults(
     
     let status: 'illegal' | 'legal' | 'unknown';
 
-    if (illegalSites.has(domain)) {
+    if (checkDomainInList(domain, illegalSites)) {
       status = 'illegal';
       illegalCount++;
-    } else if (legalSites.has(domain)) {
+    } else if (checkDomainInList(domain, legalSites)) {
       status = 'legal';
       legalCount++;
     } else {

@@ -25,3 +25,12 @@ facebook.com
 instagram.com
 youtube.com
 google.com
+quora.com
+ebay.com
+goodreads.com
+fandom.com
+myanimelist.net
+anilist.co
+imdb.com
+rottentomatoes.com
+en.wikipedia.org
