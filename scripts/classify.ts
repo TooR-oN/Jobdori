@@ -1,0 +1,154 @@
+import 'dotenv/config';
+import { SearchResult, ClassifiedResult, Config } from './types/index.js';
+import {
+  loadConfig,
+  loadSiteList,
+  saveJson,
+  loadJson,
+  getTimestamp,
+} from './utils.js';
+
+// ============================================
+// 1차 판별 (리스트 대조)
+// ============================================
+
+/**
+ * 검색 결과를 불법/합법 리스트와 대조하여 분류
+ */
+export function classifyResults(
+  searchResults: SearchResult[],
+  illegalSites: Set<string>,
+  legalSites: Set<string>
+): ClassifiedResult[] {
+  console.log('🔍 1차 판별 시작 (리스트 대조)\n');
+
+  const classifiedResults: ClassifiedResult[] = [];
+  
+  let illegalCount = 0;
+  let legalCount = 0;
+  let unknownCount = 0;
+
+  for (const result of searchResults) {
+    const domain = result.domain.toLowerCase();
+    
+    let status: 'illegal' | 'legal' | 'unknown';
+
+    if (illegalSites.has(domain)) {
+      status = 'illegal';
+      illegalCount++;
+    } else if (legalSites.has(domain)) {
+      status = 'legal';
+      legalCount++;
+    } else {
+      status = 'unknown';
+      unknownCount++;
+    }
+
+    classifiedResults.push({
+      ...result,
+      status,
+    });
+  }
+
+  console.log('📊 1차 판별 결과:');
+  console.log(`   🔴 불법 (illegal): ${illegalCount}개`);
+  console.log(`   🟢 합법 (legal): ${legalCount}개`);
+  console.log(`   🟡 미분류 (unknown): ${unknownCount}개`);
+  console.log('');
+
+  return classifiedResults;
+}
+
+/**
+ * 미분류(unknown) 도메인 목록 추출 (중복 제거)
+ */
+export function getUnknownDomains(results: ClassifiedResult[]): string[] {
+  const unknownDomains = new Set<string>();
+  
+  for (const result of results) {
+    if (result.status === 'unknown') {
+      unknownDomains.add(result.domain);
+    }
+  }
+
+  return Array.from(unknownDomains);
+}
+
+/**
+ * 도메인별 결과 그룹화
+ */
+export function groupByDomain(results: ClassifiedResult[]): Map<string, ClassifiedResult[]> {
+  const grouped = new Map<string, ClassifiedResult[]>();
+
+  for (const result of results) {
+    const domain = result.domain;
+    if (!grouped.has(domain)) {
+      grouped.set(domain, []);
+    }
+    grouped.get(domain)!.push(result);
+  }
+
+  return grouped;
+}
+
+// ============================================
+// 메인 분류 함수
+// ============================================
+
+export async function runClassify(searchResults?: SearchResult[]): Promise<ClassifiedResult[]> {
+  console.log('🚀 1차 판별 모듈 시작\n');
+
+  // 설정 로드
+  const config = loadConfig();
+
+  // 불법/합법 사이트 리스트 로드
+  const illegalSites = loadSiteList(config.paths.illegalSitesFile);
+  const legalSites = loadSiteList(config.paths.legalSitesFile);
+
+  console.log(`📋 불법 사이트 리스트: ${illegalSites.size}개`);
+  console.log(`📋 합법 사이트 리스트: ${legalSites.size}개\n`);
+
+  // 검색 결과 로드 (파라미터로 전달되지 않은 경우)
+  let results: SearchResult[];
+  if (searchResults) {
+    results = searchResults;
+  } else {
+    // 가장 최근 검색 결과 파일 로드 (테스트용)
+    const testResults: SearchResult[] = [
+      { title: 'Solo Leveling', domain: 'reddit.com', url: 'https://reddit.com/r/sololeveling', search_query: 'Solo Leveling manga', page: 1, rank: 1 },
+      { title: 'Solo Leveling', domain: 'mangafreak.net', url: 'https://mangafreak.net/solo-leveling', search_query: 'Solo Leveling manga', page: 1, rank: 2 },
+      { title: 'Solo Leveling', domain: 'tappytoon.com', url: 'https://tappytoon.com/solo-leveling', search_query: 'Solo Leveling manga', page: 1, rank: 3 },
+      { title: 'Solo Leveling', domain: 'w17.sololevelinganime.com', url: 'https://w17.sololevelinganime.com', search_query: 'Solo Leveling manga', page: 1, rank: 4 },
+      { title: 'Solo Leveling', domain: 'wikipedia.org', url: 'https://en.wikipedia.org/wiki/Solo_Leveling', search_query: 'Solo Leveling manga', page: 1, rank: 5 },
+    ];
+    results = testResults;
+    console.log('⚠️ 테스트 데이터 사용 중\n');
+  }
+
+  console.log(`📊 검색 결과 수: ${results.length}개\n`);
+
+  // 분류 실행
+  const classifiedResults = classifyResults(results, illegalSites, legalSites);
+
+  // 미분류 도메인 목록
+  const unknownDomains = getUnknownDomains(classifiedResults);
+  console.log(`🟡 미분류 도메인 (${unknownDomains.length}개):`);
+  for (const domain of unknownDomains) {
+    console.log(`   - ${domain}`);
+  }
+
+  return classifiedResults;
+}
+
+// ============================================
+// 직접 실행 시
+// ============================================
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runClassify()
+    .then(results => {
+      const timestamp = getTimestamp();
+      saveJson(results, `output/classified-results-${timestamp}.json`);
+    })
+    .catch(console.error);
+}
