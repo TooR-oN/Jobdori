@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx';
 import { Config, FinalResult, REPORT_COLUMNS } from './types/index.js';
 
 // ============================================

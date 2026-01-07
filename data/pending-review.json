@@ -1,1 +1,135 @@
-[]
+[
+  {
+    "id": "1",
+    "domain": "battwo.com",
+    "urls": [
+      "https://battwo.com/title/212976-the-duke-s-fluffy-secret-mature-official/4007857-ch_21",
+      "https://battwo.com/chapter/4031495",
+      "https://battwo.com/title/202104",
+      "https://battwo.com/series/205232/from-sandbox-to-bed-official",
+      "https://battwo.com/title/205232"
+    ],
+    "titles": [
+      "The Duke's Fluffy Secret",
+      "Devoured: The Serpent and the Pomegranate",
+      "Guilty Office",
+      "From Sandbox to Bed"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  },
+  {
+    "id": "2",
+    "domain": "webnovel.com",
+    "urls": [
+      "https://www.webnovel.com/book/my-degenerate-system_34575341808372805/chapter-2_92836411337659820"
+    ],
+    "titles": [
+      "Degenerate"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  },
+  {
+    "id": "3",
+    "domain": "readfreebooksonline.org",
+    "urls": [
+      "https://readfreebooksonline.org/her-wicked-husband-chapter-42/"
+    ],
+    "titles": [
+      "A Wicked Husband"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  },
+  {
+    "id": "4",
+    "domain": "magustoon.org",
+    "urls": [
+      "https://magustoon.org/"
+    ],
+    "titles": [
+      "My Master Doesn't Bite!"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  },
+  {
+    "id": "5",
+    "domain": "forums.funcom.com",
+    "urls": [
+      "https://forums.funcom.com/t/is-it-just-me-or-has-the-game-gotten-super-easy/233492"
+    ],
+    "titles": [
+      "My Master Doesn't Bite!"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  },
+  {
+    "id": "6",
+    "domain": "lesswrong.com",
+    "urls": [
+      "https://www.lesswrong.com/posts/hHEvfp7kwvaHwgcdH/college-was-not-that-terrible-now-that-i-m-not-that-crazy"
+    ],
+    "titles": [
+      "My Master Doesn't Bite!"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  },
+  {
+    "id": "7",
+    "domain": "dynasty-scans.com",
+    "urls": [
+      "https://dynasty-scans.com/forum/posts?user_id=33676"
+    ],
+    "titles": [
+      "Don't Tell My Brother!"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  },
+  {
+    "id": "8",
+    "domain": "archiveofourown.org",
+    "urls": [
+      "https://archiveofourown.org/works/48754660"
+    ],
+    "titles": [
+      "The Beast Within"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  },
+  {
+    "id": "9",
+    "domain": "manhuatop.org",
+    "urls": [
+      "https://manhuatop.org/manhua/prison-love/chapter-96/"
+    ],
+    "titles": [
+      "Prison Love"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-07T01:19:50.728Z",
+    "session_id": "2026-01-07T01-17-45"
+  }
+]
