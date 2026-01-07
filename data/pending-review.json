@@ -1,15 +1,1 @@
-[
-  {
-    "id": "1",
-    "domain": "w23.towerofgodmanhwa.com",
-    "urls": [
-      "https://w23.towerofgodmanhwa.com/"
-    ],
-    "titles": [
-      "Tower of God"
-    ],
-    "llm_judgment": "likely_illegal",
-    "llm_reason": "도메인에 불법 관련 키워드 포함",
-    "created_at": "2026-01-06T01:02:46.026Z"
-  }
-]
+[]

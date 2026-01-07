@@ -8,6 +8,8 @@ import {
   FinalResult,
   PendingReviewItem,
   Config,
+  MonitoringSession,
+  SessionsData,
 } from './types/index.js';
 import { runSearch } from './search.js';
 import { runClassify, getUnknownDomains, groupByDomain } from './classify.js';
@@ -26,9 +28,29 @@ import {
 // ============================================
 
 /**
+ * 세션 데이터 로드
+ */
+function loadSessionsData(): SessionsData {
+  const sessionsFile = 'data/sessions.json';
+  try {
+    return loadJson<SessionsData>(sessionsFile);
+  } catch {
+    return { sessions: [], last_updated: getCurrentISOTime() };
+  }
+}
+
+/**
+ * 세션 데이터 저장
+ */
+function saveSessionsData(data: SessionsData): void {
+  data.last_updated = getCurrentISOTime();
+  saveJson(data, 'data/sessions.json');
+}
+
+/**
  * LLM 판별 결과에서 승인 대기 목록 생성
  */
-function createPendingReviewList(results: LLMJudgedResult[]): PendingReviewItem[] {
+function createPendingReviewList(results: LLMJudgedResult[], sessionId: string): PendingReviewItem[] {
   // 도메인별로 그룹화
   const domainGroups = new Map<string, LLMJudgedResult[]>();
   
@@ -65,6 +87,7 @@ function createPendingReviewList(results: LLMJudgedResult[]): PendingReviewItem[
       llm_judgment: firstItem.llm_judgment!,
       llm_reason: firstItem.llm_reason || '',
       created_at: getCurrentISOTime(),
+      session_id: sessionId,
     });
   }
 
@@ -163,7 +186,7 @@ async function runPipeline() {
     console.log('📌 Step 4: 승인 대기 목록 생성');
     console.log('─'.repeat(60));
     
-    const pendingItems = createPendingReviewList(llmJudgedResults);
+    const pendingItems = createPendingReviewList(llmJudgedResults, timestamp);
     
     // 기존 승인 대기 목록 로드 및 병합
     const pendingFilePath = config.paths.pendingReviewFile;
@@ -242,6 +265,43 @@ async function runPipeline() {
     console.log('🌐 승인 UI: http://localhost:3000');
     console.log('═'.repeat(60));
 
+    // ==========================================
+    // Step 6: 세션 정보 저장
+    // ==========================================
+    console.log('\n' + '─'.repeat(60));
+    console.log('📌 Step 6: 세션 정보 저장');
+    console.log('─'.repeat(60));
+
+    const session: MonitoringSession = {
+      id: timestamp,
+      created_at: getCurrentISOTime(),
+      completed_at: getCurrentISOTime(),
+      status: 'completed',
+      titles_count: new Set(searchResults.map(r => r.title)).size,
+      keywords_count: 3, // config에서 가져오거나 계산
+      total_searches: new Set(searchResults.map(r => r.search_query)).size,
+      results_summary: {
+        total: finalResults.length,
+        illegal: finalResults.filter(r => r.final_status === 'illegal').length,
+        legal: finalResults.filter(r => r.final_status === 'legal').length,
+        pending: finalResults.filter(r => r.final_status === 'pending').length,
+      },
+      files: {
+        search_results: `output/1_search-results-${timestamp}.json`,
+        classified_results: `output/2_classified-results-${timestamp}.json`,
+        llm_judged_results: `output/3_llm-judged-results-${timestamp}.json`,
+        final_results: `output/4_final-results-${timestamp}.json`,
+        excel_report: excelPath,
+      },
+    };
+
+    // 세션 데이터 저장
+    const sessionsData = loadSessionsData();
+    sessionsData.sessions.unshift(session); // 최신을 앞에 추가
+    saveSessionsData(sessionsData);
+
+    console.log(`\n✅ 세션 정보 저장 완료: ${timestamp}`);
+
     return {
       success: true,
       searchResults,
@@ -250,6 +310,7 @@ async function runPipeline() {
       finalResults,
       pendingItems: mergedPending,
       timestamp,
+      session,
     };
 
   } catch (error) {

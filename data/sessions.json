@@ -1,0 +1,27 @@
+{
+  "sessions": [
+    {
+      "id": "2026-01-06T01-51-30",
+      "created_at": "2026:01:06 01:51:30",
+      "completed_at": "2026:01:06 01:51:30",
+      "status": "completed",
+      "titles_count": 20,
+      "keywords_count": 3,
+      "total_searches": 60,
+      "results_summary": {
+        "total": 583,
+        "illegal": 10,
+        "legal": 205,
+        "pending": 368
+      },
+      "files": {
+        "search_results": "output/1_search-results-2026-01-06T01-51-30.json",
+        "classified_results": "output/2_classified-results-2026-01-06T01-51-30.json",
+        "llm_judged_results": "output/3_llm-judged-results-2026-01-06T01-51-30.json",
+        "final_results": "output/4_final-results-2026-01-06T01-51-30.json",
+        "excel_report": "output/report_2026-01-06T01-51-30.xlsx"
+      }
+    }
+  ],
+  "last_updated": "2026-01-07T01:14:12.830Z"
+}

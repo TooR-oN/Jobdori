@@ -1,16 +1,16 @@
 {
   "search": {
     "delayBetweenSearches": {
-      "min": 5000,
-      "max": 10000
+      "min": 1000,
+      "max": 2000
     },
     "delayBetweenPages": {
-      "min": 3000,
-      "max": 5000
+      "min": 500,
+      "max": 1000
     },
-    "maxPages": 3,
+    "maxPages": 1,
     "resultsPerPage": 10,
-    "maxResults": 50
+    "maxResults": 10
   },
   "llm": {
     "model": "gemini-2.5-pro",

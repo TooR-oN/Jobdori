@@ -41,12 +41,54 @@ export interface FinalResult extends LLMJudgedResult {
  * 승인 대기 항목
  */
 export interface PendingReviewItem {
+  id: string;
   domain: string;
   urls: string[];
   titles: string[];
   llm_judgment: 'likely_illegal' | 'likely_legal' | 'uncertain';
   llm_reason: string;
   created_at: string;
+  session_id?: string;  // 해당 항목이 생성된 세션 ID
+}
+
+/**
+ * 모니터링 세션 (회차) 정보
+ */
+export interface MonitoringSession {
+  id: string;                    // 세션 ID (타임스탬프 기반)
+  created_at: string;            // 세션 생성 시간
+  completed_at: string | null;   // 세션 완료 시간
+  status: 'running' | 'completed' | 'error';  // 세션 상태
+  
+  // 실행 설정
+  titles_count: number;          // 검색한 작품 수
+  keywords_count: number;        // 키워드 수
+  total_searches: number;        // 총 검색 횟수
+  
+  // 결과 요약
+  results_summary: {
+    total: number;               // 총 결과 수
+    illegal: number;             // 불법 판정
+    legal: number;               // 합법 판정
+    pending: number;             // 승인 대기
+  };
+  
+  // 파일 경로
+  files: {
+    search_results: string;      // 검색 결과 JSON
+    classified_results: string;  // 1차 판별 결과
+    llm_judged_results: string;  // 2차 판별 결과
+    final_results: string;       // 최종 결과 JSON
+    excel_report: string;        // Excel 리포트
+  };
+}
+
+/**
+ * 세션 목록 파일 구조
+ */
+export interface SessionsData {
+  sessions: MonitoringSession[];
+  last_updated: string;
 }
 
 /**
@@ -91,3 +133,13 @@ export const REPORT_COLUMNS = [
   'final_status',
   'reviewed_at'
 ] as const;
+
+/**
+ * 승인 처리 결과
+ */
+export interface ReviewAction {
+  domain: string;
+  action: 'approve' | 'reject' | 'hold';
+  reviewed_at: string;
+  session_id?: string;
+}
