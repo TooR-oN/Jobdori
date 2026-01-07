@@ -666,6 +666,52 @@ app.get('/api/sessions/:id/results', (c) => {
   })
 })
 
+// 필터된 전체 URL 목록 반환 (URL 복사용)
+app.get('/api/sessions/:id/urls', (c) => {
+  const id = c.req.param('id')
+  const filter = c.req.query('filter') // 'all', 'illegal', 'legal', 'pending'
+  const titleFilter = c.req.query('title') // 작품명 필터
+  
+  const sessionsData = scanAndUpdateSessions()
+  const session = sessionsData.sessions.find(s => s.id === id)
+  
+  if (!session) {
+    return c.json({ success: false, error: 'Session not found' }, 404)
+  }
+  
+  const finalResultsPath = path.join(process.cwd(), session.files.final_results)
+  
+  if (!fs.existsSync(finalResultsPath)) {
+    return c.json({ success: false, error: 'Results file not found' }, 404)
+  }
+  
+  let results = loadFinalResults(finalResultsPath)
+  
+  // 상태 필터 적용
+  if (filter && filter !== 'all') {
+    results = results.filter(r => r.final_status === filter)
+  }
+  
+  // 작품명 필터 적용
+  if (titleFilter && titleFilter !== 'all') {
+    results = results.filter(r => r.title === titleFilter)
+  }
+  
+  // URL만 추출 (중복 제거)
+  const urls = [...new Set(results.map(r => r.url))]
+  
+  console.log(`📋 URL 목록 요청: 세션=${id}, 필터=${filter || 'all'}, 작품=${titleFilter || 'all'}, 결과=${urls.length}개`)
+  
+  return c.json({
+    success: true,
+    session_id: id,
+    filter: filter || 'all',
+    title_filter: titleFilter || 'all',
+    total: urls.length,
+    urls,
+  })
+})
+
 // Excel 파일 다운로드 (JSON에서 실시간 변환)
 app.get('/api/sessions/:id/download', (c) => {
   const id = c.req.param('id')
@@ -870,16 +916,16 @@ app.get('/', (c) => {
 
           <!-- 결과 테이블 -->
           <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="w-full text-sm table-fixed">
               <thead class="bg-gray-100">
                 <tr>
-                  <th class="px-4 py-2 text-left w-12">#</th>
-                  <th class="px-4 py-2 text-left w-32">작품명</th>
-                  <th class="px-4 py-2 text-left">URL</th>
-                  <th class="px-4 py-2 text-left w-20">순위</th>
-                  <th class="px-4 py-2 text-left w-16">상태</th>
-                  <th class="px-4 py-2 text-left w-24">LLM 판단</th>
-                  <th class="px-4 py-2 text-left w-36">검토일시</th>
+                  <th class="px-3 py-2 text-left" style="width: 45px;">#</th>
+                  <th class="px-3 py-2 text-left" style="width: 120px;">작품명</th>
+                  <th class="px-3 py-2 text-left" style="width: 280px;">URL</th>
+                  <th class="px-3 py-2 text-left" style="width: 70px;">순위</th>
+                  <th class="px-3 py-2 text-left" style="width: 55px;">상태</th>
+                  <th class="px-3 py-2 text-left" style="width: 75px;">LLM</th>
+                  <th class="px-3 py-2 text-left" style="width: 130px;">검토일시</th>
                 </tr>
               </thead>
               <tbody id="results-table">
@@ -887,8 +933,16 @@ app.get('/', (c) => {
             </table>
           </div>
 
-          <!-- 페이지네이션 -->
-          <div id="pagination" class="flex justify-center gap-2 mt-4">
+          <!-- 페이지네이션 + URL 복사 버튼 -->
+          <div class="flex justify-between items-center mt-4">
+            <div class="text-sm text-gray-500">
+              <span id="filter-info"></span>
+            </div>
+            <div id="pagination" class="flex justify-center gap-2">
+            </div>
+            <button onclick="copyAllUrls()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition text-sm">
+              <i class="fas fa-copy mr-2"></i>URL 복사하기
+            </button>
           </div>
         </div>
       </div>
@@ -1231,33 +1285,38 @@ app.get('/', (c) => {
 
       tableEl.innerHTML = data.results.map((result, index) => \`
         <tr class="border-b hover:bg-gray-50">
-          <td class="px-4 py-2 text-center">\${(currentPage - 1) * 50 + index + 1}</td>
-          <td class="px-4 py-2 font-medium" title="\${result.title}">\${result.title.length > 15 ? result.title.substring(0, 15) + '...' : result.title}</td>
-          <td class="px-4 py-2">
-            <a href="\${result.url}" target="_blank" class="text-blue-500 hover:underline break-all text-xs" 
-               title="\${result.url}">
-              \${result.url.length > 60 ? result.url.substring(0, 60) + '...' : result.url}
+          <td class="px-3 py-2 text-center text-xs">\${(currentPage - 1) * 50 + index + 1}</td>
+          <td class="px-3 py-2 text-xs" title="\${result.title}">\${result.title.length > 12 ? result.title.substring(0, 12) + '...' : result.title}</td>
+          <td class="px-3 py-2">
+            <a href="\${result.url}" target="_blank" class="text-blue-500 hover:underline text-xs block truncate" 
+               title="\${result.url}" style="max-width: 260px;">
+              \${result.url}
             </a>
-            <div class="text-xs text-gray-400 mt-1">[\${result.domain}]</div>
+            <div class="text-xs text-gray-400">[\${result.domain}]</div>
           </td>
-          <td class="px-4 py-2 text-center">P\${result.page}-#\${result.rank}</td>
-          <td class="px-4 py-2 text-center">
-            <span class="px-2 py-1 rounded text-xs text-white status-\${result.final_status}">
+          <td class="px-3 py-2 text-center text-xs">P\${result.page}-#\${result.rank}</td>
+          <td class="px-3 py-2 text-center">
+            <span class="px-1.5 py-0.5 rounded text-xs text-white status-\${result.final_status}">
               \${result.final_status === 'illegal' ? '불법' : 
                 result.final_status === 'legal' ? '합법' : '대기'}
             </span>
           </td>
-          <td class="px-4 py-2 text-xs text-gray-600 text-center">
+          <td class="px-3 py-2 text-xs text-gray-600 text-center">
             \${result.llm_judgment ? (
-              result.llm_judgment === 'likely_illegal' ? '🔴 불법' :
-              result.llm_judgment === 'likely_legal' ? '🟢 합법' : '🟡 불확실'
+              result.llm_judgment === 'likely_illegal' ? '🔴' :
+              result.llm_judgment === 'likely_legal' ? '🟢' : '🟡'
             ) : '-'}
           </td>
-          <td class="px-4 py-2 text-xs text-gray-500">
-            \${result.reviewed_at ? new Date(result.reviewed_at).toLocaleString('ko-KR') : '-'}
+          <td class="px-3 py-2 text-xs text-gray-500">
+            \${result.reviewed_at ? new Date(result.reviewed_at).toLocaleDateString('ko-KR') : '-'}
           </td>
         </tr>
       \`).join('');
+
+      // 필터 정보 업데이트
+      const titleText = titleFilter === 'all' ? '전체 작품' : titleFilter;
+      const statusText = filter === 'all' ? '전체' : (filter === 'illegal' ? '불법' : filter === 'legal' ? '합법' : '대기');
+      document.getElementById('filter-info').innerHTML = \`<i class="fas fa-filter mr-1"></i> \${titleText} / \${statusText} - 총 <strong>\${data.pagination.total}</strong>개\`;
 
       // 페이지네이션 렌더링
       renderPagination(data.pagination);
@@ -1302,6 +1361,55 @@ app.get('/', (c) => {
     function downloadExcel() {
       if (!currentSessionId) return;
       window.open(\`/api/sessions/\${currentSessionId}/download\`, '_blank');
+    }
+
+    // URL 복사하기 (필터 조건에 맞는 전체 URL)
+    async function copyAllUrls() {
+      if (!currentSessionId) {
+        alert('세션을 먼저 선택해주세요.');
+        return;
+      }
+
+      const filter = document.getElementById('result-filter').value;
+      const titleFilter = document.getElementById('title-filter').value;
+
+      // 필터 정보 표시
+      const titleText = titleFilter === 'all' ? '전체 작품' : titleFilter;
+      const statusText = filter === 'all' ? '전체' : (filter === 'illegal' ? '불법' : filter === 'legal' ? '합법' : '대기');
+
+      // 로딩 표시
+      const btn = event.target.closest('button');
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>로딩...';
+      btn.disabled = true;
+
+      try {
+        const data = await fetchAPI(\`/api/sessions/\${currentSessionId}/urls?filter=\${filter}&title=\${encodeURIComponent(titleFilter)}\`);
+        
+        if (!data.success) {
+          alert('URL 목록을 가져오는데 실패했습니다.');
+          return;
+        }
+
+        if (data.urls.length === 0) {
+          alert('복사할 URL이 없습니다.');
+          return;
+        }
+
+        // 클립보드에 복사 (한 줄에 하나씩)
+        const urlText = data.urls.join('\\n');
+        await navigator.clipboard.writeText(urlText);
+
+        // 성공 알림
+        alert(\`✅ URL \${data.urls.length}개가 클립보드에 복사되었습니다.\\n\\n📌 필터: \${titleText} / \${statusText}\`);
+      } catch (error) {
+        console.error('URL 복사 실패:', error);
+        alert('URL 복사에 실패했습니다. 브라우저 권한을 확인해주세요.');
+      } finally {
+        // 버튼 복원
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+      }
     }
 
     // ============================================
