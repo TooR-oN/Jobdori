@@ -141,7 +141,70 @@ function saveFinalResults(filePath: string, results: FinalResult[]): void {
 }
 
 /**
- * Excel 파일 업데이트 (실시간 반영)
+ * JSON 결과에서 Excel Buffer 생성 (다운로드용 실시간 변환)
+ */
+function generateExcelFromResults(results: FinalResult[]): Buffer {
+  const columns = [
+    'title', 'domain', 'url', 'search_query', 'page', 'rank',
+    'status', 'llm_judgment', 'llm_reason', 'final_status', 'reviewed_at'
+  ]
+
+  const colWidths = [
+    { wch: 25 }, // title
+    { wch: 30 }, // domain
+    { wch: 50 }, // url
+    { wch: 35 }, // search_query
+    { wch: 6 },  // page
+    { wch: 6 },  // rank
+    { wch: 10 }, // status
+    { wch: 15 }, // llm_judgment
+    { wch: 50 }, // llm_reason
+    { wch: 12 }, // final_status
+    { wch: 22 }, // reviewed_at
+  ]
+
+  // 새 워크북 생성
+  const wb = XLSX.utils.book_new()
+
+  // 전체 결과 시트
+  const allData = [columns, ...results.map(r => columns.map(col => (r as any)[col] ?? ''))]
+  const allWs = XLSX.utils.aoa_to_sheet(allData)
+  allWs['!cols'] = colWidths
+  XLSX.utils.book_append_sheet(wb, allWs, '전체 결과')
+
+  // 불법 사이트 시트
+  const illegalResults = results.filter(r => r.final_status === 'illegal')
+  if (illegalResults.length > 0) {
+    const illegalData = [columns, ...illegalResults.map(r => columns.map(col => (r as any)[col] ?? ''))]
+    const illegalWs = XLSX.utils.aoa_to_sheet(illegalData)
+    illegalWs['!cols'] = colWidths
+    XLSX.utils.book_append_sheet(wb, illegalWs, '불법 사이트')
+  }
+
+  // 합법 사이트 시트
+  const legalResults = results.filter(r => r.final_status === 'legal')
+  if (legalResults.length > 0) {
+    const legalData = [columns, ...legalResults.map(r => columns.map(col => (r as any)[col] ?? ''))]
+    const legalWs = XLSX.utils.aoa_to_sheet(legalData)
+    legalWs['!cols'] = colWidths
+    XLSX.utils.book_append_sheet(wb, legalWs, '합법 사이트')
+  }
+
+  // 승인 대기 시트
+  const pendingResults = results.filter(r => r.final_status === 'pending')
+  if (pendingResults.length > 0) {
+    const pendingData = [columns, ...pendingResults.map(r => columns.map(col => (r as any)[col] ?? ''))]
+    const pendingWs = XLSX.utils.aoa_to_sheet(pendingData)
+    pendingWs['!cols'] = colWidths
+    XLSX.utils.book_append_sheet(wb, pendingWs, '승인 대기')
+  }
+
+  // Buffer로 반환
+  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+}
+
+/**
+ * Excel 파일 업데이트 (실시간 반영) - 더 이상 사용하지 않음
  */
 function updateExcelReport(excelPath: string, results: FinalResult[]): void {
   try {
@@ -592,7 +655,7 @@ app.get('/api/sessions/:id/results', (c) => {
   })
 })
 
-// Excel 파일 다운로드
+// Excel 파일 다운로드 (JSON에서 실시간 변환)
 app.get('/api/sessions/:id/download', (c) => {
   const id = c.req.param('id')
   const sessionsData = scanAndUpdateSessions()
@@ -602,16 +665,22 @@ app.get('/api/sessions/:id/download', (c) => {
     return c.json({ success: false, error: 'Session not found' }, 404)
   }
   
-  const excelPath = path.join(process.cwd(), session.files.excel_report)
+  // JSON 파일에서 최신 데이터 읽기
+  const finalResultsPath = path.join(process.cwd(), session.files.final_results)
   
-  if (!fs.existsSync(excelPath)) {
-    return c.json({ success: false, error: 'Excel file not found' }, 404)
+  if (!fs.existsSync(finalResultsPath)) {
+    return c.json({ success: false, error: 'Results file not found' }, 404)
   }
   
-  const fileBuffer = fs.readFileSync(excelPath)
-  const fileName = path.basename(excelPath)
+  const results = loadFinalResults(finalResultsPath)
   
-  return new Response(fileBuffer, {
+  // 실시간으로 Excel 생성
+  const excelBuffer = generateExcelFromResults(results)
+  const fileName = `report_${id}.xlsx`
+  
+  console.log(`📊 Excel 실시간 생성: ${fileName} (${results.length}개 결과)`)
+  
+  return new Response(excelBuffer, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="${fileName}"`,
