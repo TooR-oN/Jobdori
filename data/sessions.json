@@ -1,27 +1,27 @@
 {
   "sessions": [
     {
-      "id": "2026-01-07T01-45-46",
-      "created_at": "2026-01-07T01:46:51.989Z",
-      "completed_at": "2026-01-07T01:46:51.989Z",
+      "id": "2026-01-07T01-53-52",
+      "created_at": "2026-01-07T01:55:55.602Z",
+      "completed_at": "2026-01-07T01:55:55.602Z",
       "status": "completed",
-      "titles_count": 10,
+      "titles_count": 20,
       "keywords_count": 3,
-      "total_searches": 30,
+      "total_searches": 60,
       "results_summary": {
-        "total": 291,
-        "illegal": 122,
-        "legal": 169,
+        "total": 585,
+        "illegal": 219,
+        "legal": 366,
         "pending": 0
       },
       "files": {
-        "search_results": "output/1_search-results-2026-01-07T01-45-46.json",
-        "classified_results": "output/2_classified-results-2026-01-07T01-45-46.json",
-        "llm_judged_results": "output/3_llm-judged-results-2026-01-07T01-45-46.json",
-        "final_results": "output/4_final-results-2026-01-07T01-45-46.json",
-        "excel_report": "output/report_2026-01-07T01-45-46.xlsx"
+        "search_results": "output/1_search-results-2026-01-07T01-53-52.json",
+        "classified_results": "output/2_classified-results-2026-01-07T01-53-52.json",
+        "llm_judged_results": "output/3_llm-judged-results-2026-01-07T01-53-52.json",
+        "final_results": "output/4_final-results-2026-01-07T01-53-52.json",
+        "excel_report": "output/report_2026-01-07T01-53-52.xlsx"
       }
     }
   ],
-  "last_updated": "2026-01-07T01:48:07.764Z"
+  "last_updated": "2026-01-07T08:32:56.928Z"
 }

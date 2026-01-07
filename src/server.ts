@@ -612,6 +612,7 @@ app.get('/api/sessions/:id', (c) => {
 app.get('/api/sessions/:id/results', (c) => {
   const id = c.req.param('id')
   const filter = c.req.query('filter') // 'all', 'illegal', 'legal', 'pending'
+  const titleFilter = c.req.query('title') // 작품명 필터 (새로 추가)
   const page = parseInt(c.req.query('page') || '1')
   const limit = parseInt(c.req.query('limit') || '50')
   
@@ -630,9 +631,17 @@ app.get('/api/sessions/:id/results', (c) => {
   
   let results = loadFinalResults(finalResultsPath)
   
-  // 필터 적용
+  // 작품명으로 고유 목록 추출 (필터 드롭다운용)
+  const allTitles = [...new Set(results.map(r => r.title))].sort()
+  
+  // 상태 필터 적용
   if (filter && filter !== 'all') {
     results = results.filter(r => r.final_status === filter)
+  }
+  
+  // 작품명 필터 적용 (새로 추가)
+  if (titleFilter && titleFilter !== 'all') {
+    results = results.filter(r => r.title === titleFilter)
   }
   
   // 페이지네이션
@@ -645,6 +654,8 @@ app.get('/api/sessions/:id/results', (c) => {
     success: true,
     session_id: id,
     filter: filter || 'all',
+    title_filter: titleFilter || 'all',
+    available_titles: allTitles, // 사용 가능한 작품명 목록 반환
     pagination: {
       page,
       limit,
@@ -808,14 +819,26 @@ app.get('/', (c) => {
               <i class="fas fa-chart-bar mr-2"></i>
               세션 상세 결과: <span id="detail-session-id"></span>
             </h2>
-            <div class="flex gap-2">
-              <select id="result-filter" onchange="loadSessionResults()" 
-                      class="border rounded-lg px-3 py-2">
-                <option value="all">전체</option>
-                <option value="illegal">불법</option>
-                <option value="legal">합법</option>
-                <option value="pending">승인대기</option>
-              </select>
+            <div class="flex gap-2 items-center flex-wrap">
+              <!-- 작품명 필터 (신규 추가) -->
+              <div class="flex items-center gap-1">
+                <label class="text-sm text-gray-600"><i class="fas fa-book mr-1"></i>작품:</label>
+                <select id="title-filter" onchange="onTitleFilterChange()" 
+                        class="border rounded-lg px-3 py-2 min-w-[200px]">
+                  <option value="all">전체 작품</option>
+                </select>
+              </div>
+              <!-- 상태 필터 -->
+              <div class="flex items-center gap-1">
+                <label class="text-sm text-gray-600"><i class="fas fa-filter mr-1"></i>상태:</label>
+                <select id="result-filter" onchange="loadSessionResults()" 
+                        class="border rounded-lg px-3 py-2">
+                  <option value="all">전체</option>
+                  <option value="illegal">불법</option>
+                  <option value="legal">합법</option>
+                  <option value="pending">승인대기</option>
+                </select>
+              </div>
               <button onclick="downloadExcel()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition">
                 <i class="fas fa-download mr-2"></i>Excel 다운로드
               </button>
@@ -850,13 +873,13 @@ app.get('/', (c) => {
             <table class="w-full text-sm">
               <thead class="bg-gray-100">
                 <tr>
-                  <th class="px-4 py-2 text-left">#</th>
-                  <th class="px-4 py-2 text-left">작품명</th>
-                  <th class="px-4 py-2 text-left">도메인</th>
-                  <th class="px-4 py-2 text-left">순위</th>
-                  <th class="px-4 py-2 text-left">상태</th>
-                  <th class="px-4 py-2 text-left">LLM 판단</th>
-                  <th class="px-4 py-2 text-left">검토일시</th>
+                  <th class="px-4 py-2 text-left w-12">#</th>
+                  <th class="px-4 py-2 text-left w-32">작품명</th>
+                  <th class="px-4 py-2 text-left">URL</th>
+                  <th class="px-4 py-2 text-left w-20">순위</th>
+                  <th class="px-4 py-2 text-left w-16">상태</th>
+                  <th class="px-4 py-2 text-left w-24">LLM 판단</th>
+                  <th class="px-4 py-2 text-left w-36">검토일시</th>
                 </tr>
               </thead>
               <tbody id="results-table">
@@ -1142,13 +1165,19 @@ app.get('/', (c) => {
       \`).join('');
     }
 
+    // 현재 작품명 필터 값
+    let currentTitleFilter = 'all';
+    let availableTitles = [];
+
     function openSessionDetail(sessionId) {
       currentSessionId = sessionId;
       currentPage = 1;
+      currentTitleFilter = 'all';
       document.getElementById('detail-session-id').textContent = sessionId;
       document.getElementById('session-detail').classList.remove('hidden');
       document.getElementById('result-filter').value = 'all';
-      loadSessionResults();
+      document.getElementById('title-filter').value = 'all';
+      loadSessionResults(true); // 첫 로드 시 작품명 목록도 갱신
     }
 
     function closeSessionDetail() {
@@ -1156,18 +1185,33 @@ app.get('/', (c) => {
       document.getElementById('session-detail').classList.add('hidden');
     }
 
-    async function loadSessionResults() {
+    function onTitleFilterChange() {
+      currentTitleFilter = document.getElementById('title-filter').value;
+      currentPage = 1; // 필터 변경 시 페이지 초기화
+      loadSessionResults(false); // 작품명 목록은 갱신하지 않음
+    }
+
+    async function loadSessionResults(updateTitleFilter = false) {
       if (!currentSessionId) return;
 
       const filter = document.getElementById('result-filter').value;
+      const titleFilter = document.getElementById('title-filter').value;
       const tableEl = document.getElementById('results-table');
       tableEl.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-gray-500"><i class="fas fa-spinner fa-spin"></i> 로딩 중...</td></tr>';
 
-      const data = await fetchAPI(\`/api/sessions/\${currentSessionId}/results?filter=\${filter}&page=\${currentPage}&limit=50\`);
+      const data = await fetchAPI(\`/api/sessions/\${currentSessionId}/results?filter=\${filter}&title=\${encodeURIComponent(titleFilter)}&page=\${currentPage}&limit=50\`);
       
       if (!data.success) {
         tableEl.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-red-500">데이터 로드 실패</td></tr>';
         return;
+      }
+
+      // 작품명 드롭다운 업데이트 (첫 로드 또는 명시적 요청 시에만)
+      if (updateTitleFilter && data.available_titles) {
+        availableTitles = data.available_titles;
+        const titleSelect = document.getElementById('title-filter');
+        titleSelect.innerHTML = '<option value="all">전체 작품 (' + availableTitles.length + '개)</option>' +
+          availableTitles.map(title => \`<option value="\${title}">\${title}</option>\`).join('');
       }
 
       // 통계 업데이트
@@ -1187,24 +1231,26 @@ app.get('/', (c) => {
 
       tableEl.innerHTML = data.results.map((result, index) => \`
         <tr class="border-b hover:bg-gray-50">
-          <td class="px-4 py-2">\${(currentPage - 1) * 50 + index + 1}</td>
-          <td class="px-4 py-2">\${result.title}</td>
+          <td class="px-4 py-2 text-center">\${(currentPage - 1) * 50 + index + 1}</td>
+          <td class="px-4 py-2 font-medium" title="\${result.title}">\${result.title.length > 15 ? result.title.substring(0, 15) + '...' : result.title}</td>
           <td class="px-4 py-2">
-            <a href="\${result.url}" target="_blank" class="text-blue-500 hover:underline">
-              \${result.domain}
+            <a href="\${result.url}" target="_blank" class="text-blue-500 hover:underline break-all text-xs" 
+               title="\${result.url}">
+              \${result.url.length > 60 ? result.url.substring(0, 60) + '...' : result.url}
             </a>
+            <div class="text-xs text-gray-400 mt-1">[\${result.domain}]</div>
           </td>
-          <td class="px-4 py-2">P\${result.page}-#\${result.rank}</td>
-          <td class="px-4 py-2">
+          <td class="px-4 py-2 text-center">P\${result.page}-#\${result.rank}</td>
+          <td class="px-4 py-2 text-center">
             <span class="px-2 py-1 rounded text-xs text-white status-\${result.final_status}">
               \${result.final_status === 'illegal' ? '불법' : 
                 result.final_status === 'legal' ? '합법' : '대기'}
             </span>
           </td>
-          <td class="px-4 py-2 text-xs text-gray-600">
+          <td class="px-4 py-2 text-xs text-gray-600 text-center">
             \${result.llm_judgment ? (
-              result.llm_judgment === 'likely_illegal' ? '🔴 불법추정' :
-              result.llm_judgment === 'likely_legal' ? '🟢 합법추정' : '🟡 불확실'
+              result.llm_judgment === 'likely_illegal' ? '🔴 불법' :
+              result.llm_judgment === 'likely_legal' ? '🟢 합법' : '🟡 불확실'
             ) : '-'}
           </td>
           <td class="px-4 py-2 text-xs text-gray-500">
