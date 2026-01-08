@@ -1353,8 +1353,12 @@ app.get('/', (c) => {
     <!-- 탭 네비게이션 -->
     <div class="bg-white rounded-lg shadow-md mb-6">
       <div class="flex border-b">
-        <button onclick="switchTab('pending')" id="tab-pending" 
+        <button onclick="switchTab('dashboard')" id="tab-dashboard" 
                 class="px-6 py-4 text-gray-600 hover:text-blue-600 transition tab-active">
+          <i class="fas fa-chart-line mr-2"></i>대시보드
+        </button>
+        <button onclick="switchTab('pending')" id="tab-pending" 
+                class="px-6 py-4 text-gray-600 hover:text-blue-600 transition">
           <i class="fas fa-clock mr-2"></i>승인 대기
           <span id="pending-badge" class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">0</span>
         </button>
@@ -1362,10 +1366,6 @@ app.get('/', (c) => {
                 class="px-6 py-4 text-gray-600 hover:text-blue-600 transition">
           <i class="fas fa-history mr-2"></i>모니터링 회차
           <span id="sessions-badge" class="ml-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">0</span>
-        </button>
-        <button onclick="switchTab('dashboard')" id="tab-dashboard" 
-                class="px-6 py-4 text-gray-600 hover:text-blue-600 transition">
-          <i class="fas fa-chart-line mr-2"></i>대시보드
         </button>
         <button onclick="switchTab('sites')" id="tab-sites" 
                 class="px-6 py-4 text-gray-600 hover:text-blue-600 transition">
@@ -1655,7 +1655,7 @@ app.get('/', (c) => {
 
   <script>
     // 현재 탭
-    let currentTab = 'pending';
+    let currentTab = 'dashboard';
     let currentSessionId = null;
     let currentPage = 1;
 
@@ -2479,7 +2479,7 @@ app.get('/', (c) => {
     // 초기 로드
     // ============================================
 
-    loadPendingItems();
+    loadDashboard();
     
     // 페이지 로드 시 모니터링 상태 확인
     (async () => {
