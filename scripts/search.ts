@@ -152,9 +152,12 @@ export async function runSearch(): Promise<SearchResult[]> {
   const titles = loadTitles(config.paths.titlesFile);
   console.log(`📚 작품 수: ${titles.length}개`);
 
-  // 키워드 로드
-  const keywords = loadKeywords(config.paths.keywordsFile);
-  console.log(`🏷️  키워드: ${keywords.join(', ')}`);
+  // 키워드 로드 (빈 문자열도 포함 - 작품명만 검색)
+  const rawKeywords = loadKeywords(config.paths.keywordsFile);
+  // 빈 줄을 빈 문자열로 처리 (작품명만 검색)
+  const keywords = rawKeywords.length > 0 ? rawKeywords : [''];
+  const keywordDisplay = keywords.map(k => k || '[작품명만]').join(', ');
+  console.log(`🏷️  키워드: ${keywordDisplay}`);
 
   const totalSearches = titles.length * keywords.length;
   console.log(`🔢 총 검색 횟수: ${totalSearches}회`);
@@ -168,7 +171,8 @@ export async function runSearch(): Promise<SearchResult[]> {
 
     for (const keyword of keywords) {
       searchCount++;
-      const query = `${title} ${keyword}`;
+      // 키워드가 빈 문자열이면 작품명만 검색
+      const query = keyword ? `${title} ${keyword}` : title;
 
       console.log(`\n[${searchCount}/${totalSearches}]`);
 

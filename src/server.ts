@@ -616,6 +616,82 @@ app.get('/api/sites/:type', (c) => {
   }
 })
 
+// 사이트 추가
+app.post('/api/sites/:type', async (c) => {
+  const type = c.req.param('type')
+  const filePath = type === 'illegal' ? ILLEGAL_SITES_FILE : LEGAL_SITES_FILE
+  
+  try {
+    const { domain } = await c.req.json<{ domain: string }>()
+    
+    if (!domain || !domain.trim()) {
+      return c.json({ success: false, error: '도메인을 입력해주세요.' }, 400)
+    }
+    
+    const trimmedDomain = domain.trim().toLowerCase()
+    
+    // 현재 목록 읽기
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const sites = content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('#'))
+    
+    // 이미 있는지 확인
+    if (sites.includes(trimmedDomain)) {
+      return c.json({ success: false, error: '이미 등록된 도메인입니다.' }, 400)
+    }
+    
+    // 추가
+    const newContent = content.trimEnd() + '\n' + trimmedDomain + '\n'
+    fs.writeFileSync(filePath, newContent, 'utf-8')
+    
+    console.log(`➕ ${type} 사이트 추가: ${trimmedDomain}`)
+    
+    return c.json({
+      success: true,
+      message: `'${trimmedDomain}'이(가) ${type === 'illegal' ? '불법' : '합법'} 사이트 목록에 추가되었습니다.`,
+      domain: trimmedDomain
+    })
+  } catch (error) {
+    return c.json({ success: false, error: '사이트 추가 실패' }, 500)
+  }
+})
+
+// 사이트 삭제
+app.delete('/api/sites/:type/:domain', (c) => {
+  const type = c.req.param('type')
+  const domain = decodeURIComponent(c.req.param('domain')).toLowerCase()
+  const filePath = type === 'illegal' ? ILLEGAL_SITES_FILE : LEGAL_SITES_FILE
+  
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const lines = content.split('\n')
+    
+    // 해당 도메인 제거
+    const newLines = lines.filter(line => {
+      const trimmed = line.trim().toLowerCase()
+      return trimmed !== domain
+    })
+    
+    if (lines.length === newLines.length) {
+      return c.json({ success: false, error: '목록에 없는 도메인입니다.' }, 404)
+    }
+    
+    fs.writeFileSync(filePath, newLines.join('\n'), 'utf-8')
+    
+    console.log(`➖ ${type} 사이트 삭제: ${domain}`)
+    
+    return c.json({
+      success: true,
+      message: `'${domain}'이(가) ${type === 'illegal' ? '불법' : '합법'} 사이트 목록에서 삭제되었습니다.`,
+      domain
+    })
+  } catch (error) {
+    return c.json({ success: false, error: '사이트 삭제 실패' }, 500)
+  }
+})
+
 // ============================================
 // API 엔드포인트 - 작품 관리
 // ============================================
@@ -869,6 +945,127 @@ async function runMonitoringPipeline() {
 }
 
 // ============================================
+// API 엔드포인트 - 대시보드
+// ============================================
+
+// 대시보드 데이터 (월간 통계)
+app.get('/api/dashboard', (c) => {
+  const sessionsData = scanAndUpdateSessions()
+  
+  // 현재 월의 세션만 필터링
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth()
+  
+  const monthlySessions = sessionsData.sessions.filter(session => {
+    const sessionDate = new Date(session.created_at)
+    return sessionDate.getFullYear() === currentYear && sessionDate.getMonth() === currentMonth
+  })
+  
+  if (monthlySessions.length === 0) {
+    return c.json({
+      success: true,
+      month: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`,
+      sessions_count: 0,
+      top_contents: [],
+      top_illegal_sites: [],
+      total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 }
+    })
+  }
+  
+  // 모든 월간 세션의 결과 합산
+  const allResults: FinalResult[] = []
+  for (const session of monthlySessions) {
+    const finalResultsPath = path.join(process.cwd(), session.files.final_results)
+    if (fs.existsSync(finalResultsPath)) {
+      const results = loadFinalResults(finalResultsPath)
+      allResults.push(...results)
+    }
+  }
+  
+  // URL 중복 제거
+  const uniqueResults = allResults.filter((result, index, arr) => 
+    arr.findIndex(r => r.url === result.url) === index
+  )
+  
+  // 작품별 불법 URL 개수 및 manta.net 순위 차이 계산
+  const titleStats = new Map<string, { 
+    illegalCount: number, 
+    mantaRankDiff: number | null,
+    firstRankDomain: string | null 
+  }>()
+  
+  for (const result of uniqueResults) {
+    if (!titleStats.has(result.title)) {
+      titleStats.set(result.title, { illegalCount: 0, mantaRankDiff: null, firstRankDomain: null })
+    }
+    
+    const stats = titleStats.get(result.title)!
+    
+    // 불법 URL 카운트
+    if (result.final_status === 'illegal') {
+      stats.illegalCount++
+    }
+    
+    // 작품명만 검색 결과에서 순위 계산 (키워드 없는 검색)
+    // search_query가 작품명과 동일한 경우 = 작품명만 검색
+    if (result.search_query === result.title && result.page === 1) {
+      // 1위 도메인 기록
+      if (result.rank === 1) {
+        stats.firstRankDomain = result.domain
+      }
+      
+      // manta.net 순위 찾기
+      if (result.domain === 'manta.net') {
+        stats.mantaRankDiff = result.rank - 1 // 1위와의 차이
+      }
+    }
+  }
+  
+  // Top 5 콘텐츠 (불법 URL 개수 기준)
+  const topContents = Array.from(titleStats.entries())
+    .map(([title, stats]) => ({
+      title,
+      illegal_count: stats.illegalCount,
+      manta_rank_diff: stats.mantaRankDiff,
+      first_rank_domain: stats.firstRankDomain
+    }))
+    .sort((a, b) => b.illegal_count - a.illegal_count)
+    .slice(0, 5)
+  
+  // 상위 불법 사이트 Top 5 (도메인별)
+  const domainCounts = new Map<string, number>()
+  for (const result of uniqueResults) {
+    if (result.final_status === 'illegal') {
+      const count = domainCounts.get(result.domain) || 0
+      domainCounts.set(result.domain, count + 1)
+    }
+  }
+  
+  const topIllegalSites = Array.from(domainCounts.entries())
+    .map(([domain, count]) => ({ domain, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+  
+  // 전체 통계
+  const totalStats = {
+    total: uniqueResults.length,
+    illegal: uniqueResults.filter(r => r.final_status === 'illegal').length,
+    legal: uniqueResults.filter(r => r.final_status === 'legal').length,
+    pending: uniqueResults.filter(r => r.final_status === 'pending').length
+  }
+  
+  return c.json({
+    success: true,
+    month: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`,
+    sessions_count: monthlySessions.length,
+    top_contents: topContents,
+    top_illegal_sites: topIllegalSites,
+    total_stats: totalStats
+  })
+})
+
+// ============================================
 // API 엔드포인트 - 세션(회차) 관련
 // ============================================
 
@@ -920,8 +1117,18 @@ app.get('/api/sessions/:id/results', (c) => {
   
   let results = loadFinalResults(finalResultsPath)
   
-  // 작품명으로 고유 목록 추출 (필터 드롭다운용)
+  // 작품명으로 고유 목록 추출 (필터 드롭다운용) - 중복 제거 전
   const allTitles = [...new Set(results.map(r => r.title))].sort()
+  
+  // URL 중복 제거 (첫 번째 결과만 유지)
+  const seenUrls = new Set<string>()
+  results = results.filter(r => {
+    if (seenUrls.has(r.url)) {
+      return false
+    }
+    seenUrls.add(r.url)
+    return true
+  })
   
   // 상태 필터 적용
   if (filter && filter !== 'all') {
@@ -1156,6 +1363,10 @@ app.get('/', (c) => {
           <i class="fas fa-history mr-2"></i>모니터링 회차
           <span id="sessions-badge" class="ml-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">0</span>
         </button>
+        <button onclick="switchTab('dashboard')" id="tab-dashboard" 
+                class="px-6 py-4 text-gray-600 hover:text-blue-600 transition">
+          <i class="fas fa-chart-line mr-2"></i>대시보드
+        </button>
         <button onclick="switchTab('sites')" id="tab-sites" 
                 class="px-6 py-4 text-gray-600 hover:text-blue-600 transition">
           <i class="fas fa-database mr-2"></i>사이트 목록
@@ -1276,11 +1487,10 @@ app.get('/', (c) => {
               <thead class="bg-gray-100">
                 <tr>
                   <th class="px-3 py-2 text-left" style="width: 45px;">#</th>
-                  <th class="px-3 py-2 text-left" style="width: 120px;">작품명</th>
-                  <th class="px-3 py-2 text-left" style="width: 280px;">URL</th>
-                  <th class="px-3 py-2 text-left" style="width: 70px;">순위</th>
-                  <th class="px-3 py-2 text-left" style="width: 55px;">상태</th>
-                  <th class="px-3 py-2 text-left" style="width: 75px;">LLM</th>
+                  <th class="px-3 py-2 text-left" style="width: 140px;">작품명</th>
+                  <th class="px-3 py-2 text-left" style="width: 300px;">URL</th>
+                  <th class="px-3 py-2 text-left" style="width: 60px;">상태</th>
+                  <th class="px-3 py-2 text-left" style="width: 60px;">LLM</th>
                   <th class="px-3 py-2 text-left" style="width: 130px;">검토일시</th>
                 </tr>
               </thead>
@@ -1304,26 +1514,139 @@ app.get('/', (c) => {
       </div>
     </div>
 
+    <!-- 대시보드 탭 -->
+    <div id="content-dashboard" class="tab-content hidden">
+      <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-lg font-semibold text-gray-800 mb-4">
+          <i class="fas fa-chart-pie mr-2"></i>월간 모니터링 현황
+          <span id="dashboard-month" class="text-sm text-gray-500 font-normal ml-2"></span>
+        </h2>
+        
+        <!-- 월간 요약 통계 -->
+        <div class="grid grid-cols-4 gap-4 mb-6">
+          <div class="bg-gray-50 rounded-lg p-4 text-center">
+            <div class="text-3xl font-bold text-gray-800" id="dash-total">0</div>
+            <div class="text-sm text-gray-600">전체 URL</div>
+          </div>
+          <div class="bg-red-50 rounded-lg p-4 text-center border-l-4 border-red-500">
+            <div class="text-3xl font-bold text-red-600" id="dash-illegal">0</div>
+            <div class="text-sm text-gray-600">불법 URL</div>
+          </div>
+          <div class="bg-green-50 rounded-lg p-4 text-center border-l-4 border-green-500">
+            <div class="text-3xl font-bold text-green-600" id="dash-legal">0</div>
+            <div class="text-sm text-gray-600">합법 URL</div>
+          </div>
+          <div class="bg-blue-50 rounded-lg p-4 text-center border-l-4 border-blue-500">
+            <div class="text-3xl font-bold text-blue-600" id="dash-sessions">0</div>
+            <div class="text-sm text-gray-600">모니터링 횟수</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-6">
+          <!-- Top 5 콘텐츠 (불법 URL 개수) -->
+          <div class="border rounded-lg p-4">
+            <h3 class="text-md font-semibold text-red-600 mb-3">
+              <i class="fas fa-exclamation-triangle mr-2"></i>불법 URL 많은 작품 Top 5
+            </h3>
+            <table class="w-full text-sm">
+              <thead class="bg-gray-100">
+                <tr>
+                  <th class="px-2 py-2 text-left">#</th>
+                  <th class="px-2 py-2 text-left">작품명</th>
+                  <th class="px-2 py-2 text-center">불법 URL</th>
+                  <th class="px-2 py-2 text-center" title="작품명 검색 1위 vs manta.net 순위 차이">순위 차이</th>
+                </tr>
+              </thead>
+              <tbody id="top-contents-table">
+                <tr><td colspan="4" class="text-center py-4 text-gray-500">데이터 없음</td></tr>
+              </tbody>
+            </table>
+            <div class="text-xs text-gray-400 mt-2">
+              💡 순위 차이: 작품명만 검색 시 1페이지에서 1위와 manta.net의 순위 차이
+            </div>
+          </div>
+
+          <!-- Top 5 불법 도메인 -->
+          <div class="border rounded-lg p-4">
+            <h3 class="text-md font-semibold text-gray-700 mb-3">
+              <i class="fas fa-globe mr-2"></i>상위 불법 도메인 Top 5
+            </h3>
+            <table class="w-full text-sm">
+              <thead class="bg-gray-100">
+                <tr>
+                  <th class="px-2 py-2 text-left">#</th>
+                  <th class="px-2 py-2 text-left">도메인</th>
+                  <th class="px-2 py-2 text-center">검출 횟수</th>
+                </tr>
+              </thead>
+              <tbody id="top-domains-table">
+                <tr><td colspan="3" class="text-center py-4 text-gray-500">데이터 없음</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 사이트 목록 탭 -->
     <div id="content-sites" class="tab-content hidden">
       <div class="grid grid-cols-2 gap-6">
         <!-- 불법 사이트 목록 -->
         <div class="bg-white rounded-lg shadow-md p-6">
-          <h2 class="text-lg font-semibold text-red-600 mb-4">
-            <i class="fas fa-ban mr-2"></i>불법 사이트 목록
-            <span id="illegal-sites-count" class="text-sm text-gray-500 font-normal">(0개)</span>
-          </h2>
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold text-red-600">
+              <i class="fas fa-ban mr-2"></i>불법 사이트 목록
+              <span id="illegal-sites-count" class="text-sm text-gray-500 font-normal">(0개)</span>
+            </h2>
+            <button onclick="openSiteModal('illegal')" class="text-sm bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded">
+              <i class="fas fa-edit mr-1"></i>편집
+            </button>
+          </div>
           <div id="illegal-sites-list" class="max-h-96 overflow-y-auto space-y-1 text-sm">
           </div>
         </div>
 
         <!-- 합법 사이트 목록 -->
         <div class="bg-white rounded-lg shadow-md p-6">
-          <h2 class="text-lg font-semibold text-green-600 mb-4">
-            <i class="fas fa-check-circle mr-2"></i>합법 사이트 목록
-            <span id="legal-sites-count" class="text-sm text-gray-500 font-normal">(0개)</span>
-          </h2>
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold text-green-600">
+              <i class="fas fa-check-circle mr-2"></i>합법 사이트 목록
+              <span id="legal-sites-count" class="text-sm text-gray-500 font-normal">(0개)</span>
+            </h2>
+            <button onclick="openSiteModal('legal')" class="text-sm bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded">
+              <i class="fas fa-edit mr-1"></i>편집
+            </button>
+          </div>
           <div id="legal-sites-list" class="max-h-96 overflow-y-auto space-y-1 text-sm">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 사이트 편집 모달 -->
+    <div id="site-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden">
+        <div id="site-modal-header" class="px-6 py-4 flex justify-between items-center">
+          <h2 class="text-xl font-bold"><i class="fas fa-edit mr-2"></i>사이트 목록 편집</h2>
+          <button onclick="closeSiteModal()" class="text-white hover:text-gray-200">
+            <i class="fas fa-times text-xl"></i>
+          </button>
+        </div>
+        <div class="p-6">
+          <!-- 새 사이트 추가 -->
+          <div class="flex gap-2 mb-4">
+            <input type="text" id="new-site-input" placeholder="새 도메인 입력 (ex: example.com)" 
+                   class="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                   onkeypress="if(event.key==='Enter') addNewSite()">
+            <button onclick="addNewSite()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+              <i class="fas fa-plus"></i>
+            </button>
+          </div>
+          <!-- 사이트 목록 -->
+          <div class="text-sm text-gray-600 mb-2">
+            <i class="fas fa-list mr-1"></i>현재 목록 <span id="site-modal-count">(0개)</span>
+          </div>
+          <div id="site-modal-list" class="max-h-[400px] overflow-y-auto space-y-2 border rounded-lg p-3 bg-gray-50">
           </div>
         </div>
       </div>
@@ -1375,6 +1698,8 @@ app.get('/', (c) => {
         loadPendingItems();
       } else if (tab === 'sessions') {
         loadSessions();
+      } else if (tab === 'dashboard') {
+        loadDashboard();
       } else if (tab === 'sites') {
         loadSites();
       }
@@ -1389,6 +1714,8 @@ app.get('/', (c) => {
         if (currentSessionId) {
           loadSessionResults();
         }
+      } else if (currentTab === 'dashboard') {
+        loadDashboard();
       } else if (currentTab === 'sites') {
         loadSites();
       }
@@ -1642,15 +1969,14 @@ app.get('/', (c) => {
       tableEl.innerHTML = data.results.map((result, index) => \`
         <tr class="border-b hover:bg-gray-50">
           <td class="px-3 py-2 text-center text-xs">\${(currentPage - 1) * 50 + index + 1}</td>
-          <td class="px-3 py-2 text-xs" title="\${result.title}">\${result.title.length > 12 ? result.title.substring(0, 12) + '...' : result.title}</td>
+          <td class="px-3 py-2 text-xs" title="\${result.title}">\${result.title.length > 15 ? result.title.substring(0, 15) + '...' : result.title}</td>
           <td class="px-3 py-2">
             <a href="\${result.url}" target="_blank" class="text-blue-500 hover:underline text-xs block truncate" 
-               title="\${result.url}" style="max-width: 260px;">
+               title="\${result.url}" style="max-width: 280px;">
               \${result.url}
             </a>
             <div class="text-xs text-gray-400">[\${result.domain}]</div>
           </td>
-          <td class="px-3 py-2 text-center text-xs">P\${result.page}-#\${result.rank}</td>
           <td class="px-3 py-2 text-center">
             <span class="px-1.5 py-0.5 rounded text-xs text-white status-\${result.final_status}">
               \${result.final_status === 'illegal' ? '불법' : 
@@ -1769,8 +2095,68 @@ app.get('/', (c) => {
     }
 
     // ============================================
+    // 대시보드 탭
+    // ============================================
+
+    async function loadDashboard() {
+      const data = await fetchAPI('/api/dashboard');
+      
+      if (!data.success) {
+        console.error('Dashboard load failed');
+        return;
+      }
+      
+      // 월 표시
+      document.getElementById('dashboard-month').textContent = data.month ? \`(\${data.month})\` : '';
+      
+      // 요약 통계
+      document.getElementById('dash-total').textContent = data.total_stats?.total || 0;
+      document.getElementById('dash-illegal').textContent = data.total_stats?.illegal || 0;
+      document.getElementById('dash-legal').textContent = data.total_stats?.legal || 0;
+      document.getElementById('dash-sessions').textContent = data.sessions_count || 0;
+      
+      // Top 5 콘텐츠
+      const topContentsEl = document.getElementById('top-contents-table');
+      if (data.top_contents && data.top_contents.length > 0) {
+        topContentsEl.innerHTML = data.top_contents.map((item, index) => \`
+          <tr class="border-b">
+            <td class="px-2 py-2 text-center">\${index + 1}</td>
+            <td class="px-2 py-2" title="\${item.title}">\${item.title.length > 20 ? item.title.substring(0, 20) + '...' : item.title}</td>
+            <td class="px-2 py-2 text-center font-bold text-red-600">\${item.illegal_count}</td>
+            <td class="px-2 py-2 text-center">
+              \${item.manta_rank_diff !== null ? 
+                (item.manta_rank_diff === 0 ? '<span class="text-green-600 font-bold">1위</span>' : 
+                 '<span class="text-orange-600">+' + item.manta_rank_diff + '</span>') : 
+                '<span class="text-gray-400">-</span>'}
+            </td>
+          </tr>
+        \`).join('');
+      } else {
+        topContentsEl.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500">데이터 없음</td></tr>';
+      }
+      
+      // Top 5 불법 도메인
+      const topDomainsEl = document.getElementById('top-domains-table');
+      if (data.top_illegal_sites && data.top_illegal_sites.length > 0) {
+        topDomainsEl.innerHTML = data.top_illegal_sites.map((item, index) => \`
+          <tr class="border-b">
+            <td class="px-2 py-2 text-center">\${index + 1}</td>
+            <td class="px-2 py-2">
+              <span class="text-red-600">\${item.domain}</span>
+            </td>
+            <td class="px-2 py-2 text-center font-bold">\${item.count}</td>
+          </tr>
+        \`).join('');
+      } else {
+        topDomainsEl.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">데이터 없음</td></tr>';
+      }
+    }
+
+    // ============================================
     // 사이트 목록 탭
     // ============================================
+
+    let currentSiteType = 'illegal'; // 현재 편집 중인 사이트 타입
 
     async function loadSites() {
       // 불법 사이트
@@ -1993,6 +2379,101 @@ app.get('/', (c) => {
         closeTitlesModal();
       }
     });
+
+    document.getElementById('site-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'site-modal') {
+        closeSiteModal();
+      }
+    });
+
+    // ============================================
+    // 사이트 편집 모달
+    // ============================================
+
+    function openSiteModal(type) {
+      currentSiteType = type;
+      const isIllegal = type === 'illegal';
+      
+      // 모달 헤더 색상 변경
+      const header = document.getElementById('site-modal-header');
+      header.className = \`px-6 py-4 flex justify-between items-center \${isIllegal ? 'bg-red-500' : 'bg-green-500'} text-white\`;
+      header.querySelector('h2').innerHTML = \`<i class="fas fa-edit mr-2"></i>\${isIllegal ? '불법' : '합법'} 사이트 목록 편집\`;
+      
+      document.getElementById('site-modal').classList.remove('hidden');
+      loadSiteModalData();
+    }
+
+    function closeSiteModal() {
+      document.getElementById('site-modal').classList.add('hidden');
+      loadSites(); // 목록 새로고침
+    }
+
+    async function loadSiteModalData() {
+      const data = await fetchAPI(\`/api/sites/\${currentSiteType}\`);
+      
+      if (!data.success) {
+        alert('사이트 목록을 불러오는데 실패했습니다.');
+        return;
+      }
+      
+      document.getElementById('site-modal-count').textContent = \`(\${data.sites.length}개)\`;
+      
+      const listEl = document.getElementById('site-modal-list');
+      const isIllegal = currentSiteType === 'illegal';
+      
+      if (data.sites.length === 0) {
+        listEl.innerHTML = '<div class="text-gray-500 text-center py-4">등록된 사이트가 없습니다.</div>';
+      } else {
+        listEl.innerHTML = data.sites.map(site => \`
+          <div class="flex items-center justify-between bg-white rounded px-3 py-2 border">
+            <span class="text-sm \${isIllegal ? 'text-red-600' : 'text-green-600'}">
+              <i class="fas \${isIllegal ? 'fa-ban' : 'fa-check'} mr-2 text-xs"></i>\${site}
+            </span>
+            <button onclick="removeSite('\${site}')" class="text-gray-400 hover:text-red-500 px-2">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        \`).join('');
+      }
+    }
+
+    async function addNewSite() {
+      const input = document.getElementById('new-site-input');
+      const domain = input.value.trim().toLowerCase();
+      
+      if (!domain) {
+        alert('도메인을 입력해주세요.');
+        return;
+      }
+      
+      const data = await fetchAPI(\`/api/sites/\${currentSiteType}\`, {
+        method: 'POST',
+        body: JSON.stringify({ domain }),
+      });
+      
+      if (data.success) {
+        input.value = '';
+        loadSiteModalData();
+      } else {
+        alert('오류: ' + (data.error || '추가 실패'));
+      }
+    }
+
+    async function removeSite(domain) {
+      if (!confirm(\`'\${domain}'을(를) 목록에서 삭제하시겠습니까?\`)) {
+        return;
+      }
+      
+      const data = await fetchAPI(\`/api/sites/\${currentSiteType}/\${encodeURIComponent(domain)}\`, {
+        method: 'DELETE',
+      });
+      
+      if (data.success) {
+        loadSiteModalData();
+      } else {
+        alert('오류: ' + (data.error || '삭제 실패'));
+      }
+    }
 
     // ============================================
     // 초기 로드

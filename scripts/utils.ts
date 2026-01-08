@@ -87,10 +87,31 @@ export function loadTextFile(filePath: string): string[] {
 }
 
 /**
- * 키워드 파일 로드
+ * 키워드 파일 로드 (빈 줄 = 작품명만 검색)
  */
 export function loadKeywords(filePath: string): string[] {
-  return loadTextFile(filePath);
+  const absolutePath = path.join(process.cwd(), filePath);
+  const content = fs.readFileSync(absolutePath, 'utf-8');
+  const lines = content.split('\n');
+  const keywords: string[] = [];
+  let hasEmptyKeyword = false;
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // 주석은 건너뛰기
+    if (trimmed.startsWith('#')) continue;
+    // 빈 줄은 빈 문자열로 추가 (작품명만 검색, 한 번만)
+    if (trimmed === '') {
+      if (!hasEmptyKeyword) {
+        keywords.push('');
+        hasEmptyKeyword = true;
+      }
+    } else {
+      keywords.push(trimmed);
+    }
+  }
+  
+  return keywords;
 }
 
 /**
