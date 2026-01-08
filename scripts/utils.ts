@@ -43,15 +43,35 @@ export function loadConfig(): Config {
 }
 
 /**
- * Excel 파일에서 작품 제목 로드
+ * 작품 제목 로드 (titles.json 우선, 없으면 titles.xlsx 사용)
  */
 export function loadTitles(filePath: string): string[] {
+  // titles.json 파일 경로
+  const jsonPath = path.join(process.cwd(), 'data', 'titles.json');
+  
+  // titles.json이 있으면 우선 사용
+  if (fs.existsSync(jsonPath)) {
+    try {
+      const content = fs.readFileSync(jsonPath, 'utf-8');
+      const data = JSON.parse(content);
+      if (data.current && Array.isArray(data.current) && data.current.length > 0) {
+        console.log(`📖 titles.json에서 작품 ${data.current.length}개 로드됨`);
+        return data.current;
+      }
+    } catch (error) {
+      console.warn('titles.json 로드 실패, titles.xlsx로 폴백:', error);
+    }
+  }
+  
+  // titles.json이 없거나 비어있으면 titles.xlsx 사용
   const absolutePath = path.join(process.cwd(), filePath);
   const workbook = XLSX.readFile(absolutePath);
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
   const data = XLSX.utils.sheet_to_json<{ title: string }>(worksheet);
-  return data.map(row => row.title).filter(Boolean);
+  const titles = data.map(row => row.title).filter(Boolean);
+  console.log(`📖 titles.xlsx에서 작품 ${titles.length}개 로드됨`);
+  return titles;
 }
 
 /**

@@ -78,6 +78,24 @@ const PENDING_FILE = path.join(DATA_DIR, 'pending-review.json')
 const ILLEGAL_SITES_FILE = path.join(DATA_DIR, 'illegal-sites.txt')
 const LEGAL_SITES_FILE = path.join(DATA_DIR, 'legal-sites.txt')
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json')
+const TITLES_FILE = path.join(DATA_DIR, 'titles.json')
+
+// 모니터링 진행 상태 (메모리)
+let monitoringStatus = {
+  isRunning: false,
+  currentStep: '',
+  progress: 0,
+  total: 0,
+  message: '',
+  startedAt: null as string | null,
+}
+
+// 작품 목록 타입
+interface TitlesData {
+  current: string[]
+  history: string[]
+  last_updated: string
+}
 
 // ============================================
 // 유틸리티 함수
@@ -117,6 +135,25 @@ function loadSessions(): SessionsData {
     console.error('Failed to load sessions:', error)
   }
   return { sessions: [], last_updated: new Date().toISOString() }
+}
+
+// 작품 목록 로드
+function loadTitles(): TitlesData {
+  try {
+    if (fs.existsSync(TITLES_FILE)) {
+      const content = fs.readFileSync(TITLES_FILE, 'utf-8')
+      return JSON.parse(content)
+    }
+  } catch (error) {
+    console.error('Failed to load titles:', error)
+  }
+  return { current: [], history: [], last_updated: new Date().toISOString() }
+}
+
+// 작품 목록 저장
+function saveTitles(data: TitlesData): void {
+  data.last_updated = new Date().toISOString()
+  fs.writeFileSync(TITLES_FILE, JSON.stringify(data, null, 2), 'utf-8')
 }
 
 function saveSessions(data: SessionsData): void {
@@ -580,6 +617,258 @@ app.get('/api/sites/:type', (c) => {
 })
 
 // ============================================
+// API 엔드포인트 - 작품 관리
+// ============================================
+
+// 작품 목록 조회
+app.get('/api/titles', (c) => {
+  const titles = loadTitles()
+  return c.json({
+    success: true,
+    current: titles.current,
+    history: titles.history,
+    current_count: titles.current.length,
+    history_count: titles.history.length,
+    last_updated: titles.last_updated,
+  })
+})
+
+// 현재 목록에 작품 추가
+app.post('/api/titles/current', async (c) => {
+  try {
+    const { title } = await c.req.json<{ title: string }>()
+    
+    if (!title || !title.trim()) {
+      return c.json({ success: false, error: '작품명을 입력해주세요.' }, 400)
+    }
+    
+    const trimmedTitle = title.trim()
+    const titles = loadTitles()
+    
+    // 이미 현재 목록에 있는지 확인
+    if (titles.current.includes(trimmedTitle)) {
+      return c.json({ success: false, error: '이미 현재 목록에 있는 작품입니다.' }, 400)
+    }
+    
+    // 현재 목록에 추가
+    titles.current.push(trimmedTitle)
+    
+    // 히스토리에서 제거 (있다면)
+    titles.history = titles.history.filter(t => t !== trimmedTitle)
+    
+    saveTitles(titles)
+    
+    console.log(`➕ 작품 추가: ${trimmedTitle}`)
+    
+    return c.json({
+      success: true,
+      message: `'${trimmedTitle}'이(가) 현재 목록에 추가되었습니다.`,
+      current: titles.current,
+      history: titles.history,
+    })
+  } catch (error) {
+    return c.json({ success: false, error: '작품 추가 실패' }, 500)
+  }
+})
+
+// 현재 목록에서 작품 제거 (히스토리로 이동)
+app.delete('/api/titles/current/:title', (c) => {
+  const title = decodeURIComponent(c.req.param('title'))
+  const titles = loadTitles()
+  
+  const index = titles.current.indexOf(title)
+  if (index === -1) {
+    return c.json({ success: false, error: '현재 목록에 없는 작품입니다.' }, 404)
+  }
+  
+  // 현재 목록에서 제거
+  titles.current.splice(index, 1)
+  
+  // 히스토리에 추가 (중복 방지)
+  if (!titles.history.includes(title)) {
+    titles.history.unshift(title) // 맨 앞에 추가
+  }
+  
+  saveTitles(titles)
+  
+  console.log(`➖ 작품 제거: ${title} → 히스토리로 이동`)
+  
+  return c.json({
+    success: true,
+    message: `'${title}'이(가) 현재 목록에서 제거되었습니다.`,
+    current: titles.current,
+    history: titles.history,
+  })
+})
+
+// 히스토리에서 현재 목록으로 복원
+app.post('/api/titles/restore', async (c) => {
+  try {
+    const { title } = await c.req.json<{ title: string }>()
+    const titles = loadTitles()
+    
+    const index = titles.history.indexOf(title)
+    if (index === -1) {
+      return c.json({ success: false, error: '히스토리에 없는 작품입니다.' }, 404)
+    }
+    
+    // 이미 현재 목록에 있는지 확인
+    if (titles.current.includes(title)) {
+      return c.json({ success: false, error: '이미 현재 목록에 있는 작품입니다.' }, 400)
+    }
+    
+    // 히스토리에서 제거
+    titles.history.splice(index, 1)
+    
+    // 현재 목록에 추가
+    titles.current.push(title)
+    
+    saveTitles(titles)
+    
+    console.log(`🔄 작품 복원: ${title} → 현재 목록으로 이동`)
+    
+    return c.json({
+      success: true,
+      message: `'${title}'이(가) 현재 목록으로 복원되었습니다.`,
+      current: titles.current,
+      history: titles.history,
+    })
+  } catch (error) {
+    return c.json({ success: false, error: '작품 복원 실패' }, 500)
+  }
+})
+
+// ============================================
+// API 엔드포인트 - 모니터링 실행
+// ============================================
+
+// 모니터링 상태 조회
+app.get('/api/monitoring/status', (c) => {
+  return c.json({
+    success: true,
+    ...monitoringStatus,
+  })
+})
+
+// 모니터링 시작
+app.post('/api/monitoring/start', async (c) => {
+  if (monitoringStatus.isRunning) {
+    return c.json({ success: false, error: '이미 모니터링이 실행 중입니다.' }, 400)
+  }
+  
+  const titles = loadTitles()
+  if (titles.current.length === 0) {
+    return c.json({ success: false, error: '모니터링할 작품이 없습니다.' }, 400)
+  }
+  
+  // 모니터링 상태 초기화
+  monitoringStatus = {
+    isRunning: true,
+    currentStep: '준비 중...',
+    progress: 0,
+    total: 0,
+    message: '모니터링을 시작합니다.',
+    startedAt: new Date().toISOString(),
+  }
+  
+  // 백그라운드에서 파이프라인 실행
+  runMonitoringPipeline().catch(error => {
+    console.error('모니터링 오류:', error)
+    monitoringStatus = {
+      isRunning: false,
+      currentStep: '오류',
+      progress: 0,
+      total: 0,
+      message: `오류 발생: ${error.message}`,
+      startedAt: null,
+    }
+  })
+  
+  return c.json({
+    success: true,
+    message: '모니터링이 시작되었습니다.',
+    titles_count: titles.current.length,
+  })
+})
+
+// 모니터링 파이프라인 실행 함수
+async function runMonitoringPipeline() {
+  const { spawn } = await import('child_process')
+  
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn('npx', ['tsx', 'scripts/run-all.ts'], {
+      cwd: process.cwd(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    
+    child.stdout?.on('data', (data: Buffer) => {
+      const output = data.toString()
+      console.log(output)
+      
+      // 진행 상황 파싱
+      if (output.includes('Step 1:')) {
+        monitoringStatus.currentStep = '1단계: 검색 중'
+        monitoringStatus.message = '구글 검색 진행 중...'
+      } else if (output.includes('Step 2:')) {
+        monitoringStatus.currentStep = '2단계: 1차 판별'
+        monitoringStatus.message = '불법/합법 사이트 대조 중...'
+        monitoringStatus.progress = 25
+      } else if (output.includes('Step 3:')) {
+        monitoringStatus.currentStep = '3단계: 2차 판별'
+        monitoringStatus.message = 'LLM 분석 중...'
+        monitoringStatus.progress = 50
+      } else if (output.includes('Step 4:')) {
+        monitoringStatus.currentStep = '4단계: 대기 목록'
+        monitoringStatus.message = '승인 대기 목록 생성 중...'
+        monitoringStatus.progress = 75
+      } else if (output.includes('Step 5:')) {
+        monitoringStatus.currentStep = '5단계: 리포트'
+        monitoringStatus.message = 'Excel 리포트 생성 중...'
+        monitoringStatus.progress = 90
+      } else if (output.includes('검색 완료')) {
+        // "검색 완료: 590개 결과" 같은 메시지 파싱
+        const match = output.match(/검색 완료[:\s]*(\d+)/)
+        if (match) {
+          monitoringStatus.total = parseInt(match[1])
+        }
+      } else if (output.includes('파이프라인 완료')) {
+        monitoringStatus.progress = 100
+        monitoringStatus.currentStep = '완료'
+        monitoringStatus.message = '모니터링이 완료되었습니다!'
+      }
+    })
+    
+    child.stderr?.on('data', (data: Buffer) => {
+      console.error('Pipeline error:', data.toString())
+    })
+    
+    child.on('close', (code) => {
+      if (code === 0) {
+        monitoringStatus = {
+          isRunning: false,
+          currentStep: '완료',
+          progress: 100,
+          total: monitoringStatus.total,
+          message: '모니터링이 완료되었습니다!',
+          startedAt: null,
+        }
+        resolve()
+      } else {
+        monitoringStatus.isRunning = false
+        monitoringStatus.currentStep = '오류'
+        monitoringStatus.message = `파이프라인 종료 코드: ${code}`
+        reject(new Error(`Pipeline exited with code ${code}`))
+      }
+    })
+    
+    child.on('error', (error) => {
+      monitoringStatus.isRunning = false
+      reject(error)
+    })
+  })
+}
+
+// ============================================
 // API 엔드포인트 - 세션(회차) 관련
 // ============================================
 
@@ -781,9 +1070,76 @@ app.get('/', (c) => {
           </h1>
           <p class="text-gray-600 mt-1">불법 사이트 탐지 및 승인 시스템</p>
         </div>
-        <button onclick="refresh()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition">
-          <i class="fas fa-sync-alt mr-2"></i>새로고침
-        </button>
+        <div class="flex gap-3">
+          <!-- 모니터링 시작 버튼 -->
+          <div class="relative">
+            <button onclick="startMonitoring()" id="btn-monitoring" 
+                    class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition flex items-center">
+              <i class="fas fa-play mr-2"></i>모니터링 시작
+            </button>
+            <!-- 진행률 표시 (모니터링 중일 때만 표시) -->
+            <div id="monitoring-progress" class="hidden absolute top-full left-0 right-0 mt-2 bg-white rounded-lg shadow-lg p-3 min-w-[250px] z-50">
+              <div class="text-sm font-medium text-gray-700 mb-2" id="progress-step">준비 중...</div>
+              <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+                <div id="progress-bar" class="bg-green-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <div class="text-xs text-gray-500" id="progress-message">모니터링을 시작합니다.</div>
+            </div>
+          </div>
+          <!-- 작품 변경 버튼 -->
+          <button onclick="openTitlesModal()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition">
+            <i class="fas fa-list-alt mr-2"></i>작품 변경
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 작품 변경 모달 -->
+    <div id="titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
+        <!-- 모달 헤더 -->
+        <div class="bg-purple-500 text-white px-6 py-4 flex justify-between items-center">
+          <h2 class="text-xl font-bold"><i class="fas fa-list-alt mr-2"></i>모니터링 대상 작품 관리</h2>
+          <button onclick="closeTitlesModal()" class="text-white hover:text-gray-200">
+            <i class="fas fa-times text-xl"></i>
+          </button>
+        </div>
+        <!-- 모달 내용 -->
+        <div class="p-6 grid grid-cols-2 gap-6 overflow-y-auto max-h-[calc(80vh-80px)]">
+          <!-- 좌측: 현재 모니터링 대상 -->
+          <div>
+            <h3 class="text-lg font-semibold text-gray-800 mb-3">
+              <i class="fas fa-check-circle text-green-500 mr-2"></i>현재 모니터링 대상
+              <span id="current-count" class="text-sm text-gray-500 font-normal">(0개)</span>
+            </h3>
+            <div id="current-titles-list" class="space-y-2 max-h-[400px] overflow-y-auto border rounded-lg p-3 bg-gray-50">
+              <!-- 동적으로 채워짐 -->
+            </div>
+          </div>
+          <!-- 우측: 작품 추가 -->
+          <div>
+            <h3 class="text-lg font-semibold text-gray-800 mb-3">
+              <i class="fas fa-plus-circle text-blue-500 mr-2"></i>작품 추가
+            </h3>
+            <!-- 새 작품 입력 -->
+            <div class="flex gap-2 mb-4">
+              <input type="text" id="new-title-input" placeholder="새 작품명 입력..." 
+                     class="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                     onkeypress="if(event.key==='Enter') addNewTitle()">
+              <button onclick="addNewTitle()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+            <!-- 과거 추가 내역 -->
+            <h4 class="text-sm font-medium text-gray-600 mb-2">
+              <i class="fas fa-history mr-1"></i>과거 추가 내역
+              <span id="history-count" class="text-gray-400">(0개)</span>
+            </h4>
+            <div id="history-titles-list" class="space-y-2 max-h-[320px] overflow-y-auto border rounded-lg p-3 bg-gray-50">
+              <!-- 동적으로 채워짐 -->
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1445,10 +1801,219 @@ app.get('/', (c) => {
     }
 
     // ============================================
+    // 모니터링 시작/상태 관리
+    // ============================================
+
+    let monitoringInterval = null;
+
+    async function startMonitoring() {
+      const btn = document.getElementById('btn-monitoring');
+      
+      // 현재 상태 확인
+      const statusData = await fetchAPI('/api/monitoring/status');
+      if (statusData.isRunning) {
+        alert('이미 모니터링이 실행 중입니다.');
+        return;
+      }
+      
+      if (!confirm('모니터링을 시작하시겠습니까?\\n\\n작품 수에 따라 2~5분 정도 소요될 수 있습니다.')) {
+        return;
+      }
+      
+      // 모니터링 시작 요청
+      const data = await fetchAPI('/api/monitoring/start', { method: 'POST' });
+      
+      if (!data.success) {
+        alert('오류: ' + (data.error || '모니터링 시작 실패'));
+        return;
+      }
+      
+      // 버튼 상태 변경
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>진행 중...';
+      btn.disabled = true;
+      btn.classList.remove('bg-green-500', 'hover:bg-green-600');
+      btn.classList.add('bg-gray-400', 'cursor-not-allowed');
+      
+      // 진행률 표시
+      document.getElementById('monitoring-progress').classList.remove('hidden');
+      
+      // 주기적으로 상태 확인
+      monitoringInterval = setInterval(checkMonitoringStatus, 1000);
+    }
+
+    async function checkMonitoringStatus() {
+      const data = await fetchAPI('/api/monitoring/status');
+      
+      // 진행률 업데이트
+      document.getElementById('progress-step').textContent = data.currentStep || '진행 중...';
+      document.getElementById('progress-bar').style.width = (data.progress || 0) + '%';
+      document.getElementById('progress-message').textContent = data.message || '';
+      
+      // 완료 또는 오류 시
+      if (!data.isRunning) {
+        clearInterval(monitoringInterval);
+        monitoringInterval = null;
+        
+        // 버튼 복원
+        const btn = document.getElementById('btn-monitoring');
+        btn.innerHTML = '<i class="fas fa-play mr-2"></i>모니터링 시작';
+        btn.disabled = false;
+        btn.classList.remove('bg-gray-400', 'cursor-not-allowed');
+        btn.classList.add('bg-green-500', 'hover:bg-green-600');
+        
+        // 3초 후 진행률 숨기기
+        setTimeout(() => {
+          document.getElementById('monitoring-progress').classList.add('hidden');
+        }, 3000);
+        
+        // 완료 시 데이터 새로고침
+        if (data.currentStep === '완료') {
+          alert('✅ 모니터링이 완료되었습니다!\\n\\n승인 대기 탭과 모니터링 회차 탭에서 결과를 확인하세요.');
+          loadPendingItems();
+          loadSessions();
+        }
+      }
+    }
+
+    // ============================================
+    // 작품 변경 모달
+    // ============================================
+
+    function openTitlesModal() {
+      document.getElementById('titles-modal').classList.remove('hidden');
+      loadTitlesData();
+    }
+
+    function closeTitlesModal() {
+      document.getElementById('titles-modal').classList.add('hidden');
+    }
+
+    async function loadTitlesData() {
+      const data = await fetchAPI('/api/titles');
+      
+      if (!data.success) {
+        alert('작품 목록을 불러오는데 실패했습니다.');
+        return;
+      }
+      
+      // 현재 목록 업데이트
+      document.getElementById('current-count').textContent = \`(\${data.current.length}개)\`;
+      const currentListEl = document.getElementById('current-titles-list');
+      
+      if (data.current.length === 0) {
+        currentListEl.innerHTML = '<div class="text-gray-500 text-center py-4">모니터링 대상 작품이 없습니다.</div>';
+      } else {
+        currentListEl.innerHTML = data.current.map((title, index) => \`
+          <div class="flex items-center justify-between bg-white rounded px-3 py-2 border">
+            <span class="text-sm">
+              <span class="text-gray-400 mr-2">\${index + 1}.</span>
+              \${title}
+            </span>
+            <button onclick="removeFromCurrent('\${title.replace(/'/g, "\\\\'")}')" 
+                    class="text-red-500 hover:text-red-700 px-2">
+              <i class="fas fa-minus-circle"></i>
+            </button>
+          </div>
+        \`).join('');
+      }
+      
+      // 히스토리 업데이트
+      document.getElementById('history-count').textContent = \`(\${data.history.length}개)\`;
+      const historyListEl = document.getElementById('history-titles-list');
+      
+      if (data.history.length === 0) {
+        historyListEl.innerHTML = '<div class="text-gray-500 text-center py-4">과거 추가 내역이 없습니다.</div>';
+      } else {
+        historyListEl.innerHTML = data.history.map(title => \`
+          <div class="flex items-center justify-between bg-white rounded px-3 py-2 border">
+            <span class="text-sm text-gray-600">\${title}</span>
+            <button onclick="restoreFromHistory('\${title.replace(/'/g, "\\\\'")}')" 
+                    class="text-green-500 hover:text-green-700 px-2">
+              <i class="fas fa-plus-circle"></i>
+            </button>
+          </div>
+        \`).join('');
+      }
+    }
+
+    async function addNewTitle() {
+      const input = document.getElementById('new-title-input');
+      const title = input.value.trim();
+      
+      if (!title) {
+        alert('작품명을 입력해주세요.');
+        return;
+      }
+      
+      const data = await fetchAPI('/api/titles/current', {
+        method: 'POST',
+        body: JSON.stringify({ title }),
+      });
+      
+      if (data.success) {
+        input.value = '';
+        loadTitlesData();
+      } else {
+        alert('오류: ' + (data.error || '추가 실패'));
+      }
+    }
+
+    async function removeFromCurrent(title) {
+      if (!confirm(\`'\${title}'을(를) 현재 목록에서 제거하시겠습니까?\\n\\n과거 추가 내역으로 이동됩니다.\`)) {
+        return;
+      }
+      
+      const data = await fetchAPI(\`/api/titles/current/\${encodeURIComponent(title)}\`, {
+        method: 'DELETE',
+      });
+      
+      if (data.success) {
+        loadTitlesData();
+      } else {
+        alert('오류: ' + (data.error || '제거 실패'));
+      }
+    }
+
+    async function restoreFromHistory(title) {
+      const data = await fetchAPI('/api/titles/restore', {
+        method: 'POST',
+        body: JSON.stringify({ title }),
+      });
+      
+      if (data.success) {
+        loadTitlesData();
+      } else {
+        alert('오류: ' + (data.error || '복원 실패'));
+      }
+    }
+
+    // 모달 외부 클릭 시 닫기
+    document.getElementById('titles-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'titles-modal') {
+        closeTitlesModal();
+      }
+    });
+
+    // ============================================
     // 초기 로드
     // ============================================
 
     loadPendingItems();
+    
+    // 페이지 로드 시 모니터링 상태 확인
+    (async () => {
+      const status = await fetchAPI('/api/monitoring/status');
+      if (status.isRunning) {
+        // 이미 실행 중이면 UI 업데이트
+        const btn = document.getElementById('btn-monitoring');
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>진행 중...';
+        btn.disabled = true;
+        btn.classList.remove('bg-green-500', 'hover:bg-green-600');
+        btn.classList.add('bg-gray-400', 'cursor-not-allowed');
+        document.getElementById('monitoring-progress').classList.remove('hidden');
+        monitoringInterval = setInterval(checkMonitoringStatus, 1000);
+      }
+    })();
   </script>
 </body>
 </html>
