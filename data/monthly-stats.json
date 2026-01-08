@@ -1,0 +1,70 @@
+{
+  "months": [
+    {
+      "month": "2026-01",
+      "sessions_count": 2,
+      "total_stats": {
+        "total": 556,
+        "illegal": 245,
+        "legal": 311,
+        "pending": 0
+      },
+      "top_contents": [
+        {
+          "title": "Guilty Office",
+          "illegal_count": 41,
+          "manta_rank_diff": null,
+          "first_rank_domain": null
+        },
+        {
+          "title": "From Sandbox to Bed",
+          "illegal_count": 26,
+          "manta_rank_diff": null,
+          "first_rank_domain": null
+        },
+        {
+          "title": "Violet Romance",
+          "illegal_count": 23,
+          "manta_rank_diff": null,
+          "first_rank_domain": null
+        },
+        {
+          "title": "The Duke's Fluffy Secret",
+          "illegal_count": 20,
+          "manta_rank_diff": null,
+          "first_rank_domain": null
+        },
+        {
+          "title": "Dangerous",
+          "illegal_count": 19,
+          "manta_rank_diff": null,
+          "first_rank_domain": null
+        }
+      ],
+      "top_illegal_sites": [
+        {
+          "domain": "manhwaread.com",
+          "count": 29
+        },
+        {
+          "domain": "bato.si",
+          "count": 24
+        },
+        {
+          "domain": "xbato.com",
+          "count": 18
+        },
+        {
+          "domain": "manhwaclan.com",
+          "count": 15
+        },
+        {
+          "domain": "mangatoto.net",
+          "count": 12
+        }
+      ],
+      "last_updated": "2026-01-08T02:44:08.770Z"
+    }
+  ],
+  "last_updated": "2026-01-08T02:44:08.770Z"
+}

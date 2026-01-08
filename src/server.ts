@@ -79,6 +79,7 @@ const ILLEGAL_SITES_FILE = path.join(DATA_DIR, 'illegal-sites.txt')
 const LEGAL_SITES_FILE = path.join(DATA_DIR, 'legal-sites.txt')
 const SESSIONS_FILE = path.join(DATA_DIR, 'sessions.json')
 const TITLES_FILE = path.join(DATA_DIR, 'titles.json')
+const MONTHLY_STATS_FILE = path.join(DATA_DIR, 'monthly-stats.json')
 
 // 모니터링 진행 상태 (메모리)
 let monitoringStatus = {
@@ -94,6 +95,34 @@ let monitoringStatus = {
 interface TitlesData {
   current: string[]
   history: string[]
+  last_updated: string
+}
+
+// 월별 통계 타입
+interface MonthlyStatsEntry {
+  month: string // YYYY-MM 형식
+  sessions_count: number
+  total_stats: {
+    total: number
+    illegal: number
+    legal: number
+    pending: number
+  }
+  top_contents: Array<{
+    title: string
+    illegal_count: number
+    manta_rank_diff: number | null
+    first_rank_domain: string | null
+  }>
+  top_illegal_sites: Array<{
+    domain: string
+    count: number
+  }>
+  last_updated: string
+}
+
+interface MonthlyStatsData {
+  months: MonthlyStatsEntry[]
   last_updated: string
 }
 
@@ -159,6 +188,146 @@ function saveTitles(data: TitlesData): void {
 function saveSessions(data: SessionsData): void {
   data.last_updated = new Date().toISOString()
   fs.writeFileSync(SESSIONS_FILE, JSON.stringify(data, null, 2), 'utf-8')
+}
+
+// 월별 통계 로드
+function loadMonthlyStats(): MonthlyStatsData {
+  try {
+    if (fs.existsSync(MONTHLY_STATS_FILE)) {
+      const content = fs.readFileSync(MONTHLY_STATS_FILE, 'utf-8')
+      return JSON.parse(content)
+    }
+  } catch (error) {
+    console.error('Failed to load monthly stats:', error)
+  }
+  return { months: [], last_updated: new Date().toISOString() }
+}
+
+// 월별 통계 저장
+function saveMonthlyStats(data: MonthlyStatsData): void {
+  data.last_updated = new Date().toISOString()
+  fs.writeFileSync(MONTHLY_STATS_FILE, JSON.stringify(data, null, 2), 'utf-8')
+}
+
+// 특정 월의 통계 계산 및 저장
+function updateMonthlyStats(targetMonth?: string): MonthlyStatsEntry | null {
+  const sessionsData = scanAndUpdateSessions()
+  
+  // 대상 월 결정 (기본: 현재 월)
+  const now = new Date()
+  const month = targetMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const [year, monthNum] = month.split('-').map(Number)
+  
+  // 해당 월의 세션만 필터링
+  const monthlySessions = sessionsData.sessions.filter(session => {
+    const sessionDate = new Date(session.created_at)
+    return sessionDate.getFullYear() === year && sessionDate.getMonth() === monthNum - 1
+  })
+  
+  if (monthlySessions.length === 0) {
+    return null
+  }
+  
+  // 모든 월간 세션의 결과 합산
+  const allResults: FinalResult[] = []
+  for (const session of monthlySessions) {
+    const finalResultsPath = path.join(process.cwd(), session.files.final_results)
+    if (fs.existsSync(finalResultsPath)) {
+      const results = loadFinalResults(finalResultsPath)
+      allResults.push(...results)
+    }
+  }
+  
+  // URL 중복 제거
+  const uniqueResults = allResults.filter((result, index, arr) => 
+    arr.findIndex(r => r.url === result.url) === index
+  )
+  
+  // 작품별 통계 계산
+  const titleStats = new Map<string, { 
+    illegalCount: number, 
+    mantaRankDiff: number | null,
+    firstRankDomain: string | null 
+  }>()
+  
+  for (const result of uniqueResults) {
+    if (!titleStats.has(result.title)) {
+      titleStats.set(result.title, { illegalCount: 0, mantaRankDiff: null, firstRankDomain: null })
+    }
+    
+    const stats = titleStats.get(result.title)!
+    
+    if (result.final_status === 'illegal') {
+      stats.illegalCount++
+    }
+    
+    // 작품명만 검색 결과에서 순위 계산
+    if (result.search_query === result.title && result.page === 1) {
+      if (result.rank === 1) {
+        stats.firstRankDomain = result.domain
+      }
+      if (result.domain === 'manta.net') {
+        stats.mantaRankDiff = result.rank - 1
+      }
+    }
+  }
+  
+  // Top 5 콘텐츠
+  const topContents = Array.from(titleStats.entries())
+    .map(([title, stats]) => ({
+      title,
+      illegal_count: stats.illegalCount,
+      manta_rank_diff: stats.mantaRankDiff,
+      first_rank_domain: stats.firstRankDomain
+    }))
+    .sort((a, b) => b.illegal_count - a.illegal_count)
+    .slice(0, 5)
+  
+  // 상위 불법 사이트 Top 5
+  const domainCounts = new Map<string, number>()
+  for (const result of uniqueResults) {
+    if (result.final_status === 'illegal') {
+      const count = domainCounts.get(result.domain) || 0
+      domainCounts.set(result.domain, count + 1)
+    }
+  }
+  
+  const topIllegalSites = Array.from(domainCounts.entries())
+    .map(([domain, count]) => ({ domain, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+  
+  // 통계 엔트리 생성
+  const statsEntry: MonthlyStatsEntry = {
+    month,
+    sessions_count: monthlySessions.length,
+    total_stats: {
+      total: uniqueResults.length,
+      illegal: uniqueResults.filter(r => r.final_status === 'illegal').length,
+      legal: uniqueResults.filter(r => r.final_status === 'legal').length,
+      pending: uniqueResults.filter(r => r.final_status === 'pending').length
+    },
+    top_contents: topContents,
+    top_illegal_sites: topIllegalSites,
+    last_updated: new Date().toISOString()
+  }
+  
+  // 기존 데이터 로드 및 업데이트
+  const monthlyData = loadMonthlyStats()
+  const existingIndex = monthlyData.months.findIndex(m => m.month === month)
+  
+  if (existingIndex >= 0) {
+    monthlyData.months[existingIndex] = statsEntry
+  } else {
+    monthlyData.months.push(statsEntry)
+    // 월 기준 정렬 (최신순)
+    monthlyData.months.sort((a, b) => b.month.localeCompare(a.month))
+  }
+  
+  saveMonthlyStats(monthlyData)
+  console.log(`📊 월별 통계 업데이트: ${month}`)
+  
+  return statsEntry
 }
 
 function loadFinalResults(filePath: string): FinalResult[] {
@@ -920,6 +1089,14 @@ async function runMonitoringPipeline() {
     
     child.on('close', (code) => {
       if (code === 0) {
+        // 월별 통계 업데이트
+        try {
+          updateMonthlyStats()
+          console.log('📊 월별 통계 자동 업데이트 완료')
+        } catch (err) {
+          console.error('월별 통계 업데이트 실패:', err)
+        }
+        
         monitoringStatus = {
           isRunning: false,
           currentStep: '완료',
@@ -948,28 +1125,74 @@ async function runMonitoringPipeline() {
 // API 엔드포인트 - 대시보드
 // ============================================
 
-// 대시보드 데이터 (월간 통계)
-app.get('/api/dashboard', (c) => {
+// 사용 가능한 월 목록 조회
+app.get('/api/dashboard/months', (c) => {
+  const monthlyData = loadMonthlyStats()
   const sessionsData = scanAndUpdateSessions()
   
-  // 현재 월의 세션만 필터링
+  // 세션에서 월 목록 추출
+  const sessionMonths = new Set<string>()
+  for (const session of sessionsData.sessions) {
+    const date = new Date(session.created_at)
+    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+    sessionMonths.add(month)
+  }
+  
+  // 저장된 월 + 세션 월 합치기
+  const allMonths = new Set([
+    ...monthlyData.months.map(m => m.month),
+    ...sessionMonths
+  ])
+  
+  // 정렬 (최신순)
+  const sortedMonths = Array.from(allMonths).sort((a, b) => b.localeCompare(a))
+  
+  return c.json({
+    success: true,
+    months: sortedMonths,
+    current_month: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+  })
+})
+
+// 대시보드 데이터 (월간 통계) - 월 선택 지원
+app.get('/api/dashboard', (c) => {
+  const selectedMonth = c.req.query('month') // YYYY-MM 형식
+  
   const now = new Date()
-  const currentYear = now.getFullYear()
-  const currentMonth = now.getMonth()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const targetMonth = selectedMonth || currentMonth
+  
+  // 저장된 통계 확인
+  const monthlyData = loadMonthlyStats()
+  const savedStats = monthlyData.months.find(m => m.month === targetMonth)
+  
+  // 저장된 데이터가 있고, 현재 월이 아니면 저장된 데이터 반환
+  if (savedStats && targetMonth !== currentMonth) {
+    return c.json({
+      success: true,
+      ...savedStats,
+      available_months: monthlyData.months.map(m => m.month)
+    })
+  }
+  
+  // 현재 월이거나 저장된 데이터가 없으면 실시간 계산
+  const [year, monthNum] = targetMonth.split('-').map(Number)
+  const sessionsData = scanAndUpdateSessions()
   
   const monthlySessions = sessionsData.sessions.filter(session => {
     const sessionDate = new Date(session.created_at)
-    return sessionDate.getFullYear() === currentYear && sessionDate.getMonth() === currentMonth
+    return sessionDate.getFullYear() === year && sessionDate.getMonth() === monthNum - 1
   })
   
   if (monthlySessions.length === 0) {
     return c.json({
       success: true,
-      month: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`,
+      month: targetMonth,
       sessions_count: 0,
       top_contents: [],
       top_illegal_sites: [],
-      total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 }
+      total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 },
+      available_months: monthlyData.months.map(m => m.month)
     })
   }
   
@@ -1002,27 +1225,21 @@ app.get('/api/dashboard', (c) => {
     
     const stats = titleStats.get(result.title)!
     
-    // 불법 URL 카운트
     if (result.final_status === 'illegal') {
       stats.illegalCount++
     }
     
-    // 작품명만 검색 결과에서 순위 계산 (키워드 없는 검색)
-    // search_query가 작품명과 동일한 경우 = 작품명만 검색
     if (result.search_query === result.title && result.page === 1) {
-      // 1위 도메인 기록
       if (result.rank === 1) {
         stats.firstRankDomain = result.domain
       }
-      
-      // manta.net 순위 찾기
       if (result.domain === 'manta.net') {
-        stats.mantaRankDiff = result.rank - 1 // 1위와의 차이
+        stats.mantaRankDiff = result.rank - 1
       }
     }
   }
   
-  // Top 5 콘텐츠 (불법 URL 개수 기준)
+  // Top 5 콘텐츠
   const topContents = Array.from(titleStats.entries())
     .map(([title, stats]) => ({
       title,
@@ -1033,7 +1250,7 @@ app.get('/api/dashboard', (c) => {
     .sort((a, b) => b.illegal_count - a.illegal_count)
     .slice(0, 5)
   
-  // 상위 불법 사이트 Top 5 (도메인별)
+  // 상위 불법 사이트 Top 5
   const domainCounts = new Map<string, number>()
   for (const result of uniqueResults) {
     if (result.final_status === 'illegal') {
@@ -1057,12 +1274,39 @@ app.get('/api/dashboard', (c) => {
   
   return c.json({
     success: true,
-    month: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`,
+    month: targetMonth,
     sessions_count: monthlySessions.length,
     top_contents: topContents,
     top_illegal_sites: topIllegalSites,
-    total_stats: totalStats
+    total_stats: totalStats,
+    available_months: monthlyData.months.map(m => m.month)
   })
+})
+
+// 월별 통계 수동 업데이트 (관리용)
+app.post('/api/dashboard/update', async (c) => {
+  try {
+    const { month } = await c.req.json<{ month?: string }>()
+    const result = updateMonthlyStats(month)
+    
+    if (result) {
+      return c.json({
+        success: true,
+        message: `${result.month} 통계가 업데이트되었습니다.`,
+        stats: result
+      })
+    } else {
+      return c.json({
+        success: false,
+        error: '해당 월에 데이터가 없습니다.'
+      }, 404)
+    }
+  } catch (error) {
+    return c.json({
+      success: false,
+      error: '통계 업데이트 실패'
+    }, 500)
+  }
 })
 
 // ============================================
@@ -1515,12 +1759,20 @@ app.get('/', (c) => {
     </div>
 
     <!-- 대시보드 탭 -->
-    <div id="content-dashboard" class="tab-content hidden">
+    <div id="content-dashboard" class="tab-content">
       <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 class="text-lg font-semibold text-gray-800 mb-4">
-          <i class="fas fa-chart-pie mr-2"></i>월간 모니터링 현황
-          <span id="dashboard-month" class="text-sm text-gray-500 font-normal ml-2"></span>
-        </h2>
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-lg font-semibold text-gray-800">
+            <i class="fas fa-chart-pie mr-2"></i>월간 모니터링 현황
+          </h2>
+          <div class="flex items-center gap-2">
+            <label class="text-sm text-gray-600"><i class="fas fa-calendar-alt mr-1"></i>월 선택:</label>
+            <select id="month-selector" onchange="onMonthChange()" 
+                    class="border rounded-lg px-3 py-2 min-w-[150px]">
+              <option value="">로딩 중...</option>
+            </select>
+          </div>
+        </div>
         
         <!-- 월간 요약 통계 -->
         <div class="grid grid-cols-4 gap-4 mb-6">
@@ -2098,16 +2350,37 @@ app.get('/', (c) => {
     // 대시보드 탭
     // ============================================
 
-    async function loadDashboard() {
-      const data = await fetchAPI('/api/dashboard');
+    let selectedMonth = ''; // 현재 선택된 월
+    let availableMonths = []; // 사용 가능한 월 목록
+
+    async function loadDashboard(month = null) {
+      // 월 목록 로드 (첫 로드 시)
+      if (availableMonths.length === 0) {
+        const monthsData = await fetchAPI('/api/dashboard/months');
+        if (monthsData.success) {
+          availableMonths = monthsData.months;
+          selectedMonth = month || monthsData.current_month;
+          updateMonthSelector();
+        }
+      }
+      
+      // 대시보드 데이터 로드
+      const targetMonth = month || selectedMonth;
+      const data = await fetchAPI(\`/api/dashboard?month=\${targetMonth}\`);
       
       if (!data.success) {
         console.error('Dashboard load failed');
         return;
       }
       
-      // 월 표시
-      document.getElementById('dashboard-month').textContent = data.month ? \`(\${data.month})\` : '';
+      // 월 선택기 업데이트 (API 응답에 새로운 월이 있을 수 있음)
+      if (data.available_months && data.available_months.length > 0) {
+        const newMonths = data.available_months.filter(m => !availableMonths.includes(m));
+        if (newMonths.length > 0) {
+          availableMonths = [...new Set([...availableMonths, ...data.available_months])].sort((a, b) => b.localeCompare(a));
+          updateMonthSelector();
+        }
+      }
       
       // 요약 통계
       document.getElementById('dash-total').textContent = data.total_stats?.total || 0;
@@ -2150,6 +2423,29 @@ app.get('/', (c) => {
       } else {
         topDomainsEl.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-gray-500">데이터 없음</td></tr>';
       }
+    }
+
+    function updateMonthSelector() {
+      const selector = document.getElementById('month-selector');
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      
+      // 현재 월이 목록에 없으면 추가
+      if (!availableMonths.includes(currentMonth)) {
+        availableMonths.unshift(currentMonth);
+      }
+      
+      selector.innerHTML = availableMonths.map(month => {
+        const [year, mon] = month.split('-');
+        const label = \`\${year}년 \${parseInt(mon)}월\`;
+        const isCurrent = month === currentMonth ? ' (현재)' : '';
+        return \`<option value="\${month}" \${month === selectedMonth ? 'selected' : ''}>\${label}\${isCurrent}</option>\`;
+      }).join('');
+    }
+
+    function onMonthChange() {
+      const selector = document.getElementById('month-selector');
+      selectedMonth = selector.value;
+      loadDashboard(selectedMonth);
     }
 
     // ============================================
