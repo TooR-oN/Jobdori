@@ -944,12 +944,23 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
   try {
     const title = decodeURIComponent(c.req.param('title'))
     
-    const history = await query`
+    // 먼저 히스토리 테이블에서 조회
+    let history = await query`
       SELECT manta_rank, first_rank_domain, session_id, recorded_at
       FROM manta_ranking_history
       WHERE title = ${title}
       ORDER BY recorded_at ASC
     `
+    
+    // 히스토리가 없으면 현재 manta_rankings에서 가져오기
+    if (history.length === 0) {
+      const current = await query`
+        SELECT manta_rank, first_rank_domain, session_id, updated_at as recorded_at
+        FROM manta_rankings
+        WHERE title = ${title}
+      `
+      history = current
+    }
     
     return c.json({
       success: true,
@@ -1109,6 +1120,9 @@ app.get('/', (c) => {
         <button id="tab-sites" onclick="switchTab('sites')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
           <i class="fas fa-globe md:mr-2"></i><span class="hidden md:inline">사이트 목록</span>
         </button>
+        <button id="tab-title-stats" onclick="switchTab('title-stats')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
+          <i class="fas fa-book md:mr-2"></i><span class="hidden md:inline">작품별 통계</span>
+        </button>
       </div>
     </div>
 
@@ -1164,43 +1178,6 @@ app.get('/', (c) => {
         <div id="manta-rankings" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3">로딩 중...</div>
       </div>
 
-      <!-- 작품별 상세보기 섹션 -->
-      <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-          <h2 class="text-lg md:text-xl font-bold"><i class="fas fa-book text-purple-500 mr-2"></i>작품별 상세보기</h2>
-        </div>
-        <p class="text-xs md:text-sm text-gray-500 mb-4">작품을 선택하면 월별 불법 URL 통계와 검색 순위 변화를 확인할 수 있습니다.</p>
-        
-        <!-- 작품 선택 -->
-        <div class="flex flex-wrap gap-2 mb-4" id="title-select-list">
-          <span class="text-gray-400 text-sm">로딩 중...</span>
-        </div>
-        
-        <!-- 선택된 작품 상세 패널 -->
-        <div id="title-detail-panel" class="hidden border-t pt-4 mt-4">
-          <h3 class="text-lg font-bold mb-4"><i class="fas fa-chart-bar text-purple-500 mr-2"></i><span id="selected-title-name"></span></h3>
-          
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- 월별 불법 URL 막대그래프 -->
-            <div class="bg-gray-50 rounded-lg p-4">
-              <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-bar mr-2 text-red-500"></i>월별 불법 URL 수</h4>
-              <div class="h-64">
-                <canvas id="monthly-illegal-chart"></canvas>
-              </div>
-              <p id="monthly-chart-empty" class="hidden text-center text-gray-400 py-8">데이터가 없습니다.</p>
-            </div>
-            
-            <!-- 검색 순위 꺾은선 그래프 -->
-            <div class="bg-gray-50 rounded-lg p-4">
-              <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-line mr-2 text-blue-500"></i>Manta 검색 순위 변화</h4>
-              <div class="h-64">
-                <canvas id="ranking-history-chart"></canvas>
-              </div>
-              <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- 승인 대기 탭 -->
@@ -1333,6 +1310,46 @@ app.get('/', (c) => {
         </div>
       </div>
     </div>
+
+    <!-- 작품별 통계 탭 -->
+    <div id="content-title-stats" class="tab-content hidden">
+      <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <h2 class="text-lg md:text-xl font-bold"><i class="fas fa-book text-purple-500 mr-2"></i>작품별 통계</h2>
+        </div>
+        <p class="text-xs md:text-sm text-gray-500 mb-4">작품을 선택하면 월별 불법 URL 통계와 검색 순위 변화를 확인할 수 있습니다.</p>
+        
+        <!-- 작품 선택 -->
+        <div class="flex flex-wrap gap-2 mb-4" id="title-select-list">
+          <span class="text-gray-400 text-sm">로딩 중...</span>
+        </div>
+        
+        <!-- 선택된 작품 상세 패널 -->
+        <div id="title-detail-panel" class="hidden border-t pt-4 mt-4">
+          <h3 class="text-lg font-bold mb-4"><i class="fas fa-chart-bar text-purple-500 mr-2"></i><span id="selected-title-name"></span></h3>
+          
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 월별 불법 URL 막대그래프 -->
+            <div class="bg-gray-50 rounded-lg p-4">
+              <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-bar mr-2 text-red-500"></i>월별 불법 URL 수</h4>
+              <div class="h-64">
+                <canvas id="monthly-illegal-chart"></canvas>
+              </div>
+              <p id="monthly-chart-empty" class="hidden text-center text-gray-400 py-8">데이터가 없습니다.</p>
+            </div>
+            
+            <!-- 검색 순위 꺾은선 그래프 -->
+            <div class="bg-gray-50 rounded-lg p-4">
+              <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-line mr-2 text-blue-500"></i>Manta 검색 순위 변화</h4>
+              <div class="h-64">
+                <canvas id="ranking-history-chart"></canvas>
+              </div>
+              <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 작품 변경 모달 -->
@@ -1432,6 +1449,7 @@ app.get('/', (c) => {
       else if (tab === 'pending') loadPending();
       else if (tab === 'sessions') loadSessions();
       else if (tab === 'sites') loadSites();
+      else if (tab === 'title-stats') loadTitleSelectList();
     }
     
     async function loadDashboard() {
@@ -1465,9 +1483,6 @@ app.get('/', (c) => {
       
       // Manta 순위 로드
       loadMantaRankings();
-      
-      // 작품별 상세보기 목록 로드
-      loadTitleSelectList();
     }
     
     async function openAllTitlesModal() {
