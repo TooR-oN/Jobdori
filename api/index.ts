@@ -988,9 +988,42 @@ app.get('/', (c) => {
 
     <!-- 모니터링 회차 탭 -->
     <div id="content-sessions" class="tab-content hidden">
-      <div class="bg-white rounded-lg shadow-md p-6">
+      <div class="bg-white rounded-lg shadow-md p-6 mb-4">
         <h2 class="text-xl font-bold mb-4"><i class="fas fa-history text-blue-500 mr-2"></i>모니터링 회차</h2>
         <div id="sessions-list">로딩 중...</div>
+        <div id="sessions-pagination" class="flex justify-center gap-2 mt-4"></div>
+      </div>
+      
+      <!-- 회차 상세 (목록 아래에 표시) -->
+      <div id="session-detail" class="hidden bg-white rounded-lg shadow-md p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-bold">
+            <i class="fas fa-search text-blue-500 mr-2"></i>
+            회차 상세 - <span id="session-detail-title"></span>
+          </h3>
+          <button onclick="closeSessionDetail()" class="text-gray-500 hover:text-gray-700">
+            <i class="fas fa-times text-xl"></i>
+          </button>
+        </div>
+        <div class="flex gap-4 mb-4 flex-wrap">
+          <select id="session-title-filter" class="border rounded px-3 py-2" onchange="loadSessionResults()">
+            <option value="all">모든 작품</option>
+          </select>
+          <select id="session-status-filter" class="border rounded px-3 py-2" onchange="loadSessionResults()">
+            <option value="all">모든 상태</option>
+            <option value="illegal">불법</option>
+            <option value="legal">합법</option>
+            <option value="pending">보류</option>
+          </select>
+          <button onclick="copyAllIllegalUrls()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
+            <i class="fas fa-copy mr-2"></i>불법 URL 복사
+          </button>
+          <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
+            <i class="fas fa-download mr-2"></i>엑셀 다운로드
+          </button>
+        </div>
+        <div id="session-results" class="max-h-96 overflow-y-auto">로딩 중...</div>
+        <div id="session-results-pagination" class="flex justify-center gap-2 mt-4"></div>
       </div>
     </div>
 
@@ -1070,41 +1103,6 @@ app.get('/', (c) => {
             </button>
           </div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 세션 상세 모달 -->
-  <div id="session-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-      <div class="bg-blue-500 text-white px-6 py-4 flex justify-between items-center">
-        <h2 class="text-xl font-bold"><i class="fas fa-search mr-2"></i>세션 상세 - <span id="session-modal-title"></span></h2>
-        <button onclick="closeSessionModal()" class="text-white hover:text-gray-200">
-          <i class="fas fa-times text-xl"></i>
-        </button>
-      </div>
-      <div class="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-        <div class="flex gap-4 mb-4">
-          <select id="session-title-filter" onchange="loadSessionResults()" class="border rounded px-3 py-2">
-            <option value="all">모든 작품</option>
-          </select>
-          <select id="session-status-filter" onchange="loadSessionResults()" class="border rounded px-3 py-2">
-            <option value="all">모든 상태</option>
-            <option value="illegal">불법</option>
-            <option value="legal">합법</option>
-            <option value="pending">대기</option>
-          </select>
-          <div class="flex gap-2 ml-auto">
-            <button onclick="copyAllIllegalUrls()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg">
-              <i class="fas fa-copy mr-2"></i>불법 URL 복사
-            </button>
-            <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
-              <i class="fas fa-download mr-2"></i>엑셀 다운로드
-            </button>
-          </div>
-        </div>
-        <div id="session-results" class="space-y-2">로딩 중...</div>
-        <div id="session-pagination" class="flex justify-center gap-2 mt-4"></div>
       </div>
     </div>
   </div>
@@ -1308,42 +1306,86 @@ app.get('/', (c) => {
       }
     }
     
+    let sessionsPage = 1;
+    const SESSIONS_PER_PAGE = 5;
+    let allSessions = [];
+    
     async function loadSessions() {
       const data = await fetchAPI('/api/sessions');
       if (data.success) {
         document.getElementById('sessions-badge').textContent = data.count;
+        allSessions = data.sessions;
         if (data.sessions.length === 0) {
           document.getElementById('sessions-list').innerHTML = '<div class="text-gray-500 text-center py-8"><i class="fas fa-folder-open text-4xl mb-2"></i><br>모니터링 기록이 없습니다.</div>';
+          document.getElementById('sessions-pagination').innerHTML = '';
           return;
         }
-        document.getElementById('sessions-list').innerHTML = data.sessions.map(s =>
-          '<div class="border rounded-lg p-4 mb-3 cursor-pointer hover:shadow-md hover:bg-gray-50 transition" onclick="openSessionModal(\\'' + s.id + '\\')">' +
-            '<div class="flex justify-between items-center">' +
-              '<span class="font-bold text-lg"><i class="fas fa-calendar-alt mr-2 text-blue-500"></i>' + s.id + '</span>' +
-              '<span class="text-sm text-gray-500">' + new Date(s.created_at).toLocaleString('ko-KR') + '</span>' +
-            '</div>' +
-            '<div class="flex gap-6 mt-3 text-sm">' +
-              '<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded">전체: ' + s.results_summary.total + '</span>' +
-              '<span class="bg-red-100 text-red-700 px-3 py-1 rounded">불법: ' + s.results_summary.illegal + '</span>' +
-              '<span class="bg-green-100 text-green-700 px-3 py-1 rounded">합법: ' + s.results_summary.legal + '</span>' +
-              '<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded">대기: ' + s.results_summary.pending + '</span>' +
-            '</div>' +
-          '</div>'
-        ).join('');
+        renderSessionsPage();
       }
     }
     
-    async function openSessionModal(id) {
-      currentSessionId = id;
-      currentPage = 1;
-      document.getElementById('session-modal-title').textContent = id;
-      document.getElementById('session-modal').classList.remove('hidden');
-      await loadSessionResults();
+    function renderSessionsPage() {
+      const totalPages = Math.ceil(allSessions.length / SESSIONS_PER_PAGE);
+      const startIdx = (sessionsPage - 1) * SESSIONS_PER_PAGE;
+      const pageSessions = allSessions.slice(startIdx, startIdx + SESSIONS_PER_PAGE);
+      
+      document.getElementById('sessions-list').innerHTML = pageSessions.map(s =>
+        '<div class="border rounded-lg p-4 mb-3 cursor-pointer hover:shadow-md transition ' + 
+          (currentSessionId === s.id ? 'bg-blue-50 border-blue-500' : 'hover:bg-gray-50') + '" onclick="openSessionDetail(\\'' + s.id + '\\')">' +
+          '<div class="flex justify-between items-center">' +
+            '<span class="font-bold text-lg"><i class="fas fa-calendar-alt mr-2 text-blue-500"></i>' + s.id + '</span>' +
+            '<span class="text-sm text-gray-500">' + new Date(s.created_at).toLocaleString('ko-KR') + '</span>' +
+          '</div>' +
+          '<div class="flex gap-4 mt-3 text-sm flex-wrap">' +
+            '<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded">전체: ' + s.results_summary.total + '</span>' +
+            '<span class="bg-red-100 text-red-700 px-3 py-1 rounded">불법: ' + s.results_summary.illegal + '</span>' +
+            '<span class="bg-green-100 text-green-700 px-3 py-1 rounded">합법: ' + s.results_summary.legal + '</span>' +
+            '<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded">대기: ' + s.results_summary.pending + '</span>' +
+          '</div>' +
+        '</div>'
+      ).join('');
+      
+      // 페이지네이션 렌더링
+      let paginationHtml = '';
+      if (totalPages > 1) {
+        if (sessionsPage > 1) paginationHtml += '<button onclick="goToSessionsPage(' + (sessionsPage-1) + ')" class="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded">이전</button>';
+        paginationHtml += '<span class="px-3 py-1 text-gray-600">' + sessionsPage + ' / ' + totalPages + '</span>';
+        if (sessionsPage < totalPages) paginationHtml += '<button onclick="goToSessionsPage(' + (sessionsPage+1) + ')" class="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded">다음</button>';
+      }
+      document.getElementById('sessions-pagination').innerHTML = paginationHtml;
     }
     
-    function closeSessionModal() {
-      document.getElementById('session-modal').classList.add('hidden');
+    function goToSessionsPage(page) {
+      sessionsPage = page;
+      renderSessionsPage();
+    }
+    
+    async function openSessionDetail(id) {
+      currentSessionId = id;
+      currentPage = 1;
+      
+      // 목록에서 선택된 항목 하이라이트
+      renderSessionsPage();
+      
+      // 상세 영역 표시
+      document.getElementById('session-detail-title').textContent = id;
+      document.getElementById('session-detail').classList.remove('hidden');
+      
+      // 필터 초기화
+      const titleSelect = document.getElementById('session-title-filter');
+      titleSelect.innerHTML = '<option value="all">모든 작품</option>';
+      document.getElementById('session-status-filter').value = 'all';
+      
+      await loadSessionResults();
+      
+      // 상세 영역으로 스크롤
+      document.getElementById('session-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    
+    function closeSessionDetail() {
+      document.getElementById('session-detail').classList.add('hidden');
       currentSessionId = null;
+      renderSessionsPage();
     }
     
     async function loadSessionResults() {
@@ -1407,7 +1449,7 @@ app.get('/', (c) => {
           paginationHtml += '<span class="px-3 py-1">' + page + ' / ' + totalPages + '</span>';
           if (page < totalPages) paginationHtml += '<button onclick="goToPage(' + (page+1) + ')" class="px-3 py-1 bg-gray-200 rounded">다음</button>';
         }
-        document.getElementById('session-pagination').innerHTML = paginationHtml;
+        document.getElementById('session-results-pagination').innerHTML = paginationHtml;
       }
     }
     
