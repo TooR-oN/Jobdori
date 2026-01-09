@@ -1683,8 +1683,9 @@ app.get('/', (c) => {
         selectedItem.classList.add('bg-purple-100', 'border-l-4', 'border-l-purple-500');
       }
       
-      // 상세 패널 표시
-      document.getElementById('title-stats-detail').classList.remove('hidden');
+      // placeholder 숨기고 content 표시
+      document.getElementById('title-stats-placeholder').classList.add('hidden');
+      document.getElementById('title-stats-content').classList.remove('hidden');
       document.getElementById('selected-title-name').textContent = title;
       
       // 데이터 로드
