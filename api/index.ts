@@ -34,6 +34,43 @@ async function query(strings: TemplateStringsArray, ...values: any[]): Promise<a
   return result as any[]
 }
 
+// DB 마이그레이션 - page1_illegal_count 컬럼 추가
+let dbMigrationDone = false
+async function ensureDbMigration() {
+  if (dbMigrationDone) return
+  try {
+    const db = getDatabase()
+    // manta_rankings 테이블에 page1_illegal_count 컬럼 추가 (없으면)
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'manta_rankings' AND column_name = 'page1_illegal_count'
+        ) THEN
+          ALTER TABLE manta_rankings ADD COLUMN page1_illegal_count INTEGER DEFAULT 0;
+        END IF;
+      END $$
+    `
+    // manta_ranking_history 테이블에도 추가
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'manta_ranking_history' AND column_name = 'page1_illegal_count'
+        ) THEN
+          ALTER TABLE manta_ranking_history ADD COLUMN page1_illegal_count INTEGER DEFAULT 0;
+        END IF;
+      END $$
+    `
+    dbMigrationDone = true
+    console.log('✅ DB migration completed')
+  } catch (error) {
+    console.error('DB migration error:', error)
+  }
+}
+
 // ============================================
 // Types
 // ============================================
@@ -910,8 +947,12 @@ app.get('/api/stats', async (c) => {
 // Manta 순위 API
 app.get('/api/manta-rankings', async (c) => {
   try {
+    // DB 마이그레이션 확인
+    await ensureDbMigration()
+    
     const rankings = await query`
-      SELECT title, manta_rank, first_rank_domain, search_query, session_id, page1_illegal_count, updated_at 
+      SELECT title, manta_rank, first_rank_domain, search_query, session_id, 
+             COALESCE(page1_illegal_count, 0) as page1_illegal_count, updated_at 
       FROM manta_rankings 
       ORDER BY title ASC
     `
@@ -935,7 +976,8 @@ app.get('/api/manta-rankings', async (c) => {
       })),
       lastUpdated
     })
-  } catch {
+  } catch (error) {
+    console.error('Manta rankings error:', error)
     return c.json({ success: false, error: 'Failed to load manta rankings' }, 500)
   }
 })
@@ -1435,6 +1477,7 @@ app.get('/', (c) => {
     async function fetchAPI(url, options = {}) {
       try {
         const response = await fetch(url, {
+          credentials: 'same-origin',  // 쿠키 포함
           headers: { 'Content-Type': 'application/json' },
           ...options,
         });
