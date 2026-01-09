@@ -20,7 +20,6 @@ import {
   loadJson,
   getTimestamp,
   getCurrentISOTime,
-  generateExcelReport,
 } from './utils.js';
 
 // ============================================
@@ -220,20 +219,16 @@ async function runPipeline() {
     console.log(`\n✅ Step 4 완료`);
 
     // ==========================================
-    // Step 5: 최종 결과 및 Excel 리포트 생성
+    // Step 5: 최종 결과 저장 (Excel은 다운로드 시 실시간 생성)
     // ==========================================
     console.log('\n' + '─'.repeat(60));
-    console.log('📌 Step 5: Excel 리포트 생성');
+    console.log('📌 Step 5: 최종 결과 저장');
     console.log('─'.repeat(60));
     
     const finalResults = createFinalResults(llmJudgedResults);
     
-    // JSON 저장
+    // JSON만 저장 (Excel은 다운로드 시 실시간 생성하여 Blob 용량 절약)
     saveJson(finalResults, `output/4_final-results-${timestamp}.json`);
-    
-    // Excel 리포트 생성
-    const excelPath = `output/report_${timestamp}.xlsx`;
-    generateExcelReport(finalResults, excelPath);
     
     console.log(`\n✅ Step 5 완료`);
 
@@ -255,12 +250,9 @@ async function runPipeline() {
     console.log(`   - 승인 대기: ${finalResults.filter(r => r.final_status === 'pending').length}개`);
     console.log('');
     console.log('📁 생성된 파일:');
-    console.log(`   - output/1_search-results-${timestamp}.json`);
-    console.log(`   - output/2_classified-results-${timestamp}.json`);
-    console.log(`   - output/3_llm-judged-results-${timestamp}.json`);
     console.log(`   - output/4_final-results-${timestamp}.json`);
-    console.log(`   - output/report_${timestamp}.xlsx`);
     console.log(`   - data/pending-review.json (업데이트됨)`);
+    console.log('💡 Excel 리포트는 UI에서 다운로드 시 실시간 생성됩니다.');
     console.log('');
     console.log('🌐 승인 UI: http://localhost:3000');
     console.log('═'.repeat(60));
@@ -291,7 +283,6 @@ async function runPipeline() {
         classified_results: `output/2_classified-results-${timestamp}.json`,
         llm_judged_results: `output/3_llm-judged-results-${timestamp}.json`,
         final_results: `output/4_final-results-${timestamp}.json`,
-        excel_report: excelPath,
       },
     };
 

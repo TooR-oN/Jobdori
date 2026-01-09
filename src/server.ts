@@ -2,9 +2,39 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as XLSX from 'xlsx'
+import * as crypto from 'crypto'
+
+// ============================================
+// 인증 설정
+// ============================================
+
+const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD || 'ridilegal'
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex')
+
+// 간단한 세션 토큰 생성
+function generateSessionToken(): string {
+  return crypto.randomBytes(32).toString('hex')
+}
+
+// 세션 저장소 (메모리 기반 - 서버 재시작 시 초기화됨)
+const sessions = new Map<string, { createdAt: number }>()
+
+// 세션 유효성 검사 (24시간)
+function isValidSession(token: string): boolean {
+  const session = sessions.get(token)
+  if (!session) return false
+  const now = Date.now()
+  const oneDay = 24 * 60 * 60 * 1000
+  if (now - session.createdAt > oneDay) {
+    sessions.delete(token)
+    return false
+  }
+  return true
+}
 
 // ============================================
 // 타입 정의
@@ -636,6 +666,180 @@ app.use('/api/*', cors())
 
 // 정적 파일 서빙
 app.use('/static/*', serveStatic({ root: './public' }))
+
+// ============================================
+// 인증 API
+// ============================================
+
+// 로그인 페이지
+app.get('/login', (c) => {
+  // 이미 로그인되어 있으면 메인으로 리다이렉트
+  const sessionToken = getCookie(c, 'session_token')
+  if (sessionToken && isValidSession(sessionToken)) {
+    return c.redirect('/')
+  }
+  
+  return c.html(`
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>로그인 - 웹툰 불법사이트 모니터링</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gradient-to-br from-blue-500 to-purple-600 min-h-screen flex items-center justify-center">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+    <div class="text-center mb-8">
+      <div class="bg-blue-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+        <i class="fas fa-shield-alt text-blue-600 text-3xl"></i>
+      </div>
+      <h1 class="text-2xl font-bold text-gray-800">웹툰 불법사이트 모니터링</h1>
+      <p class="text-gray-500 mt-2">접근하려면 비밀번호를 입력하세요</p>
+    </div>
+    
+    <form id="login-form" onsubmit="handleLogin(event)">
+      <div class="mb-6">
+        <label class="block text-gray-700 text-sm font-medium mb-2">
+          <i class="fas fa-lock mr-2"></i>비밀번호
+        </label>
+        <input type="password" id="password" 
+               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+               placeholder="비밀번호를 입력하세요"
+               required autofocus>
+      </div>
+      
+      <div id="error-message" class="hidden mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
+        <i class="fas fa-exclamation-circle mr-2"></i>
+        <span>비밀번호가 올바르지 않습니다.</span>
+      </div>
+      
+      <button type="submit" id="login-btn"
+              class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition duration-200 flex items-center justify-center">
+        <i class="fas fa-sign-in-alt mr-2"></i>
+        로그인
+      </button>
+    </form>
+    
+    <div class="mt-6 text-center text-sm text-gray-500">
+      <i class="fas fa-info-circle mr-1"></i>
+      내부 사용자 전용 시스템입니다
+    </div>
+  </div>
+  
+  <script>
+    async function handleLogin(event) {
+      event.preventDefault();
+      
+      const password = document.getElementById('password').value;
+      const errorMessage = document.getElementById('error-message');
+      const loginBtn = document.getElementById('login-btn');
+      
+      // 버튼 로딩 상태
+      loginBtn.disabled = true;
+      loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>확인 중...';
+      errorMessage.classList.add('hidden');
+      
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          window.location.href = '/';
+        } else {
+          errorMessage.classList.remove('hidden');
+          document.getElementById('password').value = '';
+          document.getElementById('password').focus();
+        }
+      } catch (error) {
+        errorMessage.classList.remove('hidden');
+        errorMessage.querySelector('span').textContent = '서버 오류가 발생했습니다.';
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>로그인';
+      }
+    }
+  </script>
+</body>
+</html>
+  `)
+})
+
+// 로그인 API
+app.post('/api/auth/login', async (c) => {
+  try {
+    const { password } = await c.req.json()
+    
+    if (password === ACCESS_PASSWORD) {
+      const token = generateSessionToken()
+      sessions.set(token, { createdAt: Date.now() })
+      
+      setCookie(c, 'session_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Lax',
+        maxAge: 60 * 60 * 24, // 24시간
+        path: '/'
+      })
+      
+      return c.json({ success: true })
+    }
+    
+    return c.json({ success: false, error: '비밀번호가 올바르지 않습니다.' }, 401)
+  } catch (error) {
+    return c.json({ success: false, error: '요청 처리 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
+// 로그아웃 API
+app.post('/api/auth/logout', (c) => {
+  const sessionToken = getCookie(c, 'session_token')
+  if (sessionToken) {
+    sessions.delete(sessionToken)
+  }
+  deleteCookie(c, 'session_token', { path: '/' })
+  return c.json({ success: true })
+})
+
+// 인증 상태 확인 API
+app.get('/api/auth/status', (c) => {
+  const sessionToken = getCookie(c, 'session_token')
+  const isAuthenticated = sessionToken && isValidSession(sessionToken)
+  return c.json({ authenticated: isAuthenticated })
+})
+
+// ============================================
+// 인증 미들웨어 (로그인, 정적 파일 제외)
+// ============================================
+
+app.use('*', async (c, next) => {
+  const path = c.req.path
+  
+  // 인증 없이 접근 가능한 경로
+  const publicPaths = ['/login', '/api/auth/login', '/api/auth/status', '/static/']
+  if (publicPaths.some(p => path.startsWith(p))) {
+    return next()
+  }
+  
+  // 세션 토큰 확인
+  const sessionToken = getCookie(c, 'session_token')
+  if (!sessionToken || !isValidSession(sessionToken)) {
+    // API 요청인 경우 401 반환
+    if (path.startsWith('/api/')) {
+      return c.json({ success: false, error: '인증이 필요합니다.' }, 401)
+    }
+    // 그 외 요청은 로그인 페이지로 리다이렉트
+    return c.redirect('/login')
+  }
+  
+  return next()
+})
 
 // ============================================
 // API 엔드포인트 - 승인 관련
@@ -1541,6 +1745,10 @@ app.get('/', (c) => {
           <button onclick="openTitlesModal()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition">
             <i class="fas fa-list-alt mr-2"></i>작품 변경
           </button>
+          <!-- 로그아웃 버튼 -->
+          <button onclick="handleLogout()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition">
+            <i class="fas fa-sign-out-alt mr-2"></i>로그아웃
+          </button>
         </div>
       </div>
     </div>
@@ -1918,10 +2126,25 @@ app.get('/', (c) => {
           headers: { 'Content-Type': 'application/json' },
           ...options,
         });
+        
+        // 인증 오류 처리
+        if (response.status === 401) {
+          window.location.href = '/login';
+          return { success: false, error: '인증이 필요합니다.' };
+        }
+        
         return await response.json();
       } catch (error) {
         console.error('API Error:', error);
         return { success: false, error: error.message };
+      }
+    }
+    
+    // 로그아웃 함수
+    async function handleLogout() {
+      if (confirm('로그아웃 하시겠습니까?')) {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.href = '/login';
       }
     }
 

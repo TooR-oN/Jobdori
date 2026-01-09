@@ -79,7 +79,7 @@ export interface MonitoringSession {
     classified_results: string;  // 1차 판별 결과
     llm_judged_results: string;  // 2차 판별 결과
     final_results: string;       // 최종 결과 JSON
-    excel_report: string;        // Excel 리포트
+    excel_report?: string;       // Excel 리포트 (optional - 다운로드 시 실시간 생성)
   };
 }
 
