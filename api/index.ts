@@ -433,6 +433,46 @@ app.post('/api/review', async (c) => {
   }
 })
 
+// 일괄 처리 API
+app.post('/api/review/bulk', async (c) => {
+  try {
+    const { ids, action } = await c.req.json()
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return c.json({ success: false, error: 'Missing or empty ids array' }, 400)
+    }
+    if (!action || (action !== 'approve' && action !== 'reject')) {
+      return c.json({ success: false, error: 'Invalid action' }, 400)
+    }
+    
+    let processed = 0
+    let failed = 0
+    
+    for (const id of ids) {
+      try {
+        const item = await getPendingReviewById(parseInt(id))
+        if (!item) {
+          failed++
+          continue
+        }
+        
+        if (action === 'approve') {
+          await addSite(item.domain, 'illegal')
+        } else {
+          await addSite(item.domain, 'legal')
+        }
+        await deletePendingReview(parseInt(id))
+        processed++
+      } catch {
+        failed++
+      }
+    }
+    
+    return c.json({ success: true, processed, failed, action })
+  } catch {
+    return c.json({ success: false, error: 'Failed to process bulk review' }, 500)
+  }
+})
+
 // ============================================
 // API - Sites
 // ============================================
@@ -899,6 +939,113 @@ app.get('/api/manta-rankings', async (c) => {
   }
 })
 
+// 작품별 순위 히스토리 API
+app.get('/api/titles/:title/ranking-history', async (c) => {
+  try {
+    const title = decodeURIComponent(c.req.param('title'))
+    
+    const history = await query`
+      SELECT manta_rank, first_rank_domain, session_id, recorded_at
+      FROM manta_ranking_history
+      WHERE title = ${title}
+      ORDER BY recorded_at ASC
+    `
+    
+    return c.json({
+      success: true,
+      title,
+      history: history.map(h => ({
+        rank: h.manta_rank,
+        firstDomain: h.first_rank_domain,
+        sessionId: h.session_id,
+        recordedAt: h.recorded_at
+      }))
+    })
+  } catch {
+    return c.json({ success: false, error: 'Failed to load ranking history' }, 500)
+  }
+})
+
+// 작품별 월별 불법 URL 통계 API
+app.get('/api/titles/:title/monthly-stats', async (c) => {
+  try {
+    const title = decodeURIComponent(c.req.param('title'))
+    
+    // 완료된 세션 목록 가져오기
+    const sessions = await query`
+      SELECT id, file_final_results, created_at
+      FROM sessions
+      WHERE status = 'completed' AND file_final_results IS NOT NULL
+      ORDER BY created_at ASC
+    `
+    
+    // 월별 불법 URL 수 집계
+    const monthlyData: Record<string, number> = {}
+    
+    for (const session of sessions) {
+      if (!session.file_final_results?.startsWith('http')) continue
+      
+      try {
+        const response = await fetch(session.file_final_results)
+        if (!response.ok) continue
+        
+        const results: FinalResult[] = await response.json()
+        const illegalSites = await getSitesByType('illegal')
+        const legalSites = await getSitesByType('legal')
+        const illegalSet = new Set(illegalSites.map(s => s.domain.toLowerCase()))
+        const legalSet = new Set(legalSites.map(s => s.domain.toLowerCase()))
+        
+        // 해당 작품의 불법 URL 수 계산
+        let illegalCount = 0
+        for (const r of results) {
+          if (r.title !== title) continue
+          
+          const domain = new URL(r.url).hostname.replace(/^www\./, '').toLowerCase()
+          let status = r.final_status
+          if (illegalSet.has(domain)) status = 'illegal'
+          else if (legalSet.has(domain)) status = 'legal'
+          
+          if (status === 'illegal') illegalCount++
+        }
+        
+        // 월별 집계
+        const month = session.created_at.substring(0, 7) // YYYY-MM
+        monthlyData[month] = (monthlyData[month] || 0) + illegalCount
+      } catch {
+        // 개별 세션 오류 무시
+      }
+    }
+    
+    // 정렬된 배열로 변환
+    const stats = Object.entries(monthlyData)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([month, count]) => ({ month, illegalCount: count }))
+    
+    return c.json({
+      success: true,
+      title,
+      stats
+    })
+  } catch {
+    return c.json({ success: false, error: 'Failed to load monthly stats' }, 500)
+  }
+})
+
+// 모니터링 대상 작품 목록 API (상세보기용)
+app.get('/api/titles/list', async (c) => {
+  try {
+    const titles = await query`
+      SELECT name FROM titles WHERE is_current = true ORDER BY name ASC
+    `
+    return c.json({
+      success: true,
+      titles: titles.map(t => t.name)
+    })
+  } catch {
+    return c.json({ success: false, error: 'Failed to load titles' }, 500)
+  }
+})
+
 // ============================================
 // Main Page (Full UI)
 // ============================================
@@ -912,6 +1059,7 @@ app.get('/', (c) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Jobdori - 리디 저작권 침해 모니터링</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <style>
     .tab-active { border-bottom: 3px solid #3b82f6; color: #3b82f6; font-weight: 600; }
@@ -1015,12 +1163,64 @@ app.get('/', (c) => {
         <p class="text-xs md:text-sm text-gray-500 mb-4">작품명만 검색 시 manta.net 순위 (P1-1 = 페이지1, 1위)</p>
         <div id="manta-rankings" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3">로딩 중...</div>
       </div>
+
+      <!-- 작품별 상세보기 섹션 -->
+      <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <h2 class="text-lg md:text-xl font-bold"><i class="fas fa-book text-purple-500 mr-2"></i>작품별 상세보기</h2>
+        </div>
+        <p class="text-xs md:text-sm text-gray-500 mb-4">작품을 선택하면 월별 불법 URL 통계와 검색 순위 변화를 확인할 수 있습니다.</p>
+        
+        <!-- 작품 선택 -->
+        <div class="flex flex-wrap gap-2 mb-4" id="title-select-list">
+          <span class="text-gray-400 text-sm">로딩 중...</span>
+        </div>
+        
+        <!-- 선택된 작품 상세 패널 -->
+        <div id="title-detail-panel" class="hidden border-t pt-4 mt-4">
+          <h3 class="text-lg font-bold mb-4"><i class="fas fa-chart-bar text-purple-500 mr-2"></i><span id="selected-title-name"></span></h3>
+          
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 월별 불법 URL 막대그래프 -->
+            <div class="bg-gray-50 rounded-lg p-4">
+              <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-bar mr-2 text-red-500"></i>월별 불법 URL 수</h4>
+              <div class="h-64">
+                <canvas id="monthly-illegal-chart"></canvas>
+              </div>
+              <p id="monthly-chart-empty" class="hidden text-center text-gray-400 py-8">데이터가 없습니다.</p>
+            </div>
+            
+            <!-- 검색 순위 꺾은선 그래프 -->
+            <div class="bg-gray-50 rounded-lg p-4">
+              <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-line mr-2 text-blue-500"></i>Manta 검색 순위 변화</h4>
+              <div class="h-64">
+                <canvas id="ranking-history-chart"></canvas>
+              </div>
+              <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 승인 대기 탭 -->
     <div id="content-pending" class="tab-content hidden">
       <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
-        <h2 class="text-lg md:text-xl font-bold mb-4"><i class="fas fa-clock text-yellow-500 mr-2"></i>승인 대기 목록</h2>
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <h2 class="text-lg md:text-xl font-bold"><i class="fas fa-clock text-yellow-500 mr-2"></i>승인 대기 목록</h2>
+          <div id="bulk-actions" class="hidden flex flex-wrap gap-2">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" id="select-all-pending" onchange="toggleSelectAll()" class="w-4 h-4 cursor-pointer">
+              <span>전체 선택</span>
+            </label>
+            <button onclick="bulkReview('approve')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm">
+              <i class="fas fa-ban mr-1"></i>일괄 불법
+            </button>
+            <button onclick="bulkReview('reject')" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm">
+              <i class="fas fa-check mr-1"></i>일괄 합법
+            </button>
+          </div>
+        </div>
         <div id="pending-list">로딩 중...</div>
       </div>
     </div>
@@ -1265,6 +1465,9 @@ app.get('/', (c) => {
       
       // Manta 순위 로드
       loadMantaRankings();
+      
+      // 작품별 상세보기 목록 로드
+      loadTitleSelectList();
     }
     
     async function openAllTitlesModal() {
@@ -1335,30 +1538,248 @@ app.get('/', (c) => {
       }
     }
     
+    // ============================================
+    // 작품별 상세보기 기능
+    // ============================================
+    let monthlyChart = null;
+    let rankingChart = null;
+    
+    async function loadTitleSelectList() {
+      const data = await fetchAPI('/api/titles/list');
+      if (data.success && data.titles.length > 0) {
+        document.getElementById('title-select-list').innerHTML = data.titles.map(title =>
+          '<button onclick="selectTitle(\\'' + title.replace(/'/g, "\\\\'") + '\\')" ' +
+          'class="title-select-btn px-3 py-1.5 text-sm rounded-full border border-purple-300 hover:bg-purple-100 transition truncate max-w-[200px]" ' +
+          'title="' + title + '">' + title + '</button>'
+        ).join('');
+      } else {
+        document.getElementById('title-select-list').innerHTML = '<span class="text-gray-400 text-sm">모니터링 대상 작품이 없습니다.</span>';
+      }
+    }
+    
+    async function selectTitle(title) {
+      // 버튼 활성화 상태 변경
+      document.querySelectorAll('.title-select-btn').forEach(btn => {
+        btn.classList.remove('bg-purple-500', 'text-white');
+        btn.classList.add('border-purple-300');
+      });
+      event.target.classList.add('bg-purple-500', 'text-white');
+      event.target.classList.remove('border-purple-300');
+      
+      // 상세 패널 표시
+      document.getElementById('title-detail-panel').classList.remove('hidden');
+      document.getElementById('selected-title-name').textContent = title;
+      
+      // 데이터 로드
+      await Promise.all([
+        loadMonthlyIllegalChart(title),
+        loadRankingHistoryChart(title)
+      ]);
+    }
+    
+    async function loadMonthlyIllegalChart(title) {
+      const canvas = document.getElementById('monthly-illegal-chart');
+      const emptyMsg = document.getElementById('monthly-chart-empty');
+      
+      // 기존 차트 제거
+      if (monthlyChart) {
+        monthlyChart.destroy();
+        monthlyChart = null;
+      }
+      
+      const data = await fetchAPI('/api/titles/' + encodeURIComponent(title) + '/monthly-stats');
+      if (!data.success || !data.stats || data.stats.length === 0) {
+        canvas.style.display = 'none';
+        emptyMsg.classList.remove('hidden');
+        return;
+      }
+      
+      canvas.style.display = 'block';
+      emptyMsg.classList.add('hidden');
+      
+      const labels = data.stats.map(s => s.month);
+      const values = data.stats.map(s => s.illegalCount);
+      
+      monthlyChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '불법 URL 수',
+            data: values,
+            backgroundColor: 'rgba(239, 68, 68, 0.7)',
+            borderColor: 'rgba(239, 68, 68, 1)',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: { stepSize: 1 }
+            }
+          }
+        }
+      });
+    }
+    
+    async function loadRankingHistoryChart(title) {
+      const canvas = document.getElementById('ranking-history-chart');
+      const emptyMsg = document.getElementById('ranking-chart-empty');
+      
+      // 기존 차트 제거
+      if (rankingChart) {
+        rankingChart.destroy();
+        rankingChart = null;
+      }
+      
+      const data = await fetchAPI('/api/titles/' + encodeURIComponent(title) + '/ranking-history');
+      if (!data.success || !data.history || data.history.length === 0) {
+        canvas.style.display = 'none';
+        emptyMsg.classList.remove('hidden');
+        return;
+      }
+      
+      canvas.style.display = 'block';
+      emptyMsg.classList.add('hidden');
+      
+      const labels = data.history.map(h => {
+        const d = new Date(h.recordedAt);
+        return (d.getMonth() + 1) + '/' + d.getDate();
+      });
+      const values = data.history.map(h => h.rank || null);
+      
+      rankingChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Manta 순위',
+            data: values,
+            borderColor: 'rgba(59, 130, 246, 1)',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 4,
+            pointBackgroundColor: 'rgba(59, 130, 246, 1)'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return context.raw ? context.raw + '위' : '순위권 외';
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              reverse: true,
+              min: 1,
+              max: 30,
+              ticks: {
+                stepSize: 5,
+                callback: function(value) { return value + '위'; }
+              }
+            }
+          }
+        }
+      });
+    }
+    
     async function loadPending() {
       const data = await fetchAPI('/api/pending');
       if (data.success) {
         document.getElementById('pending-badge').textContent = data.count;
+        
+        // 일괄 처리 버튼 표시/숨김
+        const bulkActions = document.getElementById('bulk-actions');
         if (data.items.length === 0) {
           document.getElementById('pending-list').innerHTML = '<div class="text-gray-500 text-center py-8"><i class="fas fa-check-circle text-4xl mb-2"></i><br>승인 대기 항목이 없습니다.</div>';
+          bulkActions.classList.add('hidden');
           return;
         }
+        
+        bulkActions.classList.remove('hidden');
         document.getElementById('pending-list').innerHTML = data.items.map(item => 
-          '<div class="border rounded-lg p-4 mb-3 hover:shadow-md transition">' +
-            '<div class="flex justify-between items-start">' +
-              '<div><a href="https://' + item.domain + '" target="_blank" rel="noopener noreferrer" class="font-bold text-lg text-blue-600 hover:text-blue-800 hover:underline">' + item.domain + ' <i class="fas fa-external-link-alt text-xs"></i></a>' +
-              '<span class="ml-2 text-sm px-2 py-1 rounded ' + 
-                (item.llm_judgment === 'likely_illegal' ? 'bg-red-100 text-red-700' : 
-                 item.llm_judgment === 'likely_legal' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700') + '">' +
-                (item.llm_judgment || 'unknown') + '</span></div>' +
-              '<div class="flex gap-2">' +
-                '<button onclick="reviewItem(' + item.id + ', \\'approve\\')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded text-sm"><i class="fas fa-ban mr-1"></i>불법</button>' +
-                '<button onclick="reviewItem(' + item.id + ', \\'reject\\')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded text-sm"><i class="fas fa-check mr-1"></i>합법</button>' +
+          '<div class="border rounded-lg p-4 mb-3 hover:shadow-md transition pending-item" data-id="' + item.id + '">' +
+            '<div class="flex justify-between items-start gap-3">' +
+              '<div class="flex items-start gap-3 flex-1 min-w-0">' +
+                '<input type="checkbox" class="pending-checkbox w-5 h-5 mt-1 cursor-pointer flex-shrink-0" data-id="' + item.id + '" onchange="updateSelectAllState()">' +
+                '<div class="min-w-0">' +
+                  '<div class="flex flex-wrap items-center gap-2">' +
+                    '<a href="https://' + item.domain + '" target="_blank" rel="noopener noreferrer" class="font-bold text-lg text-blue-600 hover:text-blue-800 hover:underline truncate">' + item.domain + ' <i class="fas fa-external-link-alt text-xs"></i></a>' +
+                    '<span class="text-sm px-2 py-1 rounded flex-shrink-0 ' + 
+                      (item.llm_judgment === 'likely_illegal' ? 'bg-red-100 text-red-700' : 
+                       item.llm_judgment === 'likely_legal' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700') + '">' +
+                      (item.llm_judgment || 'unknown') + '</span>' +
+                  '</div>' +
+                  '<div class="text-sm text-gray-600 mt-1">' + (item.llm_reason || 'API 키가 설정되지 않아 판별 불가') + '</div>' +
+                '</div>' +
+              '</div>' +
+              '<div class="flex gap-2 flex-shrink-0">' +
+                '<button onclick="reviewItem(' + item.id + ', \\'approve\\')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm"><i class="fas fa-ban mr-1"></i>불법</button>' +
+                '<button onclick="reviewItem(' + item.id + ', \\'reject\\')" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm"><i class="fas fa-check mr-1"></i>합법</button>' +
               '</div>' +
             '</div>' +
-            '<div class="text-sm text-gray-600 mt-2">' + (item.llm_reason || 'API 키가 설정되지 않아 판별 불가') + '</div>' +
           '</div>'
         ).join('');
+        
+        // 전체 선택 체크박스 초기화
+        document.getElementById('select-all-pending').checked = false;
+      }
+    }
+    
+    function toggleSelectAll() {
+      const selectAll = document.getElementById('select-all-pending').checked;
+      document.querySelectorAll('.pending-checkbox').forEach(cb => {
+        cb.checked = selectAll;
+      });
+    }
+    
+    function updateSelectAllState() {
+      const checkboxes = document.querySelectorAll('.pending-checkbox');
+      const checkedCount = document.querySelectorAll('.pending-checkbox:checked').length;
+      document.getElementById('select-all-pending').checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
+    }
+    
+    function getSelectedIds() {
+      const checked = document.querySelectorAll('.pending-checkbox:checked');
+      return Array.from(checked).map(cb => cb.dataset.id);
+    }
+    
+    async function bulkReview(action) {
+      const ids = getSelectedIds();
+      if (ids.length === 0) {
+        alert('선택된 항목이 없습니다.');
+        return;
+      }
+      
+      const actionText = action === 'approve' ? '불법 사이트로' : '합법 사이트로';
+      if (!confirm(ids.length + '개 도메인을 ' + actionText + ' 일괄 등록하시겠습니까?')) return;
+      
+      const data = await fetchAPI('/api/review/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ ids, action })
+      });
+      
+      if (data.success) {
+        showToast(data.processed + '개 도메인이 처리되었습니다.');
+        loadPending();
+        loadDashboard();
+        loadSessions();
+      } else {
+        alert('일괄 처리 실패: ' + (data.error || '알 수 없는 오류'));
       }
     }
     

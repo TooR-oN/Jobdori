@@ -307,6 +307,7 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
   let savedCount = 0;
   for (const [title, ranking] of Array.from(titleRankings.entries())) {
     try {
+      // 현재 순위 업데이트
       await sql`
         INSERT INTO manta_rankings (title, manta_rank, first_rank_domain, search_query, session_id, updated_at)
         VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${ranking.query}, ${sessionId}, NOW())
@@ -317,13 +318,20 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
           session_id = EXCLUDED.session_id,
           updated_at = NOW()
       `;
+      
+      // 히스토리에도 저장
+      await sql`
+        INSERT INTO manta_ranking_history (title, manta_rank, first_rank_domain, session_id, recorded_at)
+        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${sessionId}, NOW())
+      `;
+      
       savedCount++;
     } catch (error) {
       console.error(`Failed to save manta ranking for ${title}:`, error);
     }
   }
   
-  console.log(`✅ Manta 순위 ${savedCount}개 작품 업데이트 완료`);
+  console.log(`✅ Manta 순위 ${savedCount}개 작품 업데이트 완료 (히스토리 저장 포함)`);
   return savedCount;
 }
 

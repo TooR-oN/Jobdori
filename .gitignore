@@ -40,3 +40,4 @@ output/*.xlsx
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+.dev.vars

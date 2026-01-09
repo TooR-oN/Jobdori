@@ -342,5 +342,35 @@ export async function initializeDatabase(): Promise<void> {
     )
   `
 
+  // manta_rankings 테이블 (현재 순위)
+  await sql`
+    CREATE TABLE IF NOT EXISTS manta_rankings (
+      title VARCHAR(500) PRIMARY KEY,
+      manta_rank INTEGER,
+      first_rank_domain VARCHAR(255),
+      search_query VARCHAR(500),
+      session_id VARCHAR(50),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )
+  `
+
+  // manta_ranking_history 테이블 (순위 히스토리)
+  await sql`
+    CREATE TABLE IF NOT EXISTS manta_ranking_history (
+      id SERIAL PRIMARY KEY,
+      title VARCHAR(500) NOT NULL,
+      manta_rank INTEGER,
+      first_rank_domain VARCHAR(255),
+      session_id VARCHAR(50),
+      recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )
+  `
+
+  // 인덱스 추가 (작품별 히스토리 조회 최적화)
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_manta_ranking_history_title 
+    ON manta_ranking_history(title, recorded_at DESC)
+  `
+
   console.log('✅ Database tables initialized')
 }
