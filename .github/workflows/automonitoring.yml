@@ -1,0 +1,62 @@
+# Jobdori 모니터링 워크플로우
+# 수동 실행 및 자동 스케줄 지원
+
+name: Jobdori Monitoring
+
+on:
+  # 수동 실행 (GitHub Actions 페이지에서 "Run workflow" 버튼)
+  workflow_dispatch:
+
+  # 자동 실행 스케줄 (매일 한국시간 오전 9시 = UTC 0시)
+  schedule:
+    - cron: '0 0 * * *'
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  monitoring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🚀 Run Full Pipeline
+        env:
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: npm run run-pipeline
+
+      - name: 📤 Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monitoring-results-${{ github.run_number }}
+          path: output/
+          retention-days: 30
+
+      - name: ✅ Summary
+        if: always()
+        run: |
+          echo "## 🎯 Jobdori 모니터링 완료" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 항목 | 값 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| 실행 시간 | $(date '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "| 트리거 | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 상태 | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🌐 [Jobdori 대시보드](https://jobdori.vercel.app)" >> $GITHUB_STEP_SUMMARY
