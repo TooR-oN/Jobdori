@@ -524,10 +524,42 @@ app.post('/api/titles/restore', async (c) => {
 app.get('/api/sessions', async (c) => {
   try {
     const sessionsList = await getSessions()
-    return c.json({
-      success: true,
-      count: sessionsList.length,
-      sessions: sessionsList.map((s: any) => ({
+    
+    // 각 세션의 통계를 실시간으로 재계산
+    const sessionsWithStats = await Promise.all(sessionsList.map(async (s: any) => {
+      let results_summary = {
+        total: s.results_total || 0,
+        illegal: s.results_illegal || 0,
+        legal: s.results_legal || 0,
+        pending: s.results_pending || 0
+      }
+      
+      // Blob에서 결과를 가져와 실시간 통계 계산
+      if (s.file_final_results?.startsWith('http')) {
+        try {
+          const results = await downloadResults(s.file_final_results)
+          const recalculated = await recalculateFinalStatus(results)
+          
+          // URL 중복 제거 후 통계 계산
+          const seenUrls = new Set<string>()
+          const uniqueResults = recalculated.filter(r => {
+            if (seenUrls.has(r.url)) return false
+            seenUrls.add(r.url)
+            return true
+          })
+          
+          results_summary = {
+            total: uniqueResults.length,
+            illegal: uniqueResults.filter(r => r.final_status === 'illegal').length,
+            legal: uniqueResults.filter(r => r.final_status === 'legal').length,
+            pending: uniqueResults.filter(r => r.final_status === 'pending').length
+          }
+        } catch {
+          // Blob 로드 실패 시 DB 값 사용
+        }
+      }
+      
+      return {
         id: s.id,
         created_at: s.created_at,
         completed_at: s.completed_at,
@@ -535,13 +567,14 @@ app.get('/api/sessions', async (c) => {
         titles_count: s.titles_count,
         keywords_count: s.keywords_count,
         total_searches: s.total_searches,
-        results_summary: {
-          total: s.results_total,
-          illegal: s.results_illegal,
-          legal: s.results_legal,
-          pending: s.results_pending
-        }
-      }))
+        results_summary
+      }
+    }))
+    
+    return c.json({
+      success: true,
+      count: sessionsWithStats.length,
+      sessions: sessionsWithStats
     })
   } catch {
     return c.json({ success: false, error: 'Failed to load sessions' }, 500)
@@ -998,31 +1031,56 @@ app.get('/', (c) => {
       <div id="session-detail" class="hidden bg-white rounded-lg shadow-md p-6">
         <div class="flex justify-between items-center mb-4">
           <h3 class="text-lg font-bold">
-            <i class="fas fa-search text-blue-500 mr-2"></i>
-            회차 상세 - <span id="session-detail-title"></span>
+            <i class="fas fa-table text-blue-500 mr-2"></i>
+            세션 상세 결과: <span id="session-detail-title"></span>
           </h3>
-          <button onclick="closeSessionDetail()" class="text-gray-500 hover:text-gray-700">
-            <i class="fas fa-times text-xl"></i>
-          </button>
+          <div class="flex gap-2">
+            <button onclick="copyAllIllegalUrls()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm">
+              <i class="fas fa-copy mr-1"></i>불법 URL 복사
+            </button>
+            <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm">
+              <i class="fas fa-download mr-1"></i>엑셀 다운로드
+            </button>
+            <button onclick="closeSessionDetail()" class="text-gray-500 hover:text-gray-700 px-2">
+              <i class="fas fa-times text-xl"></i> 닫기
+            </button>
+          </div>
         </div>
-        <div class="flex gap-4 mb-4 flex-wrap">
-          <select id="session-title-filter" class="border rounded px-3 py-2" onchange="loadSessionResults()">
+        
+        <!-- 통계 요약 바 -->
+        <div id="session-stats-bar" class="grid grid-cols-4 gap-2 mb-4 text-center text-sm"></div>
+        
+        <!-- 필터 -->
+        <div class="flex gap-4 mb-4 items-center flex-wrap">
+          <select id="session-title-filter" class="border rounded px-3 py-2 text-sm" onchange="loadSessionResults()">
             <option value="all">모든 작품</option>
           </select>
-          <select id="session-status-filter" class="border rounded px-3 py-2" onchange="loadSessionResults()">
+          <select id="session-status-filter" class="border rounded px-3 py-2 text-sm" onchange="loadSessionResults()">
             <option value="all">모든 상태</option>
             <option value="illegal">불법</option>
             <option value="legal">합법</option>
-            <option value="pending">보류</option>
+            <option value="pending">대기</option>
           </select>
-          <button onclick="copyAllIllegalUrls()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
-            <i class="fas fa-copy mr-2"></i>불법 URL 복사
-          </button>
-          <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
-            <i class="fas fa-download mr-2"></i>엑셀 다운로드
-          </button>
         </div>
-        <div id="session-results" class="max-h-96 overflow-y-auto">로딩 중...</div>
+        
+        <!-- 테이블 -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm border-collapse">
+            <thead class="bg-gray-100 sticky top-0">
+              <tr>
+                <th class="border px-3 py-2 text-left w-8">#</th>
+                <th class="border px-3 py-2 text-left">작품명</th>
+                <th class="border px-3 py-2 text-left">URL</th>
+                <th class="border px-3 py-2 text-center w-20">상태</th>
+                <th class="border px-3 py-2 text-center w-24">LLM판단</th>
+                <th class="border px-3 py-2 text-center w-36">검토일시</th>
+              </tr>
+            </thead>
+            <tbody id="session-results">
+              <tr><td colspan="6" class="text-center py-4 text-gray-500">로딩 중...</td></tr>
+            </tbody>
+          </table>
+        </div>
         <div id="session-results-pagination" class="flex justify-center gap-2 mt-4"></div>
       </div>
     </div>
@@ -1396,7 +1454,7 @@ app.get('/', (c) => {
       
       const params = new URLSearchParams({
         page: currentPage,
-        limit: 20,
+        limit: 50,
         title: titleFilter,
         status: statusFilter
       });
@@ -1415,39 +1473,58 @@ app.get('/', (c) => {
           });
         }
         
-        // 결과 표시
+        // 통계 바 업데이트 (전체 결과 기준)
+        const statsData = await fetchAPI('/api/sessions/' + currentSessionId + '/results?limit=10000');
+        if (statsData.success) {
+          const allResults = statsData.results;
+          const total = allResults.length;
+          const illegal = allResults.filter(r => r.final_status === 'illegal').length;
+          const legal = allResults.filter(r => r.final_status === 'legal').length;
+          const pending = allResults.filter(r => r.final_status === 'pending').length;
+          
+          document.getElementById('session-stats-bar').innerHTML = 
+            '<div class="bg-blue-100 text-blue-700 py-2 rounded"><div class="text-xl font-bold">' + total + '</div><div class="text-xs">전체</div></div>' +
+            '<div class="bg-red-100 text-red-700 py-2 rounded"><div class="text-xl font-bold">' + illegal + '</div><div class="text-xs">불법</div></div>' +
+            '<div class="bg-green-100 text-green-700 py-2 rounded"><div class="text-xl font-bold">' + legal + '</div><div class="text-xs">합법</div></div>' +
+            '<div class="bg-yellow-100 text-yellow-700 py-2 rounded"><div class="text-xl font-bold">' + pending + '</div><div class="text-xs">대기</div></div>';
+        }
+        
+        // 결과 표시 (테이블 형식)
         if (data.results.length === 0) {
-          document.getElementById('session-results').innerHTML = '<div class="text-gray-500 text-center py-8">결과가 없습니다.</div>';
+          document.getElementById('session-results').innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">결과가 없습니다.</td></tr>';
         } else {
-          document.getElementById('session-results').innerHTML = data.results.map(r =>
-            '<div class="border rounded p-3 ' + 
-              (r.final_status === 'illegal' ? 'border-l-4 border-l-red-500 bg-red-50' : 
-               r.final_status === 'legal' ? 'border-l-4 border-l-green-500 bg-green-50' : 'border-l-4 border-l-yellow-500 bg-yellow-50') + '">' +
-              '<div class="flex justify-between items-start">' +
-                '<div class="flex-1 min-w-0">' +
-                  '<div class="font-medium">' + r.domain + '</div>' +
-                  '<div class="flex items-center gap-2">' +
-                    '<a href="' + r.url + '" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-500 hover:text-blue-700 truncate max-w-lg">' + r.url + '</a>' +
-                    '<button onclick="copyUrl(\\'' + r.url.replace(/'/g, "\\\\'") + '\\')" class="text-gray-400 hover:text-gray-600 flex-shrink-0" title="URL 복사"><i class="fas fa-copy"></i></button>' +
-                  '</div>' +
-                  '<div class="text-xs text-gray-400 mt-1">' + r.title + ' | ' + r.search_query + '</div>' +
+          const startIdx = (data.pagination.page - 1) * data.pagination.limit;
+          document.getElementById('session-results').innerHTML = data.results.map((r, idx) => {
+            const statusClass = r.final_status === 'illegal' ? 'bg-red-500 text-white' : 
+                               r.final_status === 'legal' ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white';
+            const llmClass = r.llm_judgment === 'likely_illegal' ? 'text-red-600' : 
+                            r.llm_judgment === 'likely_legal' ? 'text-green-600' : 'text-gray-500';
+            const rowBg = r.final_status === 'illegal' ? 'bg-red-50' : 
+                         r.final_status === 'legal' ? 'bg-green-50' : 'bg-yellow-50';
+            
+            return '<tr class="' + rowBg + ' hover:bg-opacity-75">' +
+              '<td class="border px-3 py-2 text-center text-gray-500">' + (startIdx + idx + 1) + '</td>' +
+              '<td class="border px-3 py-2">' + r.title + '</td>' +
+              '<td class="border px-3 py-2">' +
+                '<div class="flex items-center gap-1">' +
+                  '<a href="' + r.url + '" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:text-blue-700 truncate max-w-md block" title="' + r.url + '">' + r.url + '</a>' +
+                  '<button onclick="copyUrl(\\'' + r.url.replace(/'/g, "\\\\'") + '\\')" class="text-gray-400 hover:text-gray-600 flex-shrink-0" title="URL 복사"><i class="fas fa-copy"></i></button>' +
                 '</div>' +
-                '<span class="text-xs px-2 py-1 rounded ml-2 flex-shrink-0 ' +
-                  (r.final_status === 'illegal' ? 'bg-red-500 text-white' : 
-                   r.final_status === 'legal' ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white') + '">' +
-                  r.final_status + '</span>' +
-              '</div>' +
-            '</div>'
-          ).join('');
+              '</td>' +
+              '<td class="border px-3 py-2 text-center"><span class="px-2 py-1 rounded text-xs ' + statusClass + '">' + r.final_status + '</span></td>' +
+              '<td class="border px-3 py-2 text-center ' + llmClass + '">' + (r.llm_judgment || '-') + '</td>' +
+              '<td class="border px-3 py-2 text-center text-xs text-gray-500">' + (r.reviewed_at ? new Date(r.reviewed_at).toLocaleString('ko-KR') : '-') + '</td>' +
+            '</tr>';
+          }).join('');
         }
         
         // 페이지네이션
         const { page, totalPages } = data.pagination;
         let paginationHtml = '';
         if (totalPages > 1) {
-          if (page > 1) paginationHtml += '<button onclick="goToPage(' + (page-1) + ')" class="px-3 py-1 bg-gray-200 rounded">이전</button>';
+          if (page > 1) paginationHtml += '<button onclick="goToPage(' + (page-1) + ')" class="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded">이전</button>';
           paginationHtml += '<span class="px-3 py-1">' + page + ' / ' + totalPages + '</span>';
-          if (page < totalPages) paginationHtml += '<button onclick="goToPage(' + (page+1) + ')" class="px-3 py-1 bg-gray-200 rounded">다음</button>';
+          if (page < totalPages) paginationHtml += '<button onclick="goToPage(' + (page+1) + ')" class="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded">다음</button>';
         }
         document.getElementById('session-results-pagination').innerHTML = paginationHtml;
       }
