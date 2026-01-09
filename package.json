@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx watch src/server.ts",
-    "build": "vite build",
+    "build": "echo 'No build needed for Vercel Edge'",
     "preview": "vite preview",
     "search": "tsx scripts/search.ts",
     "classify": "tsx scripts/classify.ts",
