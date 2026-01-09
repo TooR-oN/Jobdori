@@ -1,6 +1,27 @@
 {
   "sessions": [
     {
+      "id": "2026-01-09T03-04-49",
+      "created_at": "2026-01-09T03:07:06.667Z",
+      "completed_at": "2026-01-09T03:07:06.667Z",
+      "status": "completed",
+      "titles_count": 20,
+      "keywords_count": 3,
+      "total_searches": 60,
+      "results_summary": {
+        "total": 575,
+        "illegal": 103,
+        "legal": 423,
+        "pending": 49
+      },
+      "files": {
+        "search_results": "output/1_search-results-2026-01-09T03-04-49.json",
+        "classified_results": "output/2_classified-results-2026-01-09T03-04-49.json",
+        "llm_judged_results": "output/3_llm-judged-results-2026-01-09T03-04-49.json",
+        "final_results": "output/4_final-results-2026-01-09T03-04-49.json"
+      }
+    },
+    {
       "id": "2026-01-08T01-07-23",
       "created_at": "2026-01-08T01:09:27.471Z",
       "completed_at": "2026-01-08T01:09:27.471Z",
@@ -45,5 +66,5 @@
       }
     }
   ],
-  "last_updated": "2026-01-09T03:00:23.393Z"
+  "last_updated": "2026-01-09T03:08:20.378Z"
 }

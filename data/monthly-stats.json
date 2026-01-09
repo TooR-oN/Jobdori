@@ -2,69 +2,69 @@
   "months": [
     {
       "month": "2026-01",
-      "sessions_count": 2,
+      "sessions_count": 3,
       "total_stats": {
-        "total": 556,
-        "illegal": 245,
-        "legal": 311,
-        "pending": 0
+        "total": 778,
+        "illegal": 319,
+        "legal": 410,
+        "pending": 49
       },
       "top_contents": [
         {
           "title": "Guilty Office",
-          "illegal_count": 41,
-          "manta_rank_diff": null,
-          "first_rank_domain": null
+          "illegal_count": 57,
+          "manta_rank_diff": 7,
+          "first_rank_domain": "manta.net"
         },
         {
           "title": "From Sandbox to Bed",
-          "illegal_count": 26,
-          "manta_rank_diff": null,
-          "first_rank_domain": null
-        },
-        {
-          "title": "Violet Romance",
-          "illegal_count": 23,
-          "manta_rank_diff": null,
-          "first_rank_domain": null
+          "illegal_count": 36,
+          "manta_rank_diff": 7,
+          "first_rank_domain": "manta.net"
         },
         {
           "title": "The Duke's Fluffy Secret",
-          "illegal_count": 20,
-          "manta_rank_diff": null,
-          "first_rank_domain": null
+          "illegal_count": 29,
+          "manta_rank_diff": 1,
+          "first_rank_domain": "manta.net"
+        },
+        {
+          "title": "Violet Romance",
+          "illegal_count": 28,
+          "manta_rank_diff": 0,
+          "first_rank_domain": "manta.net"
         },
         {
           "title": "Dangerous",
-          "illegal_count": 19,
+          "illegal_count": 24,
           "manta_rank_diff": null,
-          "first_rank_domain": null
+          "first_rank_domain": "en.wikipedia.org"
         }
       ],
       "top_illegal_sites": [
         {
           "domain": "manhwaread.com",
-          "count": 29
+          "count": 37
         },
         {
           "domain": "bato.si",
-          "count": 24
+          "count": 32
         },
         {
           "domain": "xbato.com",
+          "count": 22
+        },
+        {
+          "domain": "mangatoto.net",
           "count": 18
         },
         {
           "domain": "manhwaclan.com",
-          "count": 15
-        },
-        {
-          "domain": "mangatoto.net",
-          "count": 12
+          "count": 18
         }
       ],
-      "last_updated": "2026-01-08T02:44:08.770Z"
+      "last_updated": "2026-01-09T03:07:06.786Z"
     }
   ],
-  "last_updated": "2026-01-08T02:44:08.770Z"
+  "last_updated": "2026-01-09T03:07:06.786Z"
 }

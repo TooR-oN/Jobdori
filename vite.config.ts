@@ -1,14 +1,18 @@
-import build from '@hono/vite-build/cloudflare-pages'
+import build from '@hono/vite-build/node'
 import devServer from '@hono/vite-dev-server'
-import adapter from '@hono/vite-dev-server/cloudflare'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
-    build(),
+    build({
+      entry: 'src/index.ts'
+    }),
     devServer({
-      adapter,
-      entry: 'src/index.tsx'
+      entry: 'src/index.ts'
     })
-  ]
+  ],
+  build: {
+    outDir: 'dist',
+    minify: true
+  }
 })

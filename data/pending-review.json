@@ -1,1 +1,604 @@
-[]
+[
+  {
+    "id": "1",
+    "domain": "barnesandnoble.com",
+    "urls": [
+      "https://www.barnesandnoble.com/w/under-the-oak-tree-suji-kim/1147532826"
+    ],
+    "titles": [
+      "Under the Oak Tree"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "2",
+    "domain": "catalog.freelibrary.org",
+    "urls": [
+      "https://catalog.freelibrary.org/Record/2705503"
+    ],
+    "titles": [
+      "Under the Oak Tree"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "3",
+    "domain": "kobo.com",
+    "urls": [
+      "https://www.kobo.com/us/en/ebook/under-the-oak-tree-volume-1-the-comic?srsltid=AfmBOorkyj5PAZYSKDJu7TMUSzQX3L-FviQzfbLTCehQUbYYOzS08rrY"
+    ],
+    "titles": [
+      "Under the Oak Tree"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "4",
+    "domain": "merriam-webster.com",
+    "urls": [
+      "https://www.merriam-webster.com/dictionary/degenerate",
+      "https://www.merriam-webster.com/dictionary/dangerous"
+    ],
+    "titles": [
+      "Degenerate",
+      "Dangerous"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "5",
+    "domain": "dictionary.com",
+    "urls": [
+      "https://www.dictionary.com/browse/degenerate"
+    ],
+    "titles": [
+      "Degenerate"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "6",
+    "domain": "vocabulary.com",
+    "urls": [
+      "https://www.vocabulary.com/dictionary/degenerate"
+    ],
+    "titles": [
+      "Degenerate"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "7",
+    "domain": "dictionary.cambridge.org",
+    "urls": [
+      "https://dictionary.cambridge.org/us/dictionary/english/degenerate",
+      "https://dictionary.cambridge.org/us/dictionary/english/dangerous"
+    ],
+    "titles": [
+      "Degenerate",
+      "Dangerous"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "8",
+    "domain": "mathworld.wolfram.com",
+    "urls": [
+      "https://mathworld.wolfram.com/Degenerate.html"
+    ],
+    "titles": [
+      "Degenerate"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "9",
+    "domain": "thesaurus.com",
+    "urls": [
+      "https://www.thesaurus.com/browse/degenerate",
+      "https://www.thesaurus.com/browse/dangerous"
+    ],
+    "titles": [
+      "Degenerate",
+      "Dangerous"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "10",
+    "domain": "britannica.com",
+    "urls": [
+      "https://www.britannica.com/dictionary/degenerate"
+    ],
+    "titles": [
+      "Degenerate"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "11",
+    "domain": "fanverse.org",
+    "urls": [
+      "https://www.fanverse.org/threads/official-tobis-identity-thread.844121/page-37"
+    ],
+    "titles": [
+      "My Master Doesn't Bite!"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "12",
+    "domain": "neogaf.com",
+    "urls": [
+      "https://www.neogaf.com/threads/manga-news-discussion-ot13-dont-bite-the-dog-that-feeds-the-hand.853771/page-377"
+    ],
+    "titles": [
+      "My Master Doesn't Bite!"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "13",
+    "domain": "open.spotify.com",
+    "urls": [
+      "https://open.spotify.com/track/7p5cm9cjkSDEtPE3P5wvOS",
+      "https://open.spotify.com/track/38HzkRHimxe8tB1dDArq4e",
+      "https://open.spotify.com/track/1MDQ1IsavnHoUFnxxKB2qf",
+      "https://open.spotify.com/track/1QwuUvd5IEsyLrB47jEOpB"
+    ],
+    "titles": [
+      "Don't Tell My Brother!",
+      "Guilty Office",
+      "Dangerous",
+      "F My Ex"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "14",
+    "domain": "novellist.co",
+    "urls": [
+      "https://www.novellist.co/novels/guilty-office"
+    ],
+    "titles": [
+      "Guilty Office"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "15",
+    "domain": "mangafire.to",
+    "urls": [
+      "https://mangafire.to/read/guilty-office.60x1p/en/chapter-15"
+    ],
+    "titles": [
+      "Guilty Office"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "16",
+    "domain": "laterpress.com",
+    "urls": [
+      "https://www.laterpress.com/blog/cosmic-horror"
+    ],
+    "titles": [
+      "How About a Cosmic Horror?"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "17",
+    "domain": "jpbeaubien.com",
+    "urls": [
+      "https://jpbeaubien.com/terrible-writing-advice-chapter-34-cosmic-horror/"
+    ],
+    "titles": [
+      "How About a Cosmic Horror?"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "18",
+    "domain": "penningtonslaw.com",
+    "urls": [
+      "https://www.penningtonslaw.com/insights/predatory-marriage-what-is-it-and-what-you-can-do/"
+    ],
+    "titles": [
+      "Predatory Marriage"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "19",
+    "domain": "netflix.com",
+    "urls": [
+      "https://www.netflix.com/nf/title/81978237",
+      "https://www.netflix.com/title/60027014"
+    ],
+    "titles": [
+      "The Beast Within",
+      "High Society"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "20",
+    "domain": "nofspodcast.com",
+    "urls": [
+      "https://nofspodcast.com/the-beast-within-review-gothic-thriller-uses-werewolves-as-a-metaphor-to-explore-the-cycle-of-abuse-fantasiafest"
+    ],
+    "titles": [
+      "The Beast Within"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "21",
+    "domain": "tv.apple.com",
+    "urls": [
+      "https://tv.apple.com/us/movie/the-beast-within/umc.cmc.2gs2otfgi9w7mc1agu3pmqohf"
+    ],
+    "titles": [
+      "The Beast Within"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "22",
+    "domain": "manhwaraw.com",
+    "urls": [
+      "https://manhwaraw.com/manhwa-raw/from-sandbox-to-bed-official/chapter-24/"
+    ],
+    "titles": [
+      "From Sandbox to Bed"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "23",
+    "domain": "comicbook.com",
+    "urls": [
+      "https://comicbook.com/anime/list/10-dark-fantasy-manga-perfect-for-berserk-fans-ranked/"
+    ],
+    "titles": [
+      "Dangerous"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "24",
+    "domain": "bookstore.dorrancepublishing.com",
+    "urls": [
+      "https://bookstore.dorrancepublishing.com/products/a-prison-love-who-knew-the-man-you-vowed-to-love-forever-would-cause-you-the-most-pain"
+    ],
+    "titles": [
+      "Prison Love"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "25",
+    "domain": "fisherpub.sjf.edu",
+    "urls": [
+      "https://fisherpub.sjf.edu/cgi/viewcontent.cgi?article=3036&context=angle"
+    ],
+    "titles": [
+      "Prison Love"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "26",
+    "domain": "cbs19.tv",
+    "urls": [
+      "https://www.cbs19.tv/article/news/local/ryan-nichols-pardoned-jan-6-participant-east-texas-reflects-on-turbulent-past-embraces-new-chapter-5-years-later/501-0dd1aa1d-48b8-4407-b474-bc019763419f"
+    ],
+    "titles": [
+      "Prison Love"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "27",
+    "domain": "mylifetime.com",
+    "urls": [
+      "https://www.mylifetime.com/shows/gypsy-rose-life-after-lock-up"
+    ],
+    "titles": [
+      "Prison Love"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "28",
+    "domain": "webnovel.com",
+    "urls": [
+      "https://www.webnovel.com/ask/t341444896373782"
+    ],
+    "titles": [
+      "Betrayal of Dignity"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "29",
+    "domain": "anisearch.com",
+    "urls": [
+      "https://www.anisearch.com/manga/91147,f-my-ex"
+    ],
+    "titles": [
+      "F My Ex"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "30",
+    "domain": "highsocietydispo.com",
+    "urls": [
+      "https://highsocietydispo.com/"
+    ],
+    "titles": [
+      "High Society"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "31",
+    "domain": "highsocietydetroit.com",
+    "urls": [
+      "https://www.highsocietydetroit.com/"
+    ],
+    "titles": [
+      "High Society"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "32",
+    "domain": "highsocietydavison.com",
+    "urls": [
+      "https://highsocietydavison.com/"
+    ],
+    "titles": [
+      "High Society"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "33",
+    "domain": "boardgamegeek.com",
+    "urls": [
+      "https://boardgamegeek.com/boardgame/220/high-society"
+    ],
+    "titles": [
+      "High Society"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "34",
+    "domain": "highsocietyfreeride.com",
+    "urls": [
+      "https://highsocietyfreeride.com/?srsltid=AfmBOor7f5OmKSl_Uj5KnwvMrj6BzEIfOK8W8YoEjF9TrvORkLtFuDB9"
+    ],
+    "titles": [
+      "High Society"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "35",
+    "domain": "jackandjillinc.org",
+    "urls": [
+      "https://www.jackandjillinc.org/"
+    ],
+    "titles": [
+      "High Society"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "36",
+    "domain": "goxip.com",
+    "urls": [
+      "https://www.goxip.com/us/en/designers/violet-romance"
+    ],
+    "titles": [
+      "Violet Romance"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "37",
+    "domain": "depop.com",
+    "urls": [
+      "https://www.depop.com/brands/violet-romance/"
+    ],
+    "titles": [
+      "Violet Romance"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "38",
+    "domain": "influencefashion.co.uk",
+    "urls": [
+      "https://www.influencefashion.co.uk/violet-romance/"
+    ],
+    "titles": [
+      "Violet Romance"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "39",
+    "domain": "asos.com",
+    "urls": [
+      "https://www.asos.com/us/violet-romance/violet-romance-midi-tea-dress-in-mixed-floral-print/prd/21329647"
+    ],
+    "titles": [
+      "Violet Romance"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "40",
+    "domain": "selectivegardener.com",
+    "urls": [
+      "https://selectivegardener.com/4IN-Variegated-African-Violet-Romance-p45.html"
+    ],
+    "titles": [
+      "Violet Romance"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "41",
+    "domain": "houseoffraser.co.uk",
+    "urls": [
+      "https://www.houseoffraser.co.uk/brand/violet-romance"
+    ],
+    "titles": [
+      "Violet Romance"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  },
+  {
+    "id": "42",
+    "domain": "zeldadungeon.net",
+    "urls": [
+      "https://www.zeldadungeon.net/forum/threads/favorite-romance-anime-manga.78632/"
+    ],
+    "titles": [
+      "Violet Romance"
+    ],
+    "llm_judgment": "uncertain",
+    "llm_reason": "API 키가 설정되지 않아 판별 불가",
+    "created_at": "2026-01-09T03:07:06.653Z",
+    "session_id": "2026-01-09T03-04-49"
+  }
+]
