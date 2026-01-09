@@ -923,104 +923,104 @@ app.get('/', (c) => {
 <body class="bg-gray-100 min-h-screen">
   <div class="container mx-auto px-4 py-8 max-w-7xl">
     <!-- 헤더 -->
-    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-      <div class="flex items-center justify-between">
+    <div class="bg-white rounded-lg shadow-md p-4 md:p-6 mb-4 md:mb-6">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div class="flex items-center gap-3">
-          <svg width="70" height="28" viewBox="0 0 70 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <text x="0" y="23" font-family="Arial Black, sans-serif" font-size="26" font-weight="900" fill="#1E9EF4">RIDI</text>
+          <svg width="60" height="24" viewBox="0 0 60 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="flex-shrink-0">
+            <text x="0" y="20" font-family="Arial Black, sans-serif" font-size="22" font-weight="900" fill="#1E9EF4">RIDI</text>
           </svg>
           <div>
-            <h1 class="text-2xl font-bold text-gray-800">Jobdori</h1>
-            <p class="text-gray-600 text-sm">리디 저작권 침해 모니터링 시스템</p>
+            <h1 class="text-xl md:text-2xl font-bold text-gray-800">Jobdori</h1>
+            <p class="text-gray-600 text-xs md:text-sm hidden sm:block">리디 저작권 침해 모니터링 시스템</p>
           </div>
         </div>
-        <div class="flex gap-3">
-          <button onclick="openTitlesModal()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition">
-            <i class="fas fa-list-alt mr-2"></i>작품 변경
+        <div class="flex gap-2 md:gap-3">
+          <button onclick="openTitlesModal()" class="flex-1 md:flex-none bg-purple-500 hover:bg-purple-600 text-white px-3 md:px-4 py-2 rounded-lg transition text-sm md:text-base">
+            <i class="fas fa-list-alt md:mr-2"></i><span class="hidden md:inline">작품 변경</span>
           </button>
-          <button onclick="handleLogout()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition">
-            <i class="fas fa-sign-out-alt mr-2"></i>로그아웃
+          <button onclick="handleLogout()" class="flex-1 md:flex-none bg-gray-500 hover:bg-gray-600 text-white px-3 md:px-4 py-2 rounded-lg transition text-sm md:text-base">
+            <i class="fas fa-sign-out-alt md:mr-2"></i><span class="hidden md:inline">로그아웃</span>
           </button>
         </div>
       </div>
     </div>
 
     <!-- 탭 메뉴 -->
-    <div class="bg-white rounded-lg shadow-md mb-6">
-      <div class="flex border-b">
-        <button id="tab-dashboard" onclick="switchTab('dashboard')" class="px-6 py-4 text-gray-600 hover:text-blue-600 tab-active">
-          <i class="fas fa-chart-line mr-2"></i>대시보드
+    <div class="bg-white rounded-lg shadow-md mb-4 md:mb-6">
+      <div class="flex border-b overflow-x-auto">
+        <button id="tab-dashboard" onclick="switchTab('dashboard')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 tab-active text-sm md:text-base">
+          <i class="fas fa-chart-line md:mr-2"></i><span class="hidden md:inline">대시보드</span>
         </button>
-        <button id="tab-pending" onclick="switchTab('pending')" class="px-6 py-4 text-gray-600 hover:text-blue-600">
-          <i class="fas fa-clock mr-2"></i>승인 대기
-          <span id="pending-badge" class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">0</span>
+        <button id="tab-pending" onclick="switchTab('pending')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
+          <i class="fas fa-clock md:mr-2"></i><span class="hidden md:inline">승인 대기</span>
+          <span id="pending-badge" class="ml-1 md:ml-2 bg-red-500 text-white text-xs px-1.5 md:px-2 py-0.5 md:py-1 rounded-full">0</span>
         </button>
-        <button id="tab-sessions" onclick="switchTab('sessions')" class="px-6 py-4 text-gray-600 hover:text-blue-600">
-          <i class="fas fa-history mr-2"></i>모니터링 회차
+        <button id="tab-sessions" onclick="switchTab('sessions')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
+          <i class="fas fa-history md:mr-2"></i><span class="hidden md:inline">모니터링 회차</span>
         </button>
-        <button id="tab-sites" onclick="switchTab('sites')" class="px-6 py-4 text-gray-600 hover:text-blue-600">
-          <i class="fas fa-globe mr-2"></i>사이트 목록
+        <button id="tab-sites" onclick="switchTab('sites')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
+          <i class="fas fa-globe md:mr-2"></i><span class="hidden md:inline">사이트 목록</span>
         </button>
       </div>
     </div>
 
     <!-- 대시보드 탭 -->
     <div id="content-dashboard" class="tab-content">
-      <div class="bg-white rounded-lg shadow-md p-6">
-        <div class="flex items-center justify-between mb-6">
-          <h2 class="text-xl font-bold">월간 모니터링 현황</h2>
-          <select id="month-select" onchange="loadDashboard()" class="border rounded-lg px-3 py-2">
+      <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 md:mb-6">
+          <h2 class="text-lg md:text-xl font-bold">월간 모니터링 현황</h2>
+          <select id="month-select" onchange="loadDashboard()" class="border rounded-lg px-3 py-2 text-sm md:text-base">
             <option value="">로딩 중...</option>
           </select>
         </div>
-        <div class="grid grid-cols-4 gap-4 mb-6">
-          <div class="bg-blue-50 p-4 rounded-lg text-center">
-            <div class="text-3xl font-bold text-blue-600" id="dash-total">0</div>
-            <div class="text-gray-600">전체 URL</div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-6">
+          <div class="bg-blue-50 p-3 md:p-4 rounded-lg text-center">
+            <div class="text-xl md:text-3xl font-bold text-blue-600" id="dash-total">0</div>
+            <div class="text-gray-600 text-xs md:text-base">전체 URL</div>
           </div>
-          <div class="bg-red-50 p-4 rounded-lg text-center">
-            <div class="text-3xl font-bold text-red-600" id="dash-illegal">0</div>
-            <div class="text-gray-600">불법 URL</div>
+          <div class="bg-red-50 p-3 md:p-4 rounded-lg text-center">
+            <div class="text-xl md:text-3xl font-bold text-red-600" id="dash-illegal">0</div>
+            <div class="text-gray-600 text-xs md:text-base">불법 URL</div>
           </div>
-          <div class="bg-green-50 p-4 rounded-lg text-center">
-            <div class="text-3xl font-bold text-green-600" id="dash-legal">0</div>
-            <div class="text-gray-600">합법 URL</div>
+          <div class="bg-green-50 p-3 md:p-4 rounded-lg text-center">
+            <div class="text-xl md:text-3xl font-bold text-green-600" id="dash-legal">0</div>
+            <div class="text-gray-600 text-xs md:text-base">합법 URL</div>
           </div>
-          <div class="bg-purple-50 p-4 rounded-lg text-center">
-            <div class="text-3xl font-bold text-purple-600" id="dash-sessions">0</div>
-            <div class="text-gray-600">모니터링 횟수</div>
+          <div class="bg-purple-50 p-3 md:p-4 rounded-lg text-center">
+            <div class="text-xl md:text-3xl font-bold text-purple-600" id="dash-sessions">0</div>
+            <div class="text-gray-600 text-xs md:text-base">모니터링 횟수</div>
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           <div>
             <div class="flex justify-between items-center mb-3">
-              <h3 class="font-bold"><i class="fas fa-fire text-red-500 mr-2"></i>불법 URL 많은 작품 Top 5</h3>
-              <button onclick="openAllTitlesModal()" class="text-sm text-blue-500 hover:text-blue-700">전체보기 <i class="fas fa-arrow-right"></i></button>
+              <h3 class="font-bold text-sm md:text-base"><i class="fas fa-fire text-red-500 mr-2"></i>불법 URL 많은 작품 Top 5</h3>
+              <button onclick="openAllTitlesModal()" class="text-xs md:text-sm text-blue-500 hover:text-blue-700">전체보기 <i class="fas fa-arrow-right"></i></button>
             </div>
-            <div id="top-contents" class="space-y-2">로딩 중...</div>
+            <div id="top-contents" class="space-y-2 text-sm">로딩 중...</div>
           </div>
           <div>
-            <h3 class="font-bold mb-3"><i class="fas fa-skull-crossbones text-red-500 mr-2"></i>상위 불법 도메인 Top 5</h3>
-            <div id="top-domains" class="space-y-2">로딩 중...</div>
+            <h3 class="font-bold mb-3 text-sm md:text-base"><i class="fas fa-skull-crossbones text-red-500 mr-2"></i>상위 불법 도메인 Top 5</h3>
+            <div id="top-domains" class="space-y-2 text-sm">로딩 중...</div>
           </div>
         </div>
       </div>
       
       <!-- Manta 검색 순위 -->
-      <div class="bg-white rounded-lg shadow-md p-6 mt-6">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xl font-bold"><i class="fas fa-chart-line text-blue-500 mr-2"></i>Manta 검색 순위</h2>
-          <span id="manta-updated" class="text-sm text-gray-500"></span>
+      <div class="bg-white rounded-lg shadow-md p-4 md:p-6 mt-4 md:mt-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <h2 class="text-lg md:text-xl font-bold"><i class="fas fa-chart-line text-blue-500 mr-2"></i>Manta 검색 순위</h2>
+          <span id="manta-updated" class="text-xs md:text-sm text-gray-500"></span>
         </div>
-        <p class="text-sm text-gray-500 mb-4">작품명만 검색 시 manta.net 순위 (P1-1 = 페이지1, 1위)</p>
-        <div id="manta-rankings" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">로딩 중...</div>
+        <p class="text-xs md:text-sm text-gray-500 mb-4">작품명만 검색 시 manta.net 순위 (P1-1 = 페이지1, 1위)</p>
+        <div id="manta-rankings" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3">로딩 중...</div>
       </div>
     </div>
 
     <!-- 승인 대기 탭 -->
     <div id="content-pending" class="tab-content hidden">
-      <div class="bg-white rounded-lg shadow-md p-6">
-        <h2 class="text-xl font-bold mb-4"><i class="fas fa-clock text-yellow-500 mr-2"></i>승인 대기 목록</h2>
+      <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
+        <h2 class="text-lg md:text-xl font-bold mb-4"><i class="fas fa-clock text-yellow-500 mr-2"></i>승인 대기 목록</h2>
         <div id="pending-list">로딩 중...</div>
       </div>
     </div>
@@ -1034,34 +1034,36 @@ app.get('/', (c) => {
       </div>
       
       <!-- 회차 상세 (목록 아래에 표시) -->
-      <div id="session-detail" class="hidden bg-white rounded-lg shadow-md p-6">
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-lg font-bold">
+      <div id="session-detail" class="hidden bg-white rounded-lg shadow-md p-4 md:p-6">
+        <!-- 헤더 -->
+        <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-3 mb-4">
+          <h3 class="text-base md:text-lg font-bold truncate">
             <i class="fas fa-table text-blue-500 mr-2"></i>
-            세션 상세 결과: <span id="session-detail-title"></span>
+            <span class="hidden md:inline">세션 상세 결과: </span>
+            <span id="session-detail-title"></span>
           </h3>
-          <div class="flex gap-2">
-            <button onclick="copyAllIllegalUrls()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm">
-              <i class="fas fa-copy mr-1"></i>불법 URL 복사
+          <div class="flex gap-2 flex-wrap">
+            <button onclick="copyAllIllegalUrls()" class="bg-red-500 hover:bg-red-600 text-white px-2 md:px-3 py-1.5 rounded text-xs md:text-sm">
+              <i class="fas fa-copy mr-1"></i><span class="hidden sm:inline">불법 URL </span>복사
             </button>
-            <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm">
-              <i class="fas fa-download mr-1"></i>엑셀 다운로드
+            <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-2 md:px-3 py-1.5 rounded text-xs md:text-sm">
+              <i class="fas fa-download mr-1"></i><span class="hidden sm:inline">엑셀 </span>다운로드
             </button>
             <button onclick="closeSessionDetail()" class="text-gray-500 hover:text-gray-700 px-2">
-              <i class="fas fa-times text-xl"></i> 닫기
+              <i class="fas fa-times text-xl"></i>
             </button>
           </div>
         </div>
         
         <!-- 통계 요약 바 -->
-        <div id="session-stats-bar" class="grid grid-cols-4 gap-2 mb-4 text-center text-sm"></div>
+        <div id="session-stats-bar" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4 text-center text-xs md:text-sm"></div>
         
         <!-- 필터 -->
-        <div class="flex gap-4 mb-4 items-center flex-wrap">
-          <select id="session-title-filter" class="border rounded px-3 py-2 text-sm" onchange="loadSessionResults()">
+        <div class="flex gap-2 md:gap-4 mb-4 items-center flex-wrap">
+          <select id="session-title-filter" class="border rounded px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm flex-1 md:flex-none" onchange="loadSessionResults()">
             <option value="all">모든 작품</option>
           </select>
-          <select id="session-status-filter" class="border rounded px-3 py-2 text-sm" onchange="loadSessionResults()">
+          <select id="session-status-filter" class="border rounded px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm" onchange="loadSessionResults()">
             <option value="all">모든 상태</option>
             <option value="illegal">불법</option>
             <option value="legal">합법</option>
@@ -1069,8 +1071,8 @@ app.get('/', (c) => {
           </select>
         </div>
         
-        <!-- 테이블 -->
-        <div class="overflow-x-auto">
+        <!-- 데스크톱 테이블 -->
+        <div class="hidden md:block overflow-x-auto">
           <table class="w-full text-sm border-collapse">
             <thead class="bg-gray-100 sticky top-0">
               <tr>
@@ -1082,10 +1084,14 @@ app.get('/', (c) => {
                 <th class="border px-3 py-2 text-center w-36">검토일시</th>
               </tr>
             </thead>
-            <tbody id="session-results">
+            <tbody id="session-results-desktop">
               <tr><td colspan="6" class="text-center py-4 text-gray-500">로딩 중...</td></tr>
             </tbody>
           </table>
+        </div>
+        <!-- 모바일 카드 뷰 -->
+        <div id="session-results-mobile" class="md:hidden space-y-2">
+          <div class="text-center py-4 text-gray-500">로딩 중...</div>
         </div>
         <div id="session-results-pagination" class="flex justify-center gap-2 mt-4"></div>
       </div>
@@ -1130,40 +1136,40 @@ app.get('/', (c) => {
   </div>
 
   <!-- 작품 변경 모달 -->
-  <div id="titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] overflow-hidden">
-      <div class="bg-purple-500 text-white px-6 py-4 flex justify-between items-center">
-        <h2 class="text-xl font-bold"><i class="fas fa-list-alt mr-2"></i>모니터링 대상 작품 관리</h2>
-        <button onclick="closeTitlesModal()" class="text-white hover:text-gray-200">
+  <div id="titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] md:max-h-[85vh] overflow-hidden">
+      <div class="bg-purple-500 text-white px-4 md:px-6 py-3 md:py-4 flex justify-between items-center">
+        <h2 class="text-base md:text-xl font-bold"><i class="fas fa-list-alt mr-2"></i><span class="hidden sm:inline">모니터링 대상 </span>작품 관리</h2>
+        <button onclick="closeTitlesModal()" class="text-white hover:text-gray-200 p-1">
           <i class="fas fa-times text-xl"></i>
         </button>
       </div>
-      <div class="p-6">
-        <!-- 2분할 레이아웃 -->
-        <div class="grid grid-cols-2 gap-6 mb-4">
+      <div class="p-4 md:p-6 overflow-y-auto max-h-[calc(95vh-120px)] md:max-h-[calc(85vh-80px)]">
+        <!-- 2분할 레이아웃 (모바일에서 1열) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-4">
           <!-- 현재 모니터링 대상 -->
           <div>
-            <h3 class="font-bold mb-3 text-purple-600">
-              <i class="fas fa-play-circle mr-2"></i>현재 모니터링 대상 (<span id="titles-count">0</span>개)
+            <h3 class="font-bold mb-2 md:mb-3 text-purple-600 text-sm md:text-base">
+              <i class="fas fa-play-circle mr-2"></i>현재 대상 (<span id="titles-count">0</span>개)
             </h3>
-            <div id="current-titles-list" class="h-72 overflow-y-auto border rounded p-3">로딩 중...</div>
+            <div id="current-titles-list" class="h-48 md:h-72 overflow-y-auto border rounded p-2 md:p-3 text-sm">로딩 중...</div>
           </div>
           <!-- 이전 모니터링 대상 -->
           <div>
-            <h3 class="font-bold mb-3 text-gray-500">
-              <i class="fas fa-history mr-2"></i>이전 모니터링 대상 (<span id="history-titles-count">0</span>개)
+            <h3 class="font-bold mb-2 md:mb-3 text-gray-500 text-sm md:text-base">
+              <i class="fas fa-history mr-2"></i>이전 대상 (<span id="history-titles-count">0</span>개)
             </h3>
-            <div id="history-titles-list" class="h-72 overflow-y-auto border rounded p-3 text-gray-500">로딩 중...</div>
+            <div id="history-titles-list" class="h-48 md:h-72 overflow-y-auto border rounded p-2 md:p-3 text-gray-500 text-sm">로딩 중...</div>
           </div>
         </div>
         <!-- 새 작품 추가 (하단) -->
-        <div class="border-t pt-4">
+        <div class="border-t pt-3 md:pt-4">
           <div class="flex gap-2">
-            <input type="text" id="new-title-input" placeholder="새 작품명 입력..." 
-                   class="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            <input type="text" id="new-title-input" placeholder="새 작품명..." 
+                   class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                    onkeypress="if(event.key==='Enter') addNewTitle()">
-            <button onclick="addNewTitle()" class="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-lg">
-              <i class="fas fa-plus mr-2"></i>추가
+            <button onclick="addNewTitle()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 md:px-6 py-2 rounded-lg text-sm">
+              <i class="fas fa-plus"></i><span class="hidden sm:inline ml-2">추가</span>
             </button>
           </div>
         </div>
@@ -1172,15 +1178,15 @@ app.get('/', (c) => {
   </div>
 
   <!-- 전체보기 모달 (작품별 월별 통계) -->
-  <div id="all-titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
-      <div class="bg-red-500 text-white px-6 py-4 flex justify-between items-center">
-        <h2 class="text-xl font-bold"><i class="fas fa-fire mr-2"></i>작품별 불법 URL 통계 - <span id="all-titles-month"></span></h2>
-        <button onclick="closeAllTitlesModal()" class="text-white hover:text-gray-200">
+  <div id="all-titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[95vh] md:max-h-[85vh] overflow-hidden">
+      <div class="bg-red-500 text-white px-4 md:px-6 py-3 md:py-4 flex justify-between items-center">
+        <h2 class="text-base md:text-xl font-bold"><i class="fas fa-fire mr-2"></i><span class="hidden sm:inline">불법 URL 통계 - </span><span id="all-titles-month"></span></h2>
+        <button onclick="closeAllTitlesModal()" class="text-white hover:text-gray-200 p-1">
           <i class="fas fa-times text-xl"></i>
         </button>
       </div>
-      <div class="p-6 overflow-y-auto max-h-[calc(85vh-80px)]">
+      <div class="p-4 md:p-6 overflow-y-auto max-h-[calc(95vh-60px)] md:max-h-[calc(85vh-80px)]">
         <div id="all-titles-list" class="space-y-2">로딩 중...</div>
       </div>
     </div>
@@ -1494,12 +1500,14 @@ app.get('/', (c) => {
             '<div class="bg-yellow-100 text-yellow-700 py-2 rounded"><div class="text-xl font-bold">' + pending + '</div><div class="text-xs">대기</div></div>';
         }
         
-        // 결과 표시 (테이블 형식)
+        // 결과 표시 (테이블 + 카드 형식)
         if (data.results.length === 0) {
-          document.getElementById('session-results').innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">결과가 없습니다.</td></tr>';
+          document.getElementById('session-results-desktop').innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-500">결과가 없습니다.</td></tr>';
+          document.getElementById('session-results-mobile').innerHTML = '<div class="text-center py-8 text-gray-500">결과가 없습니다.</div>';
         } else {
           const startIdx = (data.pagination.page - 1) * data.pagination.limit;
-          document.getElementById('session-results').innerHTML = data.results.map((r, idx) => {
+          // 데스크톱 테이블
+          document.getElementById('session-results-desktop').innerHTML = data.results.map((r, idx) => {
             const statusClass = r.final_status === 'illegal' ? 'bg-red-500 text-white' : 
                                r.final_status === 'legal' ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white';
             const llmClass = r.llm_judgment === 'likely_illegal' ? 'text-red-600' : 
@@ -1520,6 +1528,24 @@ app.get('/', (c) => {
               '<td class="border px-3 py-2 text-center ' + llmClass + '">' + (r.llm_judgment || '-') + '</td>' +
               '<td class="border px-3 py-2 text-center text-xs text-gray-500">' + (r.reviewed_at ? new Date(r.reviewed_at).toLocaleString('ko-KR') : '-') + '</td>' +
             '</tr>';
+          }).join('');
+          // 모바일 카드
+          document.getElementById('session-results-mobile').innerHTML = data.results.map((r, idx) => {
+            const statusClass = r.final_status === 'illegal' ? 'bg-red-500' : 
+                               r.final_status === 'legal' ? 'bg-green-500' : 'bg-yellow-500';
+            const cardBg = r.final_status === 'illegal' ? 'border-l-red-500' : 
+                          r.final_status === 'legal' ? 'border-l-green-500' : 'border-l-yellow-500';
+            return '<div class="bg-white border border-l-4 ' + cardBg + ' rounded p-3 shadow-sm">' +
+              '<div class="flex justify-between items-start mb-1">' +
+                '<span class="text-xs text-gray-500">#' + (startIdx + idx + 1) + '</span>' +
+                '<span class="px-2 py-0.5 rounded text-xs text-white ' + statusClass + '">' + r.final_status + '</span>' +
+              '</div>' +
+              '<div class="font-medium text-sm mb-1 truncate">' + r.title + '</div>' +
+              '<div class="flex items-center gap-1">' +
+                '<a href="' + r.url + '" target="_blank" rel="noopener noreferrer" class="text-blue-500 text-xs truncate flex-1" title="' + r.url + '">' + r.url + '</a>' +
+                '<button onclick="copyUrl(\\'' + r.url.replace(/'/g, "\\\\'") + '\\')" class="text-gray-400 p-1"><i class="fas fa-copy"></i></button>' +
+              '</div>' +
+            '</div>';
           }).join('');
         }
         
