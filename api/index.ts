@@ -1,15 +1,18 @@
+// ============================================
+// Jobdori - Hono Application for Vercel
+// Vercel Serverless + Neon DB + Vercel Blob
+// ============================================
+
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { neon } from '@neondatabase/serverless'
-import { put, list, head } from '@vercel/blob'
 import * as XLSX from 'xlsx'
 
 // ============================================
 // Database Setup
 // ============================================
 
-// Use 'any' type to avoid Neon's complex generic types that cause issues with Vercel's TS compiler
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let sql: any = null
 
@@ -24,7 +27,6 @@ function getDatabase(): any {
   return sql
 }
 
-// Query helper - uses any to bypass Neon's complex types
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function query(strings: TemplateStringsArray, ...values: any[]): Promise<any[]> {
   const db = getDatabase()
@@ -191,6 +193,11 @@ async function removeTitle(name: string): Promise<boolean> {
   return true
 }
 
+async function restoreTitle(name: string): Promise<boolean> {
+  await query`UPDATE titles SET is_current = true WHERE name = ${name}`
+  return true
+}
+
 async function getMonthlyStats(): Promise<any[]> {
   return query`SELECT * FROM monthly_stats ORDER BY month DESC`
 }
@@ -222,7 +229,10 @@ const app = new Hono()
 
 app.use('/api/*', cors())
 
+// ============================================
 // Auth Routes
+// ============================================
+
 app.get('/login', (c) => {
   const sessionToken = getCookie(c, 'session_token')
   if (sessionToken && isValidSession(sessionToken)) {
@@ -237,11 +247,12 @@ app.get('/login', (c) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>로그인 - Jobdori</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="bg-gradient-to-br from-blue-500 to-purple-600 min-h-screen flex items-center justify-center">
   <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
     <div class="text-center mb-8">
-      <h1 class="text-2xl font-bold text-gray-800">Jobdori</h1>
+      <h1 class="text-3xl font-bold text-gray-800"><i class="fas fa-shield-alt text-blue-600 mr-2"></i>Jobdori</h1>
       <p class="text-gray-500 mt-2">웹툰 불법사이트 모니터링</p>
     </div>
     <form id="login-form" onsubmit="handleLogin(event)">
@@ -254,8 +265,8 @@ app.get('/login', (c) => {
       <div id="error-message" class="hidden mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
         비밀번호가 올바르지 않습니다.
       </div>
-      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg">
-        로그인
+      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition">
+        <i class="fas fa-sign-in-alt mr-2"></i>로그인
       </button>
     </form>
   </div>
@@ -289,7 +300,7 @@ app.post('/api/auth/login', async (c) => {
       sessions.set(token, { createdAt: Date.now() })
       setCookie(c, 'session_token', token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: true,
         sameSite: 'Lax',
         maxAge: 60 * 60 * 24,
         path: '/'
@@ -309,6 +320,11 @@ app.post('/api/auth/logout', (c) => {
   return c.json({ success: true })
 })
 
+app.get('/api/auth/status', (c) => {
+  const sessionToken = getCookie(c, 'session_token')
+  return c.json({ authenticated: sessionToken ? isValidSession(sessionToken) : false })
+})
+
 // Auth Middleware
 app.use('*', async (c, next) => {
   const path = c.req.path
@@ -325,7 +341,10 @@ app.use('*', async (c, next) => {
   return next()
 })
 
-// API Routes
+// ============================================
+// API - Pending Reviews
+// ============================================
+
 app.get('/api/pending', async (c) => {
   try {
     const items = await getPendingReviews()
@@ -357,6 +376,10 @@ app.post('/api/review', async (c) => {
   }
 })
 
+// ============================================
+// API - Sites
+// ============================================
+
 app.get('/api/sites/:type', async (c) => {
   try {
     const type = c.req.param('type') as 'illegal' | 'legal'
@@ -369,6 +392,33 @@ app.get('/api/sites/:type', async (c) => {
     return c.json({ success: false, error: 'Failed to load sites' }, 500)
   }
 })
+
+app.post('/api/sites/:type', async (c) => {
+  try {
+    const type = c.req.param('type') as 'illegal' | 'legal'
+    const { domain } = await c.req.json()
+    if (!domain) return c.json({ success: false, error: 'Missing domain' }, 400)
+    await addSite(domain, type)
+    return c.json({ success: true, domain, type })
+  } catch {
+    return c.json({ success: false, error: 'Failed to add site' }, 500)
+  }
+})
+
+app.delete('/api/sites/:type/:domain', async (c) => {
+  try {
+    const type = c.req.param('type') as 'illegal' | 'legal'
+    const domain = decodeURIComponent(c.req.param('domain'))
+    await removeSite(domain, type)
+    return c.json({ success: true, domain, type })
+  } catch {
+    return c.json({ success: false, error: 'Failed to remove site' }, 500)
+  }
+})
+
+// ============================================
+// API - Titles
+// ============================================
 
 app.get('/api/titles', async (c) => {
   try {
@@ -405,6 +455,20 @@ app.delete('/api/titles/:title', async (c) => {
   }
 })
 
+app.post('/api/titles/restore', async (c) => {
+  try {
+    const { title } = await c.req.json()
+    await restoreTitle(title)
+    return c.json({ success: true, title })
+  } catch {
+    return c.json({ success: false, error: 'Failed to restore title' }, 500)
+  }
+})
+
+// ============================================
+// API - Sessions
+// ============================================
+
 app.get('/api/sessions', async (c) => {
   try {
     const sessionsList = await getSessions()
@@ -414,7 +478,11 @@ app.get('/api/sessions', async (c) => {
       sessions: sessionsList.map((s: any) => ({
         id: s.id,
         created_at: s.created_at,
+        completed_at: s.completed_at,
         status: s.status,
+        titles_count: s.titles_count,
+        keywords_count: s.keywords_count,
+        total_searches: s.total_searches,
         results_summary: {
           total: s.results_total,
           illegal: s.results_illegal,
@@ -433,9 +501,74 @@ app.get('/api/sessions/:id', async (c) => {
     const id = c.req.param('id')
     const session = await getSessionById(id)
     if (!session) return c.json({ success: false, error: 'Session not found' }, 404)
-    return c.json({ success: true, session })
+    return c.json({
+      success: true,
+      session: {
+        id: session.id,
+        created_at: session.created_at,
+        completed_at: session.completed_at,
+        status: session.status,
+        titles_count: session.titles_count,
+        keywords_count: session.keywords_count,
+        total_searches: session.total_searches,
+        results_summary: {
+          total: session.results_total,
+          illegal: session.results_illegal,
+          legal: session.results_legal,
+          pending: session.results_pending
+        }
+      }
+    })
   } catch {
     return c.json({ success: false, error: 'Failed to load session' }, 500)
+  }
+})
+
+app.get('/api/sessions/:id/results', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const session = await getSessionById(id)
+    if (!session) return c.json({ success: false, error: 'Session not found' }, 404)
+    
+    let results: FinalResult[] = []
+    if (session.file_final_results?.startsWith('http')) {
+      results = await downloadResults(session.file_final_results)
+    }
+    
+    const titleFilter = c.req.query('title') || 'all'
+    const statusFilter = c.req.query('status') || 'all'
+    const page = parseInt(c.req.query('page') || '1')
+    const limit = parseInt(c.req.query('limit') || '50')
+    
+    let filteredResults = results
+    
+    const seenUrls = new Set<string>()
+    filteredResults = filteredResults.filter(r => {
+      if (seenUrls.has(r.url)) return false
+      seenUrls.add(r.url)
+      return true
+    })
+    
+    if (titleFilter !== 'all') {
+      filteredResults = filteredResults.filter(r => r.title === titleFilter)
+    }
+    if (statusFilter !== 'all') {
+      filteredResults = filteredResults.filter(r => r.final_status === statusFilter)
+    }
+    
+    const total = filteredResults.length
+    const startIndex = (page - 1) * limit
+    const paginatedResults = filteredResults.slice(startIndex, startIndex + limit)
+    const availableTitles = Array.from(new Set(results.map(r => r.title))).sort()
+    
+    return c.json({
+      success: true,
+      results: paginatedResults,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      available_titles: availableTitles
+    })
+  } catch {
+    return c.json({ success: false, error: 'Failed to load results' }, 500)
   }
 })
 
@@ -466,6 +599,10 @@ app.get('/api/sessions/:id/download', async (c) => {
     return c.json({ success: false, error: 'Failed to generate report' }, 500)
   }
 })
+
+// ============================================
+// API - Dashboard
+// ============================================
 
 app.get('/api/dashboard/months', async (c) => {
   try {
@@ -541,7 +678,10 @@ app.get('/api/stats', async (c) => {
   }
 })
 
-// Main Page
+// ============================================
+// Main Page (Full UI)
+// ============================================
+
 app.get('/', (c) => {
   return c.html(`
 <!DOCTYPE html>
@@ -551,36 +691,66 @@ app.get('/', (c) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Jobdori - 웹툰 불법사이트 모니터링</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <style>
     .tab-active { border-bottom: 3px solid #3b82f6; color: #3b82f6; font-weight: 600; }
+    .status-illegal { background-color: #ef4444; }
+    .status-legal { background-color: #22c55e; }
+    .status-pending { background-color: #f59e0b; }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
   <div class="container mx-auto px-4 py-8 max-w-7xl">
+    <!-- 헤더 -->
     <div class="bg-white rounded-lg shadow-md p-6 mb-6">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-gray-800">Jobdori</h1>
+          <h1 class="text-2xl font-bold text-gray-800">
+            <i class="fas fa-shield-alt text-blue-600 mr-2"></i>
+            Jobdori
+          </h1>
           <p class="text-gray-600 mt-1">웹툰 불법사이트 모니터링 시스템</p>
         </div>
-        <button onclick="handleLogout()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
-          로그아웃
+        <div class="flex gap-3">
+          <button onclick="openTitlesModal()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition">
+            <i class="fas fa-list-alt mr-2"></i>작품 변경
+          </button>
+          <button onclick="handleLogout()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition">
+            <i class="fas fa-sign-out-alt mr-2"></i>로그아웃
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 탭 메뉴 -->
+    <div class="bg-white rounded-lg shadow-md mb-6">
+      <div class="flex border-b">
+        <button id="tab-dashboard" onclick="switchTab('dashboard')" class="px-6 py-4 text-gray-600 hover:text-blue-600 tab-active">
+          <i class="fas fa-chart-line mr-2"></i>대시보드
+        </button>
+        <button id="tab-pending" onclick="switchTab('pending')" class="px-6 py-4 text-gray-600 hover:text-blue-600">
+          <i class="fas fa-clock mr-2"></i>승인 대기
+          <span id="pending-badge" class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">0</span>
+        </button>
+        <button id="tab-sessions" onclick="switchTab('sessions')" class="px-6 py-4 text-gray-600 hover:text-blue-600">
+          <i class="fas fa-history mr-2"></i>모니터링 회차
+          <span id="sessions-badge" class="ml-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">0</span>
+        </button>
+        <button id="tab-sites" onclick="switchTab('sites')" class="px-6 py-4 text-gray-600 hover:text-blue-600">
+          <i class="fas fa-globe mr-2"></i>사이트 목록
         </button>
       </div>
     </div>
 
-    <div class="bg-white rounded-lg shadow-md mb-6">
-      <div class="flex border-b">
-        <button id="tab-dashboard" onclick="switchTab('dashboard')" class="px-6 py-4 text-gray-600 hover:text-blue-600 tab-active">대시보드</button>
-        <button id="tab-pending" onclick="switchTab('pending')" class="px-6 py-4 text-gray-600 hover:text-blue-600">승인 대기 <span id="pending-badge" class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">0</span></button>
-        <button id="tab-sessions" onclick="switchTab('sessions')" class="px-6 py-4 text-gray-600 hover:text-blue-600">모니터링 회차</button>
-        <button id="tab-sites" onclick="switchTab('sites')" class="px-6 py-4 text-gray-600 hover:text-blue-600">사이트 목록</button>
-      </div>
-    </div>
-
+    <!-- 대시보드 탭 -->
     <div id="content-dashboard" class="tab-content">
       <div class="bg-white rounded-lg shadow-md p-6">
-        <h2 class="text-xl font-bold mb-4">월간 모니터링 현황</h2>
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-xl font-bold">월간 모니터링 현황</h2>
+          <select id="month-select" onchange="loadDashboard()" class="border rounded-lg px-3 py-2">
+            <option value="">로딩 중...</option>
+          </select>
+        </div>
         <div class="grid grid-cols-4 gap-4 mb-6">
           <div class="bg-blue-50 p-4 rounded-lg text-center">
             <div class="text-3xl font-bold text-blue-600" id="dash-total">0</div>
@@ -599,33 +769,50 @@ app.get('/', (c) => {
             <div class="text-gray-600">모니터링 횟수</div>
           </div>
         </div>
+        <div class="grid grid-cols-2 gap-6">
+          <div>
+            <h3 class="font-bold mb-3"><i class="fas fa-fire text-red-500 mr-2"></i>불법 URL 많은 작품 Top 5</h3>
+            <div id="top-contents" class="space-y-2">로딩 중...</div>
+          </div>
+          <div>
+            <h3 class="font-bold mb-3"><i class="fas fa-skull-crossbones text-red-500 mr-2"></i>상위 불법 도메인 Top 5</h3>
+            <div id="top-domains" class="space-y-2">로딩 중...</div>
+          </div>
+        </div>
       </div>
     </div>
 
+    <!-- 승인 대기 탭 -->
     <div id="content-pending" class="tab-content hidden">
       <div class="bg-white rounded-lg shadow-md p-6">
-        <h2 class="text-xl font-bold mb-4">승인 대기 목록</h2>
+        <h2 class="text-xl font-bold mb-4"><i class="fas fa-clock text-yellow-500 mr-2"></i>승인 대기 목록</h2>
         <div id="pending-list">로딩 중...</div>
       </div>
     </div>
 
+    <!-- 모니터링 회차 탭 -->
     <div id="content-sessions" class="tab-content hidden">
       <div class="bg-white rounded-lg shadow-md p-6">
-        <h2 class="text-xl font-bold mb-4">모니터링 회차</h2>
+        <h2 class="text-xl font-bold mb-4"><i class="fas fa-history text-blue-500 mr-2"></i>모니터링 회차</h2>
         <div id="sessions-list">로딩 중...</div>
       </div>
     </div>
 
+    <!-- 사이트 목록 탭 -->
     <div id="content-sites" class="tab-content hidden">
       <div class="bg-white rounded-lg shadow-md p-6">
-        <h2 class="text-xl font-bold mb-4">사이트 목록</h2>
+        <h2 class="text-xl font-bold mb-4"><i class="fas fa-globe text-blue-500 mr-2"></i>사이트 목록</h2>
         <div class="grid grid-cols-2 gap-6">
           <div>
-            <h3 class="font-bold text-red-600 mb-3">불법 사이트 (<span id="illegal-count">0</span>개)</h3>
+            <h3 class="font-bold text-red-600 mb-3">
+              <i class="fas fa-ban mr-2"></i>불법 사이트 (<span id="illegal-count">0</span>개)
+            </h3>
             <div id="illegal-sites-list" class="max-h-96 overflow-y-auto border rounded p-3">로딩 중...</div>
           </div>
           <div>
-            <h3 class="font-bold text-green-600 mb-3">합법 사이트 (<span id="legal-count">0</span>개)</h3>
+            <h3 class="font-bold text-green-600 mb-3">
+              <i class="fas fa-check mr-2"></i>합법 사이트 (<span id="legal-count">0</span>개)
+            </h3>
             <div id="legal-sites-list" class="max-h-96 overflow-y-auto border rounded p-3">로딩 중...</div>
           </div>
         </div>
@@ -633,18 +820,89 @@ app.get('/', (c) => {
     </div>
   </div>
 
+  <!-- 작품 변경 모달 -->
+  <div id="titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
+      <div class="bg-purple-500 text-white px-6 py-4 flex justify-between items-center">
+        <h2 class="text-xl font-bold"><i class="fas fa-list-alt mr-2"></i>모니터링 대상 작품 관리</h2>
+        <button onclick="closeTitlesModal()" class="text-white hover:text-gray-200">
+          <i class="fas fa-times text-xl"></i>
+        </button>
+      </div>
+      <div class="p-6">
+        <div class="flex gap-2 mb-4">
+          <input type="text" id="new-title-input" placeholder="새 작품명 입력..." 
+                 class="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                 onkeypress="if(event.key==='Enter') addNewTitle()">
+          <button onclick="addNewTitle()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+            <i class="fas fa-plus"></i> 추가
+          </button>
+        </div>
+        <h3 class="font-bold mb-2">현재 모니터링 대상 (<span id="titles-count">0</span>개)</h3>
+        <div id="current-titles-list" class="max-h-64 overflow-y-auto border rounded p-3 mb-4">로딩 중...</div>
+        <h3 class="font-bold mb-2 text-gray-500">이전 모니터링 대상</h3>
+        <div id="history-titles-list" class="max-h-32 overflow-y-auto border rounded p-3 text-gray-500">로딩 중...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 세션 상세 모달 -->
+  <div id="session-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+      <div class="bg-blue-500 text-white px-6 py-4 flex justify-between items-center">
+        <h2 class="text-xl font-bold"><i class="fas fa-search mr-2"></i>세션 상세 - <span id="session-modal-title"></span></h2>
+        <button onclick="closeSessionModal()" class="text-white hover:text-gray-200">
+          <i class="fas fa-times text-xl"></i>
+        </button>
+      </div>
+      <div class="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+        <div class="flex gap-4 mb-4">
+          <select id="session-title-filter" onchange="loadSessionResults()" class="border rounded px-3 py-2">
+            <option value="all">모든 작품</option>
+          </select>
+          <select id="session-status-filter" onchange="loadSessionResults()" class="border rounded px-3 py-2">
+            <option value="all">모든 상태</option>
+            <option value="illegal">불법</option>
+            <option value="legal">합법</option>
+            <option value="pending">대기</option>
+          </select>
+          <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg ml-auto">
+            <i class="fas fa-download mr-2"></i>엑셀 다운로드
+          </button>
+        </div>
+        <div id="session-results" class="space-y-2">로딩 중...</div>
+        <div id="session-pagination" class="flex justify-center gap-2 mt-4"></div>
+      </div>
+    </div>
+  </div>
+
   <script>
     let currentTab = 'dashboard';
+    let currentSessionId = null;
+    let currentPage = 1;
     
-    async function fetchAPI(url) {
-      const response = await fetch(url);
-      if (response.status === 401) { window.location.href = '/login'; return null; }
-      return await response.json();
+    async function fetchAPI(url, options = {}) {
+      try {
+        const response = await fetch(url, {
+          headers: { 'Content-Type': 'application/json' },
+          ...options,
+        });
+        if (response.status === 401) {
+          window.location.href = '/login';
+          return { success: false };
+        }
+        return await response.json();
+      } catch (error) {
+        console.error('API Error:', error);
+        return { success: false, error: error.message };
+      }
     }
     
     async function handleLogout() {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      window.location.href = '/login';
+      if (confirm('로그아웃 하시겠습니까?')) {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        window.location.href = '/login';
+      }
     }
     
     function switchTab(tab) {
@@ -661,31 +919,184 @@ app.get('/', (c) => {
     }
     
     async function loadDashboard() {
-      const data = await fetchAPI('/api/dashboard');
-      if (data?.success) {
+      const monthsData = await fetchAPI('/api/dashboard/months');
+      if (monthsData.success) {
+        const select = document.getElementById('month-select');
+        select.innerHTML = monthsData.months.map(m => 
+          '<option value="' + m + '"' + (m === monthsData.current_month ? ' selected' : '') + '>' + m + '</option>'
+        ).join('') || '<option value="">데이터 없음</option>';
+      }
+      
+      const month = document.getElementById('month-select').value;
+      const data = await fetchAPI('/api/dashboard' + (month ? '?month=' + month : ''));
+      
+      if (data.success) {
         document.getElementById('dash-total').textContent = data.total_stats?.total || 0;
         document.getElementById('dash-illegal').textContent = data.total_stats?.illegal || 0;
         document.getElementById('dash-legal').textContent = data.total_stats?.legal || 0;
         document.getElementById('dash-sessions').textContent = data.sessions_count || 0;
+        
+        const topContents = data.top_contents || [];
+        document.getElementById('top-contents').innerHTML = topContents.length ? 
+          topContents.slice(0,5).map((c, i) => '<div class="flex justify-between p-2 bg-gray-50 rounded"><span>' + (i+1) + '. ' + c.title + '</span><span class="text-red-600 font-bold">' + c.illegal_count + '개</span></div>').join('') :
+          '<div class="text-gray-500">데이터 없음</div>';
+          
+        const topDomains = data.top_illegal_sites || [];
+        document.getElementById('top-domains').innerHTML = topDomains.length ?
+          topDomains.slice(0,5).map((d, i) => '<div class="flex justify-between p-2 bg-gray-50 rounded"><span>' + (i+1) + '. ' + d.domain + '</span><span class="text-red-600 font-bold">' + d.count + '개</span></div>').join('') :
+          '<div class="text-gray-500">데이터 없음</div>';
       }
     }
     
     async function loadPending() {
       const data = await fetchAPI('/api/pending');
-      if (data?.success) {
+      if (data.success) {
         document.getElementById('pending-badge').textContent = data.count;
-        document.getElementById('pending-list').innerHTML = data.items.length === 0 
-          ? '<div class="text-gray-500 text-center py-8">승인 대기 항목이 없습니다.</div>'
-          : data.items.map(item => '<div class="border rounded-lg p-4 mb-3"><div class="font-bold">' + item.domain + '</div><div class="text-sm text-gray-600">' + (item.llm_reason || '') + '</div></div>').join('');
+        if (data.items.length === 0) {
+          document.getElementById('pending-list').innerHTML = '<div class="text-gray-500 text-center py-8"><i class="fas fa-check-circle text-4xl mb-2"></i><br>승인 대기 항목이 없습니다.</div>';
+          return;
+        }
+        document.getElementById('pending-list').innerHTML = data.items.map(item => 
+          '<div class="border rounded-lg p-4 mb-3 hover:shadow-md transition">' +
+            '<div class="flex justify-between items-start">' +
+              '<div><span class="font-bold text-lg">' + item.domain + '</span>' +
+              '<span class="ml-2 text-sm px-2 py-1 rounded ' + 
+                (item.llm_judgment === 'likely_illegal' ? 'bg-red-100 text-red-700' : 
+                 item.llm_judgment === 'likely_legal' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700') + '">' +
+                (item.llm_judgment || 'unknown') + '</span></div>' +
+              '<div class="flex gap-2">' +
+                '<button onclick="reviewItem(' + item.id + ', \\'approve\\')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded text-sm"><i class="fas fa-ban mr-1"></i>불법</button>' +
+                '<button onclick="reviewItem(' + item.id + ', \\'reject\\')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded text-sm"><i class="fas fa-check mr-1"></i>합법</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="text-sm text-gray-600 mt-2">' + (item.llm_reason || 'API 키가 설정되지 않아 판별 불가') + '</div>' +
+          '</div>'
+        ).join('');
+      }
+    }
+    
+    async function reviewItem(id, action) {
+      const actionText = action === 'approve' ? '불법 사이트로' : '합법 사이트로';
+      if (!confirm(actionText + ' 등록하시겠습니까?')) return;
+      
+      const data = await fetchAPI('/api/review', {
+        method: 'POST',
+        body: JSON.stringify({ id: String(id), action })
+      });
+      if (data.success) {
+        loadPending();
+        loadSites();
       }
     }
     
     async function loadSessions() {
       const data = await fetchAPI('/api/sessions');
-      if (data?.success) {
-        document.getElementById('sessions-list').innerHTML = data.sessions.length === 0
-          ? '<div class="text-gray-500 text-center py-8">모니터링 기록이 없습니다.</div>'
-          : data.sessions.map(s => '<div class="border rounded-lg p-4 mb-3"><div class="font-bold">' + s.id + '</div><div class="text-sm">전체: ' + s.results_summary.total + ' | 불법: ' + s.results_summary.illegal + ' | 합법: ' + s.results_summary.legal + '</div></div>').join('');
+      if (data.success) {
+        document.getElementById('sessions-badge').textContent = data.count;
+        if (data.sessions.length === 0) {
+          document.getElementById('sessions-list').innerHTML = '<div class="text-gray-500 text-center py-8"><i class="fas fa-folder-open text-4xl mb-2"></i><br>모니터링 기록이 없습니다.</div>';
+          return;
+        }
+        document.getElementById('sessions-list').innerHTML = data.sessions.map(s =>
+          '<div class="border rounded-lg p-4 mb-3 cursor-pointer hover:shadow-md hover:bg-gray-50 transition" onclick="openSessionModal(\\'' + s.id + '\\')">' +
+            '<div class="flex justify-between items-center">' +
+              '<span class="font-bold text-lg"><i class="fas fa-calendar-alt mr-2 text-blue-500"></i>' + s.id + '</span>' +
+              '<span class="text-sm text-gray-500">' + new Date(s.created_at).toLocaleString('ko-KR') + '</span>' +
+            '</div>' +
+            '<div class="flex gap-6 mt-3 text-sm">' +
+              '<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded">전체: ' + s.results_summary.total + '</span>' +
+              '<span class="bg-red-100 text-red-700 px-3 py-1 rounded">불법: ' + s.results_summary.illegal + '</span>' +
+              '<span class="bg-green-100 text-green-700 px-3 py-1 rounded">합법: ' + s.results_summary.legal + '</span>' +
+              '<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded">대기: ' + s.results_summary.pending + '</span>' +
+            '</div>' +
+          '</div>'
+        ).join('');
+      }
+    }
+    
+    async function openSessionModal(id) {
+      currentSessionId = id;
+      currentPage = 1;
+      document.getElementById('session-modal-title').textContent = id;
+      document.getElementById('session-modal').classList.remove('hidden');
+      await loadSessionResults();
+    }
+    
+    function closeSessionModal() {
+      document.getElementById('session-modal').classList.add('hidden');
+      currentSessionId = null;
+    }
+    
+    async function loadSessionResults() {
+      if (!currentSessionId) return;
+      
+      const titleFilter = document.getElementById('session-title-filter').value;
+      const statusFilter = document.getElementById('session-status-filter').value;
+      
+      const params = new URLSearchParams({
+        page: currentPage,
+        limit: 20,
+        title: titleFilter,
+        status: statusFilter
+      });
+      
+      const data = await fetchAPI('/api/sessions/' + currentSessionId + '/results?' + params);
+      
+      if (data.success) {
+        // 타이틀 필터 업데이트
+        const titleSelect = document.getElementById('session-title-filter');
+        if (titleSelect.options.length <= 1) {
+          data.available_titles.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            titleSelect.appendChild(opt);
+          });
+        }
+        
+        // 결과 표시
+        if (data.results.length === 0) {
+          document.getElementById('session-results').innerHTML = '<div class="text-gray-500 text-center py-8">결과가 없습니다.</div>';
+        } else {
+          document.getElementById('session-results').innerHTML = data.results.map(r =>
+            '<div class="border rounded p-3 ' + 
+              (r.final_status === 'illegal' ? 'border-l-4 border-l-red-500 bg-red-50' : 
+               r.final_status === 'legal' ? 'border-l-4 border-l-green-500 bg-green-50' : 'border-l-4 border-l-yellow-500 bg-yellow-50') + '">' +
+              '<div class="flex justify-between items-start">' +
+                '<div class="flex-1">' +
+                  '<div class="font-medium">' + r.domain + '</div>' +
+                  '<div class="text-xs text-gray-500 truncate max-w-xl">' + r.url + '</div>' +
+                  '<div class="text-xs text-gray-400 mt-1">' + r.title + ' | ' + r.search_query + '</div>' +
+                '</div>' +
+                '<span class="text-xs px-2 py-1 rounded ' +
+                  (r.final_status === 'illegal' ? 'bg-red-500 text-white' : 
+                   r.final_status === 'legal' ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white') + '">' +
+                  r.final_status + '</span>' +
+              '</div>' +
+            '</div>'
+          ).join('');
+        }
+        
+        // 페이지네이션
+        const { page, totalPages } = data.pagination;
+        let paginationHtml = '';
+        if (totalPages > 1) {
+          if (page > 1) paginationHtml += '<button onclick="goToPage(' + (page-1) + ')" class="px-3 py-1 bg-gray-200 rounded">이전</button>';
+          paginationHtml += '<span class="px-3 py-1">' + page + ' / ' + totalPages + '</span>';
+          if (page < totalPages) paginationHtml += '<button onclick="goToPage(' + (page+1) + ')" class="px-3 py-1 bg-gray-200 rounded">다음</button>';
+        }
+        document.getElementById('session-pagination').innerHTML = paginationHtml;
+      }
+    }
+    
+    function goToPage(page) {
+      currentPage = page;
+      loadSessionResults();
+    }
+    
+    function downloadSessionReport() {
+      if (currentSessionId) {
+        window.open('/api/sessions/' + currentSessionId + '/download', '_blank');
       }
     }
     
@@ -693,23 +1104,89 @@ app.get('/', (c) => {
       const illegalData = await fetchAPI('/api/sites/illegal');
       const legalData = await fetchAPI('/api/sites/legal');
       
-      if (illegalData?.success) {
+      if (illegalData.success) {
         document.getElementById('illegal-count').textContent = illegalData.count;
-        document.getElementById('illegal-sites-list').innerHTML = illegalData.sites.map(s => '<div class="py-1 border-b text-sm">' + s + '</div>').join('') || '목록 없음';
+        document.getElementById('illegal-sites-list').innerHTML = illegalData.sites.map(s =>
+          '<div class="flex justify-between items-center py-1 border-b text-sm">' +
+            '<span>' + s + '</span>' +
+          '</div>'
+        ).join('') || '<div class="text-gray-500">목록 없음</div>';
       }
-      if (legalData?.success) {
+      
+      if (legalData.success) {
         document.getElementById('legal-count').textContent = legalData.count;
-        document.getElementById('legal-sites-list').innerHTML = legalData.sites.map(s => '<div class="py-1 border-b text-sm">' + s + '</div>').join('') || '목록 없음';
+        document.getElementById('legal-sites-list').innerHTML = legalData.sites.map(s =>
+          '<div class="flex justify-between items-center py-1 border-b text-sm">' +
+            '<span>' + s + '</span>' +
+          '</div>'
+        ).join('') || '<div class="text-gray-500">목록 없음</div>';
       }
     }
     
+    function openTitlesModal() {
+      document.getElementById('titles-modal').classList.remove('hidden');
+      loadTitles();
+    }
+    
+    function closeTitlesModal() {
+      document.getElementById('titles-modal').classList.add('hidden');
+    }
+    
+    async function loadTitles() {
+      const data = await fetchAPI('/api/titles');
+      if (data.success) {
+        document.getElementById('titles-count').textContent = data.current.length;
+        document.getElementById('current-titles-list').innerHTML = data.current.map(t =>
+          '<div class="flex justify-between items-center py-2 border-b">' +
+            '<span>' + t + '</span>' +
+            '<button onclick="removeTitle(\\'' + t.replace(/'/g, "\\\\'") + '\\')" class="text-red-500 hover:text-red-700"><i class="fas fa-times"></i></button>' +
+          '</div>'
+        ).join('') || '<div class="text-gray-500">목록 없음</div>';
+        
+        document.getElementById('history-titles-list').innerHTML = data.history.map(t =>
+          '<div class="flex justify-between items-center py-2 border-b">' +
+            '<span>' + t + '</span>' +
+            '<button onclick="restoreTitle(\\'' + t.replace(/'/g, "\\\\'") + '\\')" class="text-blue-500 hover:text-blue-700"><i class="fas fa-undo"></i></button>' +
+          '</div>'
+        ).join('') || '<div class="text-gray-400">없음</div>';
+      }
+    }
+    
+    async function addNewTitle() {
+      const input = document.getElementById('new-title-input');
+      const title = input.value.trim();
+      if (!title) return;
+      
+      await fetchAPI('/api/titles', {
+        method: 'POST',
+        body: JSON.stringify({ title })
+      });
+      input.value = '';
+      loadTitles();
+    }
+    
+    async function removeTitle(title) {
+      if (!confirm('작품을 목록에서 제거하시겠습니까?')) return;
+      await fetchAPI('/api/titles/' + encodeURIComponent(title), { method: 'DELETE' });
+      loadTitles();
+    }
+    
+    async function restoreTitle(title) {
+      await fetchAPI('/api/titles/restore', {
+        method: 'POST',
+        body: JSON.stringify({ title })
+      });
+      loadTitles();
+    }
+    
+    // 초기 로드
     loadDashboard();
     loadPending();
+    loadSessions();
   </script>
 </body>
 </html>
   `)
 })
 
-// Vercel Edge/Serverless compatible export
 export default app
