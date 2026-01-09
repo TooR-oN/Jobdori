@@ -15,6 +15,7 @@ import { runClassify } from './classify.js';
 import { runLLMJudge } from './llm-judge.js';
 import {
   loadConfig,
+  loadSiteList,
   saveJson,
   getTimestamp,
   getCurrentISOTime,
@@ -272,11 +273,16 @@ async function updateMonthlyStats(finalResults: FinalResult[]) {
 // Manta 순위 업데이트
 // ============================================
 
-async function updateMantaRankings(searchResults: SearchResult[], sessionId: string) {
+async function updateMantaRankings(searchResults: SearchResult[], sessionId: string, illegalDomains: Set<string>) {
   const sql = getDb();
   
-  // 작품별로 "[작품명]만" 검색한 결과에서 manta.net 순위 찾기
-  const titleRankings = new Map<string, { mantaRank: number | null; firstDomain: string; query: string }>();
+  // 작품별로 "[작품명]만" 검색한 결과에서 manta.net 순위 및 1페이지 불법 URL 수 계산
+  const titleRankings = new Map<string, { 
+    mantaRank: number | null; 
+    firstDomain: string; 
+    query: string;
+    page1IllegalCount: number;
+  }>();
   
   for (const result of searchResults) {
     // search_query가 title과 같은 경우 = 작품명만 검색
@@ -284,10 +290,15 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
       const title = result.title;
       
       if (!titleRankings.has(title)) {
-        titleRankings.set(title, { mantaRank: null, firstDomain: '', query: result.search_query });
+        titleRankings.set(title, { mantaRank: null, firstDomain: '', query: result.search_query, page1IllegalCount: 0 });
       }
       
       const ranking = titleRankings.get(title)!;
+      
+      // 1페이지(1~10위) 내 불법 사이트 URL 수 계산
+      if (result.rank <= 10 && illegalDomains.has(result.domain.toLowerCase())) {
+        ranking.page1IllegalCount++;
+      }
       
       // 1위 도메인 기록
       if (result.rank === 1) {
@@ -307,22 +318,23 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
   let savedCount = 0;
   for (const [title, ranking] of Array.from(titleRankings.entries())) {
     try {
-      // 현재 순위 업데이트
+      // 현재 순위 업데이트 (page1_illegal_count 포함)
       await sql`
-        INSERT INTO manta_rankings (title, manta_rank, first_rank_domain, search_query, session_id, updated_at)
-        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${ranking.query}, ${sessionId}, NOW())
+        INSERT INTO manta_rankings (title, manta_rank, first_rank_domain, search_query, session_id, page1_illegal_count, updated_at)
+        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${ranking.query}, ${sessionId}, ${ranking.page1IllegalCount}, NOW())
         ON CONFLICT (title) DO UPDATE SET
           manta_rank = EXCLUDED.manta_rank,
           first_rank_domain = EXCLUDED.first_rank_domain,
           search_query = EXCLUDED.search_query,
           session_id = EXCLUDED.session_id,
+          page1_illegal_count = EXCLUDED.page1_illegal_count,
           updated_at = NOW()
       `;
       
-      // 히스토리에도 저장
+      // 히스토리에도 저장 (page1_illegal_count 포함)
       await sql`
-        INSERT INTO manta_ranking_history (title, manta_rank, first_rank_domain, session_id, recorded_at)
-        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${sessionId}, NOW())
+        INSERT INTO manta_ranking_history (title, manta_rank, first_rank_domain, session_id, page1_illegal_count, recorded_at)
+        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${sessionId}, ${ranking.page1IllegalCount}, NOW())
       `;
       
       savedCount++;
@@ -442,8 +454,9 @@ async function runPipeline() {
     await updateMonthlyStats(finalResults);
     console.log('✅ 월별 통계 업데이트 완료');
     
-    // Manta 순위 업데이트
-    await updateMantaRankings(searchResults, timestamp);
+    // Manta 순위 업데이트 (1페이지 내 불법 URL 수 계산을 위해 불법 사이트 목록 필요)
+    const illegalSites = loadSiteList(config.paths.illegalSitesFile);
+    await updateMantaRankings(searchResults, timestamp, illegalSites);
     
     // 세션 완료 업데이트
     const illegal = finalResults.filter(r => r.final_status === 'illegal').length;

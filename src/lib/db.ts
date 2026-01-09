@@ -350,8 +350,22 @@ export async function initializeDatabase(): Promise<void> {
       first_rank_domain VARCHAR(255),
       search_query VARCHAR(500),
       session_id VARCHAR(50),
+      page1_illegal_count INTEGER DEFAULT 0,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )
+  `
+  
+  // page1_illegal_count 컬럼이 없으면 추가
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'manta_rankings' AND column_name = 'page1_illegal_count'
+      ) THEN
+        ALTER TABLE manta_rankings ADD COLUMN page1_illegal_count INTEGER DEFAULT 0;
+      END IF;
+    END $$
   `
 
   // manta_ranking_history 테이블 (순위 히스토리)
@@ -362,8 +376,22 @@ export async function initializeDatabase(): Promise<void> {
       manta_rank INTEGER,
       first_rank_domain VARCHAR(255),
       session_id VARCHAR(50),
+      page1_illegal_count INTEGER DEFAULT 0,
       recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )
+  `
+  
+  // page1_illegal_count 컬럼이 없으면 추가
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'manta_ranking_history' AND column_name = 'page1_illegal_count'
+      ) THEN
+        ALTER TABLE manta_ranking_history ADD COLUMN page1_illegal_count INTEGER DEFAULT 0;
+      END IF;
+    END $$
   `
 
   // 인덱스 추가 (작품별 히스토리 조회 최적화)

@@ -911,7 +911,7 @@ app.get('/api/stats', async (c) => {
 app.get('/api/manta-rankings', async (c) => {
   try {
     const rankings = await query`
-      SELECT title, manta_rank, first_rank_domain, search_query, session_id, updated_at 
+      SELECT title, manta_rank, first_rank_domain, search_query, session_id, page1_illegal_count, updated_at 
       FROM manta_rankings 
       ORDER BY title ASC
     `
@@ -930,7 +930,8 @@ app.get('/api/manta-rankings', async (c) => {
         mantaRank: r.manta_rank,
         firstDomain: r.first_rank_domain,
         searchQuery: r.search_query,
-        sessionId: r.session_id
+        sessionId: r.session_id,
+        page1IllegalCount: r.page1_illegal_count || 0
       })),
       lastUpdated
     })
@@ -1313,38 +1314,55 @@ app.get('/', (c) => {
 
     <!-- 작품별 통계 탭 -->
     <div id="content-title-stats" class="tab-content hidden">
-      <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
-          <h2 class="text-lg md:text-xl font-bold"><i class="fas fa-book text-purple-500 mr-2"></i>작품별 통계</h2>
-        </div>
-        <p class="text-xs md:text-sm text-gray-500 mb-4">작품을 선택하면 월별 불법 URL 통계와 검색 순위 변화를 확인할 수 있습니다.</p>
-        
-        <!-- 작품 선택 -->
-        <div class="flex flex-wrap gap-2 mb-4" id="title-select-list">
-          <span class="text-gray-400 text-sm">로딩 중...</span>
-        </div>
-        
-        <!-- 선택된 작품 상세 패널 -->
-        <div id="title-detail-panel" class="hidden border-t pt-4 mt-4">
-          <h3 class="text-lg font-bold mb-4"><i class="fas fa-chart-bar text-purple-500 mr-2"></i><span id="selected-title-name"></span></h3>
-          
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- 월별 불법 URL 막대그래프 -->
-            <div class="bg-gray-50 rounded-lg p-4">
-              <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-bar mr-2 text-red-500"></i>월별 불법 URL 수</h4>
-              <div class="h-64">
-                <canvas id="monthly-illegal-chart"></canvas>
-              </div>
-              <p id="monthly-chart-empty" class="hidden text-center text-gray-400 py-8">데이터가 없습니다.</p>
+      <div class="flex flex-col md:flex-row gap-4">
+        <!-- 좌측: 작품 목록 -->
+        <div class="w-full md:w-64 lg:w-72 flex-shrink-0">
+          <div class="bg-white rounded-lg shadow-md p-4 sticky top-4">
+            <h3 class="font-bold text-purple-600 mb-3"><i class="fas fa-list mr-2"></i>작품 목록</h3>
+            <!-- 검색 입력 -->
+            <div class="relative mb-3">
+              <input type="text" id="title-search-input" placeholder="작품 검색..." 
+                     class="w-full border rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                     oninput="filterTitleList()">
+              <i class="fas fa-search absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
             </div>
-            
-            <!-- 검색 순위 꺾은선 그래프 -->
-            <div class="bg-gray-50 rounded-lg p-4">
-              <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-line mr-2 text-blue-500"></i>Manta 검색 순위 변화</h4>
-              <div class="h-64">
-                <canvas id="ranking-history-chart"></canvas>
+            <!-- 작품 목록 -->
+            <div id="title-select-list" class="max-h-[60vh] overflow-y-auto space-y-1">
+              <div class="text-gray-400 text-sm text-center py-4">로딩 중...</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 우측: 통계 그래프 -->
+        <div class="flex-1">
+          <div id="title-detail-panel" class="bg-white rounded-lg shadow-md p-4 md:p-6">
+            <div id="title-stats-placeholder" class="text-center py-16 text-gray-400">
+              <i class="fas fa-chart-bar text-6xl mb-4"></i>
+              <p class="text-lg">좌측에서 작품을 선택하세요</p>
+              <p class="text-sm mt-2">월별 불법 URL 통계와 검색 순위 변화를 확인할 수 있습니다.</p>
+            </div>
+            <div id="title-stats-content" class="hidden">
+              <h3 class="text-lg font-bold mb-4"><i class="fas fa-chart-bar text-purple-500 mr-2"></i><span id="selected-title-name"></span></h3>
+              
+              <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <!-- 월별 불법 URL 막대그래프 -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                  <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-bar mr-2 text-red-500"></i>월별 불법 URL 수</h4>
+                  <div class="h-64">
+                    <canvas id="monthly-illegal-chart"></canvas>
+                  </div>
+                  <p id="monthly-chart-empty" class="hidden text-center text-gray-400 py-8">데이터가 없습니다.</p>
+                </div>
+                
+                <!-- 검색 순위 꺾은선 그래프 -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                  <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-line mr-2 text-blue-500"></i>Manta 검색 순위 변화</h4>
+                  <div class="h-64">
+                    <canvas id="ranking-history-chart"></canvas>
+                  </div>
+                  <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
+                </div>
               </div>
-              <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
             </div>
           </div>
         </div>
@@ -1533,14 +1551,35 @@ app.get('/', (c) => {
           rankings.map(r => {
             const rankText = r.mantaRank ? 'P' + Math.ceil(r.mantaRank / 10) + '-' + r.mantaRank : '순위권 외';
             const isFirst = r.mantaRank === 1;
-            const bgColor = isFirst ? 'bg-green-100 border-green-300' : (r.mantaRank ? 'bg-blue-50 border-blue-200' : 'bg-gray-100 border-gray-300');
-            const textColor = isFirst ? 'text-green-700' : (r.mantaRank ? 'text-blue-700' : 'text-gray-500');
+            const page1Count = r.page1IllegalCount || 0;
+            const hasHighIllegal = page1Count >= 5;
             
+            // 1페이지 불법 5개 이상이면 빨간 박스
+            let bgColor, textColor;
+            if (hasHighIllegal) {
+              bgColor = 'bg-red-100 border-red-400 border-2';
+              textColor = 'text-red-700';
+            } else if (isFirst) {
+              bgColor = 'bg-green-100 border-green-300';
+              textColor = 'text-green-700';
+            } else if (r.mantaRank) {
+              bgColor = 'bg-blue-50 border-blue-200';
+              textColor = 'text-blue-700';
+            } else {
+              bgColor = 'bg-gray-100 border-gray-300';
+              textColor = 'text-gray-500';
+            }
+            
+            // 1위 도메인 + 1페이지 불법 URL 수 표시
             let extraInfo = '';
-            if (!isFirst && r.mantaRank && r.firstDomain) {
-              extraInfo = '<div class="text-xs text-gray-400 truncate" title="1위: ' + r.firstDomain + '">1위: ' + r.firstDomain + '</div>';
-            } else if (!r.mantaRank && r.firstDomain) {
-              extraInfo = '<div class="text-xs text-gray-400 truncate" title="1위: ' + r.firstDomain + '">1위: ' + r.firstDomain + '</div>';
+            if (r.firstDomain || page1Count > 0) {
+              const firstDomainText = r.firstDomain ? '1위: ' + r.firstDomain : '';
+              const illegalCountText = '<span class="' + (hasHighIllegal ? 'text-red-600 font-bold' : 'text-gray-500') + '">' +
+                '불법 ' + page1Count + '개/10</span>';
+              extraInfo = '<div class="text-xs text-gray-400 truncate flex justify-between items-center gap-1">' +
+                (firstDomainText ? '<span class="truncate" title="' + r.firstDomain + '">' + firstDomainText + '</span>' : '<span></span>') +
+                illegalCountText +
+              '</div>';
             }
             
             return '<div class="border rounded p-3 ' + bgColor + '">' +
@@ -1556,33 +1595,53 @@ app.get('/', (c) => {
     // ============================================
     // 작품별 상세보기 기능
     // ============================================
+    // 작품별 통계 - 차트 및 데이터 관리
+    // ============================================
     let monthlyChart = null;
     let rankingChart = null;
+    let allTitlesForStats = []; // 전체 작품 목록 저장
     
     async function loadTitleSelectList() {
       const data = await fetchAPI('/api/titles/list');
+      const listEl = document.getElementById('title-stats-list');
+      
       if (data.success && data.titles.length > 0) {
-        document.getElementById('title-select-list').innerHTML = data.titles.map(title =>
-          '<button onclick="selectTitle(\\'' + title.replace(/'/g, "\\\\'") + '\\')" ' +
-          'class="title-select-btn px-3 py-1.5 text-sm rounded-full border border-purple-300 hover:bg-purple-100 transition truncate max-w-[200px]" ' +
-          'title="' + title + '">' + title + '</button>'
-        ).join('');
+        allTitlesForStats = data.titles;
+        renderTitleStatsList(data.titles);
       } else {
-        document.getElementById('title-select-list').innerHTML = '<span class="text-gray-400 text-sm">모니터링 대상 작품이 없습니다.</span>';
+        listEl.innerHTML = '<div class="text-gray-400 text-sm p-4 text-center">모니터링 대상 작품이 없습니다.</div>';
       }
     }
     
-    async function selectTitle(title) {
-      // 버튼 활성화 상태 변경
-      document.querySelectorAll('.title-select-btn').forEach(btn => {
-        btn.classList.remove('bg-purple-500', 'text-white');
-        btn.classList.add('border-purple-300');
+    function renderTitleStatsList(titles) {
+      const listEl = document.getElementById('title-stats-list');
+      listEl.innerHTML = titles.map(title =>
+        '<div onclick="selectTitleForStats(\\'' + title.replace(/'/g, "\\\\'") + '\\')" ' +
+        'class="title-stats-item p-3 border-b border-gray-100 hover:bg-purple-50 cursor-pointer transition" ' +
+        'data-title="' + title.replace(/"/g, '&quot;') + '">' +
+        '<div class="font-medium text-gray-800 truncate">' + title + '</div>' +
+        '</div>'
+      ).join('');
+    }
+    
+    function filterTitleList() {
+      const query = document.getElementById('title-search-input').value.toLowerCase();
+      const filtered = allTitlesForStats.filter(t => t.toLowerCase().includes(query));
+      renderTitleStatsList(filtered);
+    }
+    
+    async function selectTitleForStats(title) {
+      // 선택 상태 표시
+      document.querySelectorAll('.title-stats-item').forEach(item => {
+        item.classList.remove('bg-purple-100', 'border-l-4', 'border-l-purple-500');
       });
-      event.target.classList.add('bg-purple-500', 'text-white');
-      event.target.classList.remove('border-purple-300');
+      const selectedItem = document.querySelector('.title-stats-item[data-title="' + title.replace(/"/g, '&quot;') + '"]');
+      if (selectedItem) {
+        selectedItem.classList.add('bg-purple-100', 'border-l-4', 'border-l-purple-500');
+      }
       
       // 상세 패널 표시
-      document.getElementById('title-detail-panel').classList.remove('hidden');
+      document.getElementById('title-stats-detail').classList.remove('hidden');
       document.getElementById('selected-title-name').textContent = title;
       
       // 데이터 로드
