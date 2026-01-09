@@ -1,5 +1,4 @@
 import { Hono } from 'hono'
-import { handle } from '@hono/node-server/vercel'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { neon } from '@neondatabase/serverless'
@@ -712,14 +711,5 @@ app.get('/', (c) => {
   `)
 })
 
-// Vercel Serverless Functions - named exports for HTTP methods
-const handler = handle(app)
-
-export const GET = handler
-export const POST = handler
-export const PUT = handler
-export const DELETE = handler
-export const PATCH = handler
-export const OPTIONS = handler
-
-export default handler
+// Vercel Edge/Serverless compatible export
+export default app
