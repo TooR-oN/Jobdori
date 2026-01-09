@@ -21,6 +21,121 @@ import {
 } from './utils.js';
 
 // ============================================
+// Slack 알림 함수
+// ============================================
+
+async function sendSlackNotification(stats: {
+  timestamp: string;
+  total: number;
+  illegal: number;
+  legal: number;
+  pending: number;
+  duration: string;
+}) {
+  const slackToken = process.env.SLACK_BOT_TOKEN;
+  const channelId = process.env.SLACK_CHANNEL_ID;
+  
+  if (!slackToken || !channelId) {
+    console.log('⚠️ Slack 설정이 없어 알림을 건너뜁니다.');
+    return;
+  }
+  
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ko-KR', { 
+    year: 'numeric', 
+    month: '2-digit', 
+    day: '2-digit' 
+  });
+  const timeStr = now.toLocaleTimeString('ko-KR', { 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: false 
+  });
+  
+  const message = {
+    channel: channelId,
+    text: `🚨 Jobdori 모니터링 완료`,
+    blocks: [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: '🚨 Jobdori 모니터링 완료',
+          emoji: true
+        }
+      },
+      {
+        type: 'divider'
+      },
+      {
+        type: 'section',
+        fields: [
+          {
+            type: 'mrkdwn',
+            text: `*📅 일시*\n${dateStr} ${timeStr}`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*⏱️ 소요시간*\n${stats.duration}초`
+          }
+        ]
+      },
+      {
+        type: 'section',
+        fields: [
+          {
+            type: 'mrkdwn',
+            text: `*📊 전체*\n${stats.total}개`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*🔴 불법*\n${stats.illegal}개`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*🟢 합법*\n${stats.legal}개`
+          },
+          {
+            type: 'mrkdwn',
+            text: `*🟡 대기*\n${stats.pending}개`
+          }
+        ]
+      },
+      {
+        type: 'divider'
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '🔗 <https://jobdori.vercel.app|대시보드 바로가기>'
+        }
+      }
+    ]
+  };
+  
+  try {
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${slackToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(message)
+    });
+    
+    const result = await response.json();
+    if (result.ok) {
+      console.log('✅ Slack 알림 전송 완료');
+    } else {
+      console.error('❌ Slack 알림 실패:', result.error);
+    }
+  } catch (error) {
+    console.error('❌ Slack 알림 오류:', error);
+  }
+}
+
+// ============================================
 // Database Functions
 // ============================================
 
@@ -362,6 +477,18 @@ async function runPipeline() {
     console.log('');
     console.log(`📁 Blob URL: ${blob.url}`);
     console.log('═'.repeat(60));
+
+    // ==========================================
+    // Slack 알림 전송
+    // ==========================================
+    await sendSlackNotification({
+      timestamp,
+      total: finalResults.length,
+      illegal,
+      legal,
+      pending,
+      duration
+    });
 
     return { success: true, timestamp, blobUrl: blob.url };
 
