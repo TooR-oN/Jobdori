@@ -8,9 +8,9 @@
       "min": 500,
       "max": 1000
     },
-    "maxPages": 1,
+    "maxPages": 3,
     "resultsPerPage": 10,
-    "maxResults": 10
+    "maxResults": 30
   },
   "llm": {
     "model": "gemini-2.5-pro",

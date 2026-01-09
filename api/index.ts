@@ -957,7 +957,6 @@ app.get('/', (c) => {
         </button>
         <button id="tab-sessions" onclick="switchTab('sessions')" class="px-6 py-4 text-gray-600 hover:text-blue-600">
           <i class="fas fa-history mr-2"></i>모니터링 회차
-          <span id="sessions-badge" class="ml-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full">0</span>
         </button>
         <button id="tab-sites" onclick="switchTab('sites')" class="px-6 py-4 text-gray-600 hover:text-blue-600">
           <i class="fas fa-globe mr-2"></i>사이트 목록
@@ -1378,7 +1377,6 @@ app.get('/', (c) => {
     async function loadSessions() {
       const data = await fetchAPI('/api/sessions');
       if (data.success) {
-        document.getElementById('sessions-badge').textContent = data.count;
         allSessions = data.sessions;
         if (data.sessions.length === 0) {
           document.getElementById('sessions-list').innerHTML = '<div class="text-gray-500 text-center py-8"><i class="fas fa-folder-open text-4xl mb-2"></i><br>모니터링 기록이 없습니다.</div>';
