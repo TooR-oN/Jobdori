@@ -303,7 +303,9 @@ app.get('/login', async (c) => {
   <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
     <div class="text-center mb-8">
       <div class="flex items-center justify-center gap-3">
-        <img src="https://www.genspark.ai/api/files/s/BCOfAM7E" alt="RIDI" class="h-8">
+        <svg width="60" height="24" viewBox="0 0 60 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <text x="0" y="20" font-family="Arial Black, sans-serif" font-size="22" font-weight="900" fill="#1E9EF4">RIDI</text>
+        </svg>
         <h1 class="text-3xl font-bold text-gray-800">Jobdori</h1>
       </div>
       <p class="text-gray-500 mt-2">리디 저작권 침해 모니터링 시스템</p>
@@ -924,7 +926,9 @@ app.get('/', (c) => {
     <div class="bg-white rounded-lg shadow-md p-6 mb-6">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <img src="https://www.genspark.ai/api/files/s/BCOfAM7E" alt="RIDI" class="h-10">
+          <svg width="70" height="28" viewBox="0 0 70 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <text x="0" y="23" font-family="Arial Black, sans-serif" font-size="26" font-weight="900" fill="#1E9EF4">RIDI</text>
+          </svg>
           <div>
             <h1 class="text-2xl font-bold text-gray-800">Jobdori</h1>
             <p class="text-gray-600 text-sm">리디 저작권 침해 모니터링 시스템</p>
