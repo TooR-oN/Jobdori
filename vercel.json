@@ -8,10 +8,5 @@
       "source": "/(.*)",
       "destination": "/index.js"
     }
-  ],
-  "functions": {
-    "dist/index.js": {
-      "maxDuration": 30
-    }
-  }
+  ]
 }
