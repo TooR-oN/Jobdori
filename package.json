@@ -10,6 +10,7 @@
     "classify": "tsx scripts/classify.ts",
     "llm-judge": "tsx scripts/llm-judge.ts",
     "run-all": "tsx scripts/run-all.ts",
+    "run-pipeline": "tsx scripts/run-pipeline.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:seed": "tsx scripts/db-seed.ts"
   },

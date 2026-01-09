@@ -53,36 +53,58 @@ interface FinalResult {
 }
 
 // ============================================
-// Auth Setup
+// Auth Setup - Signed Cookie (Stateless)
 // ============================================
 
 const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD || 'ridilegal'
+// SECRET_KEY는 환경변수로 설정하거나 자동 생성 (프로덕션에서는 환경변수 권장)
+const SECRET_KEY = process.env.SESSION_SECRET || 'jobdori-secret-key-2026'
 
-function generateRandomString(length: number): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let result = ''
-  for (let i = 0; i < length; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)]
-  }
-  return result
+// HMAC-SHA256으로 토큰 서명 생성
+async function createSignedToken(payload: { exp: number }): Promise<string> {
+  const data = JSON.stringify(payload)
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(SECRET_KEY),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data))
+  const signatureB64 = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(signature))))
+  const dataB64 = btoa(data)
+  return `${dataB64}.${signatureB64}`
 }
 
-function generateSessionToken(): string {
-  return generateRandomString(64)
-}
-
-const sessions = new Map<string, { createdAt: number }>()
-
-function isValidSession(token: string): boolean {
-  const session = sessions.get(token)
-  if (!session) return false
-  const now = Date.now()
-  const oneDay = 24 * 60 * 60 * 1000
-  if (now - session.createdAt > oneDay) {
-    sessions.delete(token)
+// 서명된 토큰 검증
+async function verifySignedToken(token: string): Promise<boolean> {
+  try {
+    const [dataB64, signatureB64] = token.split('.')
+    if (!dataB64 || !signatureB64) return false
+    
+    const data = atob(dataB64)
+    const payload = JSON.parse(data)
+    
+    // 만료 시간 확인
+    if (payload.exp && Date.now() > payload.exp) return false
+    
+    // 서명 검증
+    const encoder = new TextEncoder()
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(SECRET_KEY),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    )
+    
+    const signatureBytes = Uint8Array.from(atob(signatureB64), c => c.charCodeAt(0))
+    const isValid = await crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(data))
+    return isValid
+  } catch {
     return false
   }
-  return true
 }
 
 // ============================================
@@ -233,9 +255,9 @@ app.use('/api/*', cors())
 // Auth Routes
 // ============================================
 
-app.get('/login', (c) => {
+app.get('/login', async (c) => {
   const sessionToken = getCookie(c, 'session_token')
-  if (sessionToken && isValidSession(sessionToken)) {
+  if (sessionToken && await verifySignedToken(sessionToken)) {
     return c.redirect('/')
   }
   
@@ -296,8 +318,9 @@ app.post('/api/auth/login', async (c) => {
   try {
     const { password } = await c.req.json()
     if (password === ACCESS_PASSWORD) {
-      const token = generateSessionToken()
-      sessions.set(token, { createdAt: Date.now() })
+      // 24시간 후 만료
+      const exp = Date.now() + 24 * 60 * 60 * 1000
+      const token = await createSignedToken({ exp })
       setCookie(c, 'session_token', token, {
         httpOnly: true,
         secure: true,
@@ -314,15 +337,15 @@ app.post('/api/auth/login', async (c) => {
 })
 
 app.post('/api/auth/logout', (c) => {
-  const sessionToken = getCookie(c, 'session_token')
-  if (sessionToken) sessions.delete(sessionToken)
   deleteCookie(c, 'session_token', { path: '/' })
   return c.json({ success: true })
 })
 
-app.get('/api/auth/status', (c) => {
+app.get('/api/auth/status', async (c) => {
   const sessionToken = getCookie(c, 'session_token')
-  return c.json({ authenticated: sessionToken ? isValidSession(sessionToken) : false })
+  if (!sessionToken) return c.json({ authenticated: false })
+  const isValid = await verifySignedToken(sessionToken)
+  return c.json({ authenticated: isValid })
 })
 
 // Auth Middleware
@@ -332,7 +355,8 @@ app.use('*', async (c, next) => {
   if (publicPaths.some(p => path.startsWith(p))) return next()
   
   const sessionToken = getCookie(c, 'session_token')
-  if (!sessionToken || !isValidSession(sessionToken)) {
+  const isValid = sessionToken ? await verifySignedToken(sessionToken) : false
+  if (!isValid) {
     if (path.startsWith('/api/')) {
       return c.json({ success: false, error: '인증이 필요합니다.' }, 401)
     }
