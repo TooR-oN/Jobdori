@@ -243,6 +243,34 @@ async function downloadResults(blobUrl: string): Promise<FinalResult[]> {
   }
 }
 
+// 사이트 목록을 기반으로 final_status 재계산
+async function recalculateFinalStatus(results: FinalResult[]): Promise<FinalResult[]> {
+  const illegalSites = await getSitesByType('illegal')
+  const legalSites = await getSitesByType('legal')
+  const illegalDomains = new Set(illegalSites.map((s: any) => s.domain.toLowerCase()))
+  const legalDomains = new Set(legalSites.map((s: any) => s.domain.toLowerCase()))
+  
+  return results.map(r => {
+    const domain = r.domain.toLowerCase()
+    let newFinalStatus: 'illegal' | 'legal' | 'pending' = r.final_status
+    
+    // 사이트 목록 기반으로 재계산
+    if (illegalDomains.has(domain)) {
+      newFinalStatus = 'illegal'
+    } else if (legalDomains.has(domain)) {
+      newFinalStatus = 'legal'
+    } else if (r.llm_judgment === 'likely_illegal') {
+      newFinalStatus = 'pending' // 아직 검토되지 않은 경우 pending
+    } else if (r.llm_judgment === 'likely_legal') {
+      newFinalStatus = 'legal'
+    } else {
+      newFinalStatus = 'pending'
+    }
+    
+    return { ...r, final_status: newFinalStatus }
+  })
+}
+
 // ============================================
 // Hono App
 // ============================================
@@ -559,6 +587,9 @@ app.get('/api/sessions/:id/results', async (c) => {
       results = await downloadResults(session.file_final_results)
     }
     
+    // 사이트 목록을 기반으로 final_status 실시간 재계산
+    results = await recalculateFinalStatus(results)
+    
     const titleFilter = c.req.query('title') || 'all'
     const statusFilter = c.req.query('status') || 'all'
     const page = parseInt(c.req.query('page') || '1')
@@ -566,6 +597,7 @@ app.get('/api/sessions/:id/results', async (c) => {
     
     let filteredResults = results
     
+    // URL 중복 제거
     const seenUrls = new Set<string>()
     filteredResults = filteredResults.filter(r => {
       if (seenUrls.has(r.url)) return false
@@ -606,6 +638,9 @@ app.get('/api/sessions/:id/download', async (c) => {
     if (session.file_final_results?.startsWith('http')) {
       results = await downloadResults(session.file_final_results)
     }
+    
+    // 사이트 목록을 기반으로 final_status 실시간 재계산
+    results = await recalculateFinalStatus(results)
     
     if (results.length === 0) {
       return c.json({ success: false, error: 'No results found' }, 404)
@@ -683,7 +718,10 @@ app.get('/api/dashboard', async (c) => {
       try {
         const response = await fetch(session.file_final_results)
         if (!response.ok) continue
-        const results: FinalResult[] = await response.json()
+        let results: FinalResult[] = await response.json()
+        
+        // 사이트 목록 기반으로 final_status 재계산
+        results = await recalculateFinalStatus(results)
         
         for (const r of results) {
           if (r.final_status === 'illegal') {
@@ -746,7 +784,10 @@ app.get('/api/dashboard/all-titles', async (c) => {
       try {
         const response = await fetch(session.file_final_results)
         if (!response.ok) continue
-        const results: FinalResult[] = await response.json()
+        let results: FinalResult[] = await response.json()
+        
+        // 사이트 목록 기반으로 final_status 재계산
+        results = await recalculateFinalStatus(results)
         
         for (const r of results) {
           if (r.final_status === 'illegal') {
