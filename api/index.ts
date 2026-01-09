@@ -10,21 +10,27 @@ import * as XLSX from 'xlsx'
 // Database Setup
 // ============================================
 
-function getDb() {
-  const dbUrl = process.env.DATABASE_URL
-  if (!dbUrl) {
-    throw new Error('DATABASE_URL environment variable is not set')
+// Use 'any' type to avoid Neon's complex generic types that cause issues with Vercel's TS compiler
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sql: any = null
+
+function getDatabase(): any {
+  if (!sql) {
+    const dbUrl = process.env.DATABASE_URL
+    if (!dbUrl) {
+      throw new Error('DATABASE_URL environment variable is not set')
+    }
+    sql = neon(dbUrl)
   }
-  return neon(dbUrl)
+  return sql
 }
 
-// Lazy initialization - only connect when needed
-let _sql: ReturnType<typeof neon> | null = null
-function getSql() {
-  if (!_sql) {
-    _sql = getDb()
-  }
-  return _sql
+// Query helper - uses any to bypass Neon's complex types
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function query(strings: TemplateStringsArray, ...values: any[]): Promise<any[]> {
+  const db = getDatabase()
+  const result = await db(strings, ...values)
+  return result as any[]
 }
 
 // ============================================
@@ -122,96 +128,76 @@ function generateExcelFromResults(results: FinalResult[]): Buffer {
 // ============================================
 
 async function getSessions(): Promise<any[]> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM sessions ORDER BY created_at DESC`
-  return rows as any[]
+  return query`SELECT * FROM sessions ORDER BY created_at DESC`
 }
 
 async function getSessionById(id: string): Promise<any | null> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM sessions WHERE id = ${id}` as any[]
+  const rows = await query`SELECT * FROM sessions WHERE id = ${id}`
   return rows[0] || null
 }
 
 async function getPendingReviews(): Promise<any[]> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM pending_reviews ORDER BY created_at DESC`
-  return rows as any[]
+  return query`SELECT * FROM pending_reviews ORDER BY created_at DESC`
 }
 
 async function getPendingReviewById(id: number): Promise<any | null> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM pending_reviews WHERE id = ${id}` as any[]
+  const rows = await query`SELECT * FROM pending_reviews WHERE id = ${id}`
   return rows[0] || null
 }
 
-async function deletePendingReview(id: number) {
-  const sql = getSql()
-  await sql`DELETE FROM pending_reviews WHERE id = ${id}`
+async function deletePendingReview(id: number): Promise<boolean> {
+  await query`DELETE FROM pending_reviews WHERE id = ${id}`
   return true
 }
 
 async function getSitesByType(type: 'illegal' | 'legal'): Promise<any[]> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM sites WHERE type = ${type} ORDER BY domain`
-  return rows as any[]
+  return query`SELECT * FROM sites WHERE type = ${type} ORDER BY domain`
 }
 
 async function addSite(domain: string, type: 'illegal' | 'legal'): Promise<any> {
-  const sql = getSql()
-  const rows = await sql`
+  const rows = await query`
     INSERT INTO sites (domain, type)
     VALUES (${domain.toLowerCase()}, ${type})
     ON CONFLICT (domain, type) DO NOTHING
     RETURNING *
-  ` as any[]
+  `
   return rows[0]
 }
 
-async function removeSite(domain: string, type: 'illegal' | 'legal') {
-  const sql = getSql()
-  await sql`DELETE FROM sites WHERE domain = ${domain.toLowerCase()} AND type = ${type}`
+async function removeSite(domain: string, type: 'illegal' | 'legal'): Promise<boolean> {
+  await query`DELETE FROM sites WHERE domain = ${domain.toLowerCase()} AND type = ${type}`
   return true
 }
 
 async function getCurrentTitles(): Promise<any[]> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM titles WHERE is_current = true ORDER BY created_at DESC`
-  return rows as any[]
+  return query`SELECT * FROM titles WHERE is_current = true ORDER BY created_at DESC`
 }
 
 async function getHistoryTitles(): Promise<any[]> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM titles WHERE is_current = false ORDER BY created_at DESC`
-  return rows as any[]
+  return query`SELECT * FROM titles WHERE is_current = false ORDER BY created_at DESC`
 }
 
 async function addTitle(name: string): Promise<any> {
-  const sql = getSql()
-  const rows = await sql`
+  const rows = await query`
     INSERT INTO titles (name, is_current)
     VALUES (${name}, true)
     ON CONFLICT (name) DO UPDATE SET is_current = true
     RETURNING *
-  ` as any[]
+  `
   return rows[0]
 }
 
-async function removeTitle(name: string) {
-  const sql = getSql()
-  await sql`UPDATE titles SET is_current = false WHERE name = ${name}`
+async function removeTitle(name: string): Promise<boolean> {
+  await query`UPDATE titles SET is_current = false WHERE name = ${name}`
   return true
 }
 
 async function getMonthlyStats(): Promise<any[]> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM monthly_stats ORDER BY month DESC`
-  return rows as any[]
+  return query`SELECT * FROM monthly_stats ORDER BY month DESC`
 }
 
 async function getMonthlyStatsByMonth(month: string): Promise<any | null> {
-  const sql = getSql()
-  const rows = await sql`SELECT * FROM monthly_stats WHERE month = ${month}` as any[]
+  const rows = await query`SELECT * FROM monthly_stats WHERE month = ${month}`
   return rows[0] || null
 }
 
