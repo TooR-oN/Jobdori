@@ -643,21 +643,21 @@ app.get('/api/dashboard/months', async (c) => {
 app.get('/api/dashboard', async (c) => {
   try {
     const month = c.req.query('month')
-    let stats: any = null
+    const now = new Date()
+    const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     
-    if (month) {
-      stats = await getMonthlyStatsByMonth(month)
-    } else {
-      const allStats = await getMonthlyStats()
-      stats = allStats[0] || null
-    }
+    // 해당 월의 모든 세션 가져오기
+    const sessions = await query`
+      SELECT id, file_final_results, results_total, results_illegal, results_legal, results_pending
+      FROM sessions 
+      WHERE id LIKE ${targetMonth + '%'} AND status = 'completed' AND file_final_results IS NOT NULL
+      ORDER BY created_at DESC
+    `
     
-    if (!stats) {
-      const now = new Date()
-      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    if (sessions.length === 0) {
       return c.json({
         success: true,
-        month: currentMonth,
+        month: targetMonth,
         sessions_count: 0,
         top_contents: [],
         top_illegal_sites: [],
@@ -665,21 +665,107 @@ app.get('/api/dashboard', async (c) => {
       })
     }
     
+    // 월별 총계 계산
+    let totalStats = { total: 0, illegal: 0, legal: 0, pending: 0 }
+    for (const s of sessions) {
+      totalStats.total += s.results_total || 0
+      totalStats.illegal += s.results_illegal || 0
+      totalStats.legal += s.results_legal || 0
+      totalStats.pending += s.results_pending || 0
+    }
+    
+    // 모든 세션의 결과를 가져와서 누적 계산
+    const titleCounts = new Map<string, number>()
+    const domainCounts = new Map<string, number>()
+    
+    for (const session of sessions) {
+      if (!session.file_final_results) continue
+      try {
+        const response = await fetch(session.file_final_results)
+        if (!response.ok) continue
+        const results: FinalResult[] = await response.json()
+        
+        for (const r of results) {
+          if (r.final_status === 'illegal') {
+            titleCounts.set(r.title, (titleCounts.get(r.title) || 0) + 1)
+            domainCounts.set(r.domain, (domainCounts.get(r.domain) || 0) + 1)
+          }
+        }
+      } catch {
+        // Blob 로드 실패 시 무시
+      }
+    }
+    
+    // Top 10으로 정렬
+    const topContents = Array.from(titleCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }))
+    
+    const topIllegalSites = Array.from(domainCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([domain, count]) => ({ domain, count }))
+    
     return c.json({
       success: true,
-      month: stats.month,
-      sessions_count: stats.sessions_count,
-      top_contents: stats.top_contents,
-      top_illegal_sites: stats.top_illegal_sites,
-      total_stats: {
-        total: stats.total,
-        illegal: stats.illegal,
-        legal: stats.legal,
-        pending: stats.pending
-      }
+      month: targetMonth,
+      sessions_count: sessions.length,
+      top_contents: topContents,
+      top_illegal_sites: topIllegalSites,
+      total_stats: totalStats
     })
   } catch {
     return c.json({ success: false, error: 'Failed to load dashboard' }, 500)
+  }
+})
+
+// 전체보기 API - 해당 월의 모든 작품별 통계
+app.get('/api/dashboard/all-titles', async (c) => {
+  try {
+    const month = c.req.query('month')
+    const now = new Date()
+    const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    
+    // 해당 월의 모든 세션 가져오기
+    const sessions = await query`
+      SELECT id, file_final_results
+      FROM sessions 
+      WHERE id LIKE ${targetMonth + '%'} AND status = 'completed' AND file_final_results IS NOT NULL
+    `
+    
+    if (sessions.length === 0) {
+      return c.json({ success: true, month: targetMonth, titles: [] })
+    }
+    
+    // 모든 세션의 결과를 가져와서 작품별 누적 계산
+    const titleCounts = new Map<string, number>()
+    
+    for (const session of sessions) {
+      if (!session.file_final_results) continue
+      try {
+        const response = await fetch(session.file_final_results)
+        if (!response.ok) continue
+        const results: FinalResult[] = await response.json()
+        
+        for (const r of results) {
+          if (r.final_status === 'illegal') {
+            titleCounts.set(r.title, (titleCounts.get(r.title) || 0) + 1)
+          }
+        }
+      } catch {
+        // Blob 로드 실패 시 무시
+      }
+    }
+    
+    // 정렬해서 반환
+    const titles = Array.from(titleCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }))
+    
+    return c.json({ success: true, month: targetMonth, titles })
+  } catch {
+    return c.json({ success: false, error: 'Failed to load all titles' }, 500)
   }
 })
 
@@ -827,7 +913,10 @@ app.get('/', (c) => {
         </div>
         <div class="grid grid-cols-2 gap-6">
           <div>
-            <h3 class="font-bold mb-3"><i class="fas fa-fire text-red-500 mr-2"></i>불법 URL 많은 작품 Top 5</h3>
+            <div class="flex justify-between items-center mb-3">
+              <h3 class="font-bold"><i class="fas fa-fire text-red-500 mr-2"></i>불법 URL 많은 작품 Top 5</h3>
+              <button onclick="openAllTitlesModal()" class="text-sm text-blue-500 hover:text-blue-700">전체보기 <i class="fas fa-arrow-right"></i></button>
+            </div>
             <div id="top-contents" class="space-y-2">로딩 중...</div>
           </div>
           <div>
@@ -904,7 +993,7 @@ app.get('/', (c) => {
 
   <!-- 작품 변경 모달 -->
   <div id="titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] overflow-hidden">
       <div class="bg-purple-500 text-white px-6 py-4 flex justify-between items-center">
         <h2 class="text-xl font-bold"><i class="fas fa-list-alt mr-2"></i>모니터링 대상 작품 관리</h2>
         <button onclick="closeTitlesModal()" class="text-white hover:text-gray-200">
@@ -912,18 +1001,34 @@ app.get('/', (c) => {
         </button>
       </div>
       <div class="p-6">
-        <div class="flex gap-2 mb-4">
-          <input type="text" id="new-title-input" placeholder="새 작품명 입력..." 
-                 class="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                 onkeypress="if(event.key==='Enter') addNewTitle()">
-          <button onclick="addNewTitle()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
-            <i class="fas fa-plus"></i> 추가
-          </button>
+        <!-- 2분할 레이아웃 -->
+        <div class="grid grid-cols-2 gap-6 mb-4">
+          <!-- 현재 모니터링 대상 -->
+          <div>
+            <h3 class="font-bold mb-3 text-purple-600">
+              <i class="fas fa-play-circle mr-2"></i>현재 모니터링 대상 (<span id="titles-count">0</span>개)
+            </h3>
+            <div id="current-titles-list" class="h-72 overflow-y-auto border rounded p-3">로딩 중...</div>
+          </div>
+          <!-- 이전 모니터링 대상 -->
+          <div>
+            <h3 class="font-bold mb-3 text-gray-500">
+              <i class="fas fa-history mr-2"></i>이전 모니터링 대상 (<span id="history-titles-count">0</span>개)
+            </h3>
+            <div id="history-titles-list" class="h-72 overflow-y-auto border rounded p-3 text-gray-500">로딩 중...</div>
+          </div>
         </div>
-        <h3 class="font-bold mb-2">현재 모니터링 대상 (<span id="titles-count">0</span>개)</h3>
-        <div id="current-titles-list" class="max-h-64 overflow-y-auto border rounded p-3 mb-4">로딩 중...</div>
-        <h3 class="font-bold mb-2 text-gray-500">이전 모니터링 대상</h3>
-        <div id="history-titles-list" class="max-h-32 overflow-y-auto border rounded p-3 text-gray-500">로딩 중...</div>
+        <!-- 새 작품 추가 (하단) -->
+        <div class="border-t pt-4">
+          <div class="flex gap-2">
+            <input type="text" id="new-title-input" placeholder="새 작품명 입력..." 
+                   class="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                   onkeypress="if(event.key==='Enter') addNewTitle()">
+            <button onclick="addNewTitle()" class="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-lg">
+              <i class="fas fa-plus mr-2"></i>추가
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -948,12 +1053,32 @@ app.get('/', (c) => {
             <option value="legal">합법</option>
             <option value="pending">대기</option>
           </select>
-          <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg ml-auto">
-            <i class="fas fa-download mr-2"></i>엑셀 다운로드
-          </button>
+          <div class="flex gap-2 ml-auto">
+            <button onclick="copyAllIllegalUrls()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg">
+              <i class="fas fa-copy mr-2"></i>불법 URL 복사
+            </button>
+            <button onclick="downloadSessionReport()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
+              <i class="fas fa-download mr-2"></i>엑셀 다운로드
+            </button>
+          </div>
         </div>
         <div id="session-results" class="space-y-2">로딩 중...</div>
         <div id="session-pagination" class="flex justify-center gap-2 mt-4"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 전체보기 모달 (작품별 월별 통계) -->
+  <div id="all-titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden">
+      <div class="bg-red-500 text-white px-6 py-4 flex justify-between items-center">
+        <h2 class="text-xl font-bold"><i class="fas fa-fire mr-2"></i>작품별 불법 URL 통계 - <span id="all-titles-month"></span></h2>
+        <button onclick="closeAllTitlesModal()" class="text-white hover:text-gray-200">
+          <i class="fas fa-times text-xl"></i>
+        </button>
+      </div>
+      <div class="p-6 overflow-y-auto max-h-[calc(85vh-80px)]">
+        <div id="all-titles-list" class="space-y-2">로딩 중...</div>
       </div>
     </div>
   </div>
@@ -1031,6 +1156,37 @@ app.get('/', (c) => {
       
       // Manta 순위 로드
       loadMantaRankings();
+    }
+    
+    async function openAllTitlesModal() {
+      const month = document.getElementById('month-select').value;
+      document.getElementById('all-titles-month').textContent = month || '현재 월';
+      document.getElementById('all-titles-modal').classList.remove('hidden');
+      document.getElementById('all-titles-list').innerHTML = '<div class="text-center py-8"><i class="fas fa-spinner fa-spin text-2xl"></i></div>';
+      
+      const data = await fetchAPI('/api/dashboard/all-titles' + (month ? '?month=' + month : ''));
+      
+      if (data.success && data.titles.length > 0) {
+        document.getElementById('all-titles-list').innerHTML = 
+          '<div class="grid grid-cols-12 gap-2 p-3 bg-gray-100 rounded font-bold text-sm mb-2">' +
+            '<div class="col-span-1 text-center">#</div>' +
+            '<div class="col-span-8">작품명</div>' +
+            '<div class="col-span-3 text-right">불법 URL</div>' +
+          '</div>' +
+          data.titles.map((t, i) => 
+            '<div class="grid grid-cols-12 gap-2 p-3 border-b hover:bg-gray-50">' +
+              '<div class="col-span-1 text-center text-gray-500">' + (i+1) + '</div>' +
+              '<div class="col-span-8">' + t.name + '</div>' +
+              '<div class="col-span-3 text-right text-red-600 font-bold">' + t.count + '개</div>' +
+            '</div>'
+          ).join('');
+      } else {
+        document.getElementById('all-titles-list').innerHTML = '<div class="text-gray-500 text-center py-8">데이터가 없습니다.</div>';
+      }
+    }
+    
+    function closeAllTitlesModal() {
+      document.getElementById('all-titles-modal').classList.add('hidden');
     }
     
     async function loadMantaRankings() {
@@ -1225,6 +1381,37 @@ app.get('/', (c) => {
       }
     }
     
+    async function copyAllIllegalUrls() {
+      if (!currentSessionId) return;
+      
+      // 현재 필터 상태 가져오기
+      const titleFilter = document.getElementById('session-title-filter').value;
+      
+      // 불법 URL만 가져오기 (status=illegal 고정)
+      let url = '/api/sessions/' + currentSessionId + '/results?status=illegal&limit=10000';
+      if (titleFilter !== 'all') {
+        url += '&title=' + encodeURIComponent(titleFilter);
+      }
+      
+      const data = await fetchAPI(url);
+      
+      if (data.success && data.results.length > 0) {
+        const urls = data.results.map(r => r.url).join('\\n');
+        navigator.clipboard.writeText(urls).then(() => {
+          const toast = document.createElement('div');
+          toast.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded shadow-lg z-50';
+          toast.innerHTML = '<i class="fas fa-check mr-2"></i>불법 URL ' + data.results.length + '개가 복사되었습니다';
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 3000);
+        }).catch(err => {
+          console.error('복사 실패:', err);
+          alert('복사에 실패했습니다.');
+        });
+      } else {
+        alert('복사할 불법 URL이 없습니다.');
+      }
+    }
+    
     function copyUrl(url) {
       navigator.clipboard.writeText(url).then(() => {
         // 성공 시 간단한 피드백
@@ -1311,19 +1498,21 @@ app.get('/', (c) => {
       const data = await fetchAPI('/api/titles');
       if (data.success) {
         document.getElementById('titles-count').textContent = data.current.length;
+        document.getElementById('history-titles-count').textContent = data.history.length;
+        
         document.getElementById('current-titles-list').innerHTML = data.current.map(t =>
-          '<div class="flex justify-between items-center py-2 border-b">' +
-            '<span>' + t + '</span>' +
-            '<button onclick="removeTitle(\\'' + t.replace(/'/g, "\\\\'") + '\\')" class="text-red-500 hover:text-red-700"><i class="fas fa-times"></i></button>' +
+          '<div class="flex justify-between items-center py-2 border-b hover:bg-purple-50">' +
+            '<span class="truncate">' + t + '</span>' +
+            '<button onclick="removeTitle(\\'' + t.replace(/'/g, "\\\\'") + '\\')" class="text-red-500 hover:text-red-700 ml-2 flex-shrink-0"><i class="fas fa-times"></i></button>' +
           '</div>'
-        ).join('') || '<div class="text-gray-500">목록 없음</div>';
+        ).join('') || '<div class="text-gray-500 text-center py-4">목록 없음</div>';
         
         document.getElementById('history-titles-list').innerHTML = data.history.map(t =>
-          '<div class="flex justify-between items-center py-2 border-b">' +
-            '<span>' + t + '</span>' +
-            '<button onclick="restoreTitle(\\'' + t.replace(/'/g, "\\\\'") + '\\')" class="text-blue-500 hover:text-blue-700"><i class="fas fa-undo"></i></button>' +
+          '<div class="flex justify-between items-center py-2 border-b hover:bg-gray-100">' +
+            '<span class="truncate">' + t + '</span>' +
+            '<button onclick="restoreTitle(\\'' + t.replace(/'/g, "\\\\'") + '\\')" class="text-blue-500 hover:text-blue-700 ml-2 flex-shrink-0" title="복구"><i class="fas fa-undo"></i></button>' +
           '</div>'
-        ).join('') || '<div class="text-gray-400">없음</div>';
+        ).join('') || '<div class="text-gray-400 text-center py-4">없음</div>';
       }
     }
     
