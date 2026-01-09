@@ -1,18 +1,10 @@
-# Jobdori 모니터링 워크플로우
-# 수동 실행 및 자동 스케줄 지원
-
 name: Jobdori Monitoring
 
 on:
-  # 수동 실행 (GitHub Actions 페이지에서 "Run workflow" 버튼)
-  workflow_dispatch:
-
-  # 자동 실행 스케줄 (매일 한국시간 오전 9시 = UTC 0시)
+  workflow_dispatch:  # 수동 실행
   schedule:
-    - cron: '0 0 * * *'
-
-env:
-  NODE_VERSION: '20'
+    # 평일(월-금) 아침 9시 (KST) = UTC 0시
+    - cron: '0 0 * * 1-5'
 
 jobs:
   monitoring:
@@ -26,7 +18,7 @@ jobs:
       - name: 🟢 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: '20'
           cache: 'npm'
 
       - name: 📦 Install dependencies
@@ -50,22 +42,20 @@ jobs:
           path: output/
           retention-days: 30
 
-      - name: ✅ Summary
+      - name: 📊 Summary
         if: always()
         run: |
-          echo "## 🎯 Jobdori 모니터링 완료" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 Jobdori 모니터링 결과" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| 항목 | 값 |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| 실행 시간 | $(date '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
-          echo "| 트리거 | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 상태 | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "- ⏱️ 실행 시간: $(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎯 트리거: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 상태: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 생성된 파일" >> $GITHUB_STEP_SUMMARY
           if [ -d "output" ]; then
-            echo "### 📁 생성된 파일" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            ls -la output/ >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "(파일 없음)"
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            ls -la output/ >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "(파일 없음)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "(output 디렉토리 없음)" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🌐 [Jobdori 대시보드](https://jobdori.vercel.app)" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [대시보드 바로가기](https://jobdori.vercel.app)" >> $GITHUB_STEP_SUMMARY
