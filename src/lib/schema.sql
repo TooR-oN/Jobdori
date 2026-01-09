@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS pending_reviews (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Manta 순위 테이블 (작품별 검색 순위 추적)
+CREATE TABLE IF NOT EXISTS manta_rankings (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(500) NOT NULL,
+  manta_rank INTEGER,  -- manta.net 순위 (null이면 순위권 외)
+  first_rank_domain VARCHAR(255),  -- 1위 도메인
+  search_query VARCHAR(500),  -- 검색어 (작품명만)
+  session_id VARCHAR(50),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(title)
+);
+
 -- 인덱스 생성
 CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
@@ -70,3 +82,4 @@ CREATE INDEX IF NOT EXISTS idx_sites_type ON sites(type);
 CREATE INDEX IF NOT EXISTS idx_sites_domain ON sites(domain);
 CREATE INDEX IF NOT EXISTS idx_titles_is_current ON titles(is_current);
 CREATE INDEX IF NOT EXISTS idx_pending_reviews_domain ON pending_reviews(domain);
+CREATE INDEX IF NOT EXISTS idx_manta_rankings_title ON manta_rankings(title);

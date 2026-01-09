@@ -154,6 +154,65 @@ async function updateMonthlyStats(finalResults: FinalResult[]) {
 }
 
 // ============================================
+// Manta 순위 업데이트
+// ============================================
+
+async function updateMantaRankings(searchResults: SearchResult[], sessionId: string) {
+  const sql = getDb();
+  
+  // 작품별로 "[작품명]만" 검색한 결과에서 manta.net 순위 찾기
+  const titleRankings = new Map<string, { mantaRank: number | null; firstDomain: string; query: string }>();
+  
+  for (const result of searchResults) {
+    // search_query가 title과 같은 경우 = 작품명만 검색
+    if (result.search_query === result.title) {
+      const title = result.title;
+      
+      if (!titleRankings.has(title)) {
+        titleRankings.set(title, { mantaRank: null, firstDomain: '', query: result.search_query });
+      }
+      
+      const ranking = titleRankings.get(title)!;
+      
+      // 1위 도메인 기록
+      if (result.rank === 1) {
+        ranking.firstDomain = result.domain;
+      }
+      
+      // manta.net 순위 찾기
+      if (result.domain.includes('manta.net')) {
+        if (ranking.mantaRank === null || result.rank < ranking.mantaRank) {
+          ranking.mantaRank = result.rank;
+        }
+      }
+    }
+  }
+  
+  // DB에 저장
+  let savedCount = 0;
+  for (const [title, ranking] of Array.from(titleRankings.entries())) {
+    try {
+      await sql`
+        INSERT INTO manta_rankings (title, manta_rank, first_rank_domain, search_query, session_id, updated_at)
+        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${ranking.query}, ${sessionId}, NOW())
+        ON CONFLICT (title) DO UPDATE SET
+          manta_rank = EXCLUDED.manta_rank,
+          first_rank_domain = EXCLUDED.first_rank_domain,
+          search_query = EXCLUDED.search_query,
+          session_id = EXCLUDED.session_id,
+          updated_at = NOW()
+      `;
+      savedCount++;
+    } catch (error) {
+      console.error(`Failed to save manta ranking for ${title}:`, error);
+    }
+  }
+  
+  console.log(`✅ Manta 순위 ${savedCount}개 작품 업데이트 완료`);
+  return savedCount;
+}
+
+// ============================================
 // 메인 파이프라인
 // ============================================
 
@@ -259,6 +318,9 @@ async function runPipeline() {
     // 월별 통계 업데이트
     await updateMonthlyStats(finalResults);
     console.log('✅ 월별 통계 업데이트 완료');
+    
+    // Manta 순위 업데이트
+    await updateMantaRankings(searchResults, timestamp);
     
     // 세션 완료 업데이트
     const illegal = finalResults.filter(r => r.final_status === 'illegal').length;

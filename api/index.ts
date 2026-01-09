@@ -702,6 +702,38 @@ app.get('/api/stats', async (c) => {
   }
 })
 
+// Manta 순위 API
+app.get('/api/manta-rankings', async (c) => {
+  try {
+    const rankings = await query`
+      SELECT title, manta_rank, first_rank_domain, search_query, session_id, updated_at 
+      FROM manta_rankings 
+      ORDER BY title ASC
+    `
+    
+    // 가장 최신 업데이트 시간 찾기
+    let lastUpdated = null
+    if (rankings.length > 0) {
+      const dates = rankings.map(r => new Date(r.updated_at).getTime())
+      lastUpdated = new Date(Math.max(...dates)).toISOString()
+    }
+    
+    return c.json({
+      success: true,
+      rankings: rankings.map(r => ({
+        title: r.title,
+        mantaRank: r.manta_rank,
+        firstDomain: r.first_rank_domain,
+        searchQuery: r.search_query,
+        sessionId: r.session_id
+      })),
+      lastUpdated
+    })
+  } catch {
+    return c.json({ success: false, error: 'Failed to load manta rankings' }, 500)
+  }
+})
+
 // ============================================
 // Main Page (Full UI)
 // ============================================
@@ -804,6 +836,16 @@ app.get('/', (c) => {
           </div>
         </div>
       </div>
+      
+      <!-- Manta 검색 순위 -->
+      <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold"><i class="fas fa-chart-line text-blue-500 mr-2"></i>Manta 검색 순위</h2>
+          <span id="manta-updated" class="text-sm text-gray-500"></span>
+        </div>
+        <p class="text-sm text-gray-500 mb-4">작품명만 검색 시 manta.net 순위 (P1-1 = 페이지1, 1위)</p>
+        <div id="manta-rankings" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">로딩 중...</div>
+      </div>
     </div>
 
     <!-- 승인 대기 탭 -->
@@ -831,13 +873,29 @@ app.get('/', (c) => {
             <h3 class="font-bold text-red-600 mb-3">
               <i class="fas fa-ban mr-2"></i>불법 사이트 (<span id="illegal-count">0</span>개)
             </h3>
-            <div id="illegal-sites-list" class="max-h-96 overflow-y-auto border rounded p-3">로딩 중...</div>
+            <div class="flex gap-2 mb-3">
+              <input type="text" id="new-illegal-site" placeholder="불법 사이트 도메인 입력..." 
+                     class="flex-1 border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                     onkeypress="if(event.key==='Enter') addNewSite('illegal')">
+              <button onclick="addNewSite('illegal')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded text-sm">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+            <div id="illegal-sites-list" class="max-h-80 overflow-y-auto border rounded p-3">로딩 중...</div>
           </div>
           <div>
             <h3 class="font-bold text-green-600 mb-3">
               <i class="fas fa-check mr-2"></i>합법 사이트 (<span id="legal-count">0</span>개)
             </h3>
-            <div id="legal-sites-list" class="max-h-96 overflow-y-auto border rounded p-3">로딩 중...</div>
+            <div class="flex gap-2 mb-3">
+              <input type="text" id="new-legal-site" placeholder="합법 사이트 도메인 입력..." 
+                     class="flex-1 border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                     onkeypress="if(event.key==='Enter') addNewSite('legal')">
+              <button onclick="addNewSite('legal')" class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+            <div id="legal-sites-list" class="max-h-80 overflow-y-auto border rounded p-3">로딩 중...</div>
           </div>
         </div>
       </div>
@@ -962,13 +1020,53 @@ app.get('/', (c) => {
         
         const topContents = data.top_contents || [];
         document.getElementById('top-contents').innerHTML = topContents.length ? 
-          topContents.slice(0,5).map((c, i) => '<div class="flex justify-between p-2 bg-gray-50 rounded"><span>' + (i+1) + '. ' + c.title + '</span><span class="text-red-600 font-bold">' + c.illegal_count + '개</span></div>').join('') :
+          topContents.slice(0,5).map((c, i) => '<div class="flex justify-between p-2 bg-gray-50 rounded"><span>' + (i+1) + '. ' + c.name + '</span><span class="text-red-600 font-bold">' + c.count + '개</span></div>').join('') :
           '<div class="text-gray-500">데이터 없음</div>';
           
         const topDomains = data.top_illegal_sites || [];
         document.getElementById('top-domains').innerHTML = topDomains.length ?
           topDomains.slice(0,5).map((d, i) => '<div class="flex justify-between p-2 bg-gray-50 rounded"><span>' + (i+1) + '. ' + d.domain + '</span><span class="text-red-600 font-bold">' + d.count + '개</span></div>').join('') :
           '<div class="text-gray-500">데이터 없음</div>';
+      }
+      
+      // Manta 순위 로드
+      loadMantaRankings();
+    }
+    
+    async function loadMantaRankings() {
+      const data = await fetchAPI('/api/manta-rankings');
+      if (data.success) {
+        // 기준 시각 표시
+        if (data.lastUpdated) {
+          const d = new Date(data.lastUpdated);
+          const dateStr = d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\\. /g, '-').replace('.', '');
+          const timeStr = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+          document.getElementById('manta-updated').textContent = dateStr + ' ' + timeStr + ' 기준';
+        }
+        
+        // 순위 표시
+        const rankings = data.rankings || [];
+        document.getElementById('manta-rankings').innerHTML = rankings.length ?
+          rankings.map(r => {
+            const rankText = r.mantaRank ? 'P' + Math.ceil(r.mantaRank / 10) + '-' + r.mantaRank : '순위권 외';
+            const isFirst = r.mantaRank === 1;
+            const bgColor = isFirst ? 'bg-green-100 border-green-300' : (r.mantaRank ? 'bg-blue-50 border-blue-200' : 'bg-gray-100 border-gray-300');
+            const textColor = isFirst ? 'text-green-700' : (r.mantaRank ? 'text-blue-700' : 'text-gray-500');
+            
+            let extraInfo = '';
+            if (!isFirst && r.mantaRank && r.firstDomain) {
+              extraInfo = '<div class="text-xs text-gray-400 truncate" title="1위: ' + r.firstDomain + '">1위: ' + r.firstDomain + '</div>';
+            } else if (!r.mantaRank && r.firstDomain) {
+              extraInfo = '<div class="text-xs text-gray-400 truncate" title="1위: ' + r.firstDomain + '">1위: ' + r.firstDomain + '</div>';
+            }
+            
+            return '<div class="border rounded p-3 ' + bgColor + '">' +
+              '<div class="text-sm font-medium truncate" title="' + r.title + '">' + r.title + '</div>' +
+              '<div class="text-lg font-bold ' + textColor + '">' + rankText + '</div>' +
+              extraInfo +
+            '</div>';
+          }).join('') :
+          '<div class="text-gray-500 col-span-full text-center py-4">데이터 없음 (모니터링 실행 후 표시됩니다)</div>';
       }
     }
     
@@ -983,7 +1081,7 @@ app.get('/', (c) => {
         document.getElementById('pending-list').innerHTML = data.items.map(item => 
           '<div class="border rounded-lg p-4 mb-3 hover:shadow-md transition">' +
             '<div class="flex justify-between items-start">' +
-              '<div><span class="font-bold text-lg">' + item.domain + '</span>' +
+              '<div><a href="https://' + item.domain + '" target="_blank" rel="noopener noreferrer" class="font-bold text-lg text-blue-600 hover:text-blue-800 hover:underline">' + item.domain + ' <i class="fas fa-external-link-alt text-xs"></i></a>' +
               '<span class="ml-2 text-sm px-2 py-1 rounded ' + 
                 (item.llm_judgment === 'likely_illegal' ? 'bg-red-100 text-red-700' : 
                  item.llm_judgment === 'likely_legal' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700') + '">' +
@@ -1087,12 +1185,15 @@ app.get('/', (c) => {
               (r.final_status === 'illegal' ? 'border-l-4 border-l-red-500 bg-red-50' : 
                r.final_status === 'legal' ? 'border-l-4 border-l-green-500 bg-green-50' : 'border-l-4 border-l-yellow-500 bg-yellow-50') + '">' +
               '<div class="flex justify-between items-start">' +
-                '<div class="flex-1">' +
+                '<div class="flex-1 min-w-0">' +
                   '<div class="font-medium">' + r.domain + '</div>' +
-                  '<div class="text-xs text-gray-500 truncate max-w-xl">' + r.url + '</div>' +
+                  '<div class="flex items-center gap-2">' +
+                    '<a href="' + r.url + '" target="_blank" rel="noopener noreferrer" class="text-xs text-blue-500 hover:text-blue-700 truncate max-w-lg">' + r.url + '</a>' +
+                    '<button onclick="copyUrl(\\'' + r.url.replace(/'/g, "\\\\'") + '\\')" class="text-gray-400 hover:text-gray-600 flex-shrink-0" title="URL 복사"><i class="fas fa-copy"></i></button>' +
+                  '</div>' +
                   '<div class="text-xs text-gray-400 mt-1">' + r.title + ' | ' + r.search_query + '</div>' +
                 '</div>' +
-                '<span class="text-xs px-2 py-1 rounded ' +
+                '<span class="text-xs px-2 py-1 rounded ml-2 flex-shrink-0 ' +
                   (r.final_status === 'illegal' ? 'bg-red-500 text-white' : 
                    r.final_status === 'legal' ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white') + '">' +
                   r.final_status + '</span>' +
@@ -1124,6 +1225,20 @@ app.get('/', (c) => {
       }
     }
     
+    function copyUrl(url) {
+      navigator.clipboard.writeText(url).then(() => {
+        // 성공 시 간단한 피드백
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded shadow-lg z-50';
+        toast.innerHTML = '<i class="fas fa-check mr-2"></i>URL이 복사되었습니다';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+      }).catch(err => {
+        console.error('URL 복사 실패:', err);
+        alert('URL 복사에 실패했습니다.');
+      });
+    }
+    
     async function loadSites() {
       const illegalData = await fetchAPI('/api/sites/illegal');
       const legalData = await fetchAPI('/api/sites/legal');
@@ -1131,8 +1246,9 @@ app.get('/', (c) => {
       if (illegalData.success) {
         document.getElementById('illegal-count').textContent = illegalData.count;
         document.getElementById('illegal-sites-list').innerHTML = illegalData.sites.map(s =>
-          '<div class="flex justify-between items-center py-1 border-b text-sm">' +
+          '<div class="flex justify-between items-center py-1 border-b text-sm group">' +
             '<span>' + s + '</span>' +
+            '<button onclick="removeSiteItem(\\'' + s + '\\', \\'illegal\\')" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fas fa-times"></i></button>' +
           '</div>'
         ).join('') || '<div class="text-gray-500">목록 없음</div>';
       }
@@ -1140,10 +1256,45 @@ app.get('/', (c) => {
       if (legalData.success) {
         document.getElementById('legal-count').textContent = legalData.count;
         document.getElementById('legal-sites-list').innerHTML = legalData.sites.map(s =>
-          '<div class="flex justify-between items-center py-1 border-b text-sm">' +
+          '<div class="flex justify-between items-center py-1 border-b text-sm group">' +
             '<span>' + s + '</span>' +
+            '<button onclick="removeSiteItem(\\'' + s + '\\', \\'legal\\')" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fas fa-times"></i></button>' +
           '</div>'
         ).join('') || '<div class="text-gray-500">목록 없음</div>';
+      }
+    }
+    
+    async function addNewSite(type) {
+      const inputId = type === 'illegal' ? 'new-illegal-site' : 'new-legal-site';
+      const input = document.getElementById(inputId);
+      const domain = input.value.trim().toLowerCase();
+      if (!domain) return;
+      
+      const res = await fetchAPI('/api/sites/' + type, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain })
+      });
+      
+      if (res.success) {
+        input.value = '';
+        loadSites();
+      } else {
+        alert(res.error || '추가 실패');
+      }
+    }
+    
+    async function removeSiteItem(domain, type) {
+      if (!confirm(domain + ' 사이트를 ' + (type === 'illegal' ? '불법' : '합법') + ' 목록에서 삭제하시겠습니까?')) return;
+      
+      const res = await fetchAPI('/api/sites/' + type + '/' + encodeURIComponent(domain), {
+        method: 'DELETE'
+      });
+      
+      if (res.success) {
+        loadSites();
+      } else {
+        alert(res.error || '삭제 실패');
       }
     }
     
