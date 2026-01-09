@@ -10,7 +10,22 @@ import * as XLSX from 'xlsx'
 // Database Setup
 // ============================================
 
-const sql = neon(process.env.DATABASE_URL || '')
+function getDb() {
+  const dbUrl = process.env.DATABASE_URL
+  if (!dbUrl) {
+    throw new Error('DATABASE_URL environment variable is not set')
+  }
+  return neon(dbUrl)
+}
+
+// Lazy initialization - only connect when needed
+let _sql: ReturnType<typeof neon> | null = null
+function getSql() {
+  if (!_sql) {
+    _sql = getDb()
+  }
+  return _sql
+}
 
 // ============================================
 // Types
@@ -106,83 +121,97 @@ function generateExcelFromResults(results: FinalResult[]): Buffer {
 // DB Functions
 // ============================================
 
-async function getSessions() {
+async function getSessions(): Promise<any[]> {
+  const sql = getSql()
   const rows = await sql`SELECT * FROM sessions ORDER BY created_at DESC`
-  return rows
+  return rows as any[]
 }
 
-async function getSessionById(id: string) {
-  const rows = await sql`SELECT * FROM sessions WHERE id = ${id}`
+async function getSessionById(id: string): Promise<any | null> {
+  const sql = getSql()
+  const rows = await sql`SELECT * FROM sessions WHERE id = ${id}` as any[]
   return rows[0] || null
 }
 
-async function getPendingReviews() {
+async function getPendingReviews(): Promise<any[]> {
+  const sql = getSql()
   const rows = await sql`SELECT * FROM pending_reviews ORDER BY created_at DESC`
-  return rows
+  return rows as any[]
 }
 
-async function getPendingReviewById(id: number) {
-  const rows = await sql`SELECT * FROM pending_reviews WHERE id = ${id}`
+async function getPendingReviewById(id: number): Promise<any | null> {
+  const sql = getSql()
+  const rows = await sql`SELECT * FROM pending_reviews WHERE id = ${id}` as any[]
   return rows[0] || null
 }
 
 async function deletePendingReview(id: number) {
+  const sql = getSql()
   await sql`DELETE FROM pending_reviews WHERE id = ${id}`
   return true
 }
 
-async function getSitesByType(type: 'illegal' | 'legal') {
+async function getSitesByType(type: 'illegal' | 'legal'): Promise<any[]> {
+  const sql = getSql()
   const rows = await sql`SELECT * FROM sites WHERE type = ${type} ORDER BY domain`
-  return rows
+  return rows as any[]
 }
 
-async function addSite(domain: string, type: 'illegal' | 'legal') {
+async function addSite(domain: string, type: 'illegal' | 'legal'): Promise<any> {
+  const sql = getSql()
   const rows = await sql`
     INSERT INTO sites (domain, type)
     VALUES (${domain.toLowerCase()}, ${type})
     ON CONFLICT (domain, type) DO NOTHING
     RETURNING *
-  `
+  ` as any[]
   return rows[0]
 }
 
 async function removeSite(domain: string, type: 'illegal' | 'legal') {
+  const sql = getSql()
   await sql`DELETE FROM sites WHERE domain = ${domain.toLowerCase()} AND type = ${type}`
   return true
 }
 
-async function getCurrentTitles() {
+async function getCurrentTitles(): Promise<any[]> {
+  const sql = getSql()
   const rows = await sql`SELECT * FROM titles WHERE is_current = true ORDER BY created_at DESC`
-  return rows
+  return rows as any[]
 }
 
-async function getHistoryTitles() {
+async function getHistoryTitles(): Promise<any[]> {
+  const sql = getSql()
   const rows = await sql`SELECT * FROM titles WHERE is_current = false ORDER BY created_at DESC`
-  return rows
+  return rows as any[]
 }
 
-async function addTitle(name: string) {
+async function addTitle(name: string): Promise<any> {
+  const sql = getSql()
   const rows = await sql`
     INSERT INTO titles (name, is_current)
     VALUES (${name}, true)
     ON CONFLICT (name) DO UPDATE SET is_current = true
     RETURNING *
-  `
+  ` as any[]
   return rows[0]
 }
 
 async function removeTitle(name: string) {
+  const sql = getSql()
   await sql`UPDATE titles SET is_current = false WHERE name = ${name}`
   return true
 }
 
-async function getMonthlyStats() {
+async function getMonthlyStats(): Promise<any[]> {
+  const sql = getSql()
   const rows = await sql`SELECT * FROM monthly_stats ORDER BY month DESC`
-  return rows
+  return rows as any[]
 }
 
-async function getMonthlyStatsByMonth(month: string) {
-  const rows = await sql`SELECT * FROM monthly_stats WHERE month = ${month}`
+async function getMonthlyStatsByMonth(month: string): Promise<any | null> {
+  const sql = getSql()
+  const rows = await sql`SELECT * FROM monthly_stats WHERE month = ${month}` as any[]
   return rows[0] || null
 }
 
