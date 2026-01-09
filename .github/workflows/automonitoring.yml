@@ -38,6 +38,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
         run: npm run run-pipeline
 
       - name: 📤 Upload artifacts
@@ -58,5 +60,12 @@ jobs:
           echo "| 실행 시간 | $(date '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
           echo "| 트리거 | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 상태 | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -d "output" ]; then
+            echo "### 📁 생성된 파일" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            ls -la output/ >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "(파일 없음)"
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "🌐 [Jobdori 대시보드](https://jobdori.vercel.app)" >> $GITHUB_STEP_SUMMARY
