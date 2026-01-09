@@ -1369,7 +1369,7 @@ app.get('/', (c) => {
               <i class="fas fa-search absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
             </div>
             <!-- 작품 목록 -->
-            <div id="title-select-list" class="max-h-[60vh] overflow-y-auto space-y-1">
+            <div id="title-stats-list" class="max-h-[60vh] overflow-y-auto space-y-1">
               <div class="text-gray-400 text-sm text-center py-4">로딩 중...</div>
             </div>
           </div>
