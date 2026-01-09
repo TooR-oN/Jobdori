@@ -302,8 +302,11 @@ app.get('/login', async (c) => {
 <body class="bg-gradient-to-br from-blue-500 to-purple-600 min-h-screen flex items-center justify-center">
   <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
     <div class="text-center mb-8">
-      <h1 class="text-3xl font-bold text-gray-800"><i class="fas fa-shield-alt text-blue-600 mr-2"></i>Jobdori</h1>
-      <p class="text-gray-500 mt-2">웹툰 불법사이트 모니터링</p>
+      <div class="flex items-center justify-center gap-3">
+        <img src="https://www.genspark.ai/api/files/s/BCOfAM7E" alt="RIDI" class="h-8">
+        <h1 class="text-3xl font-bold text-gray-800">Jobdori</h1>
+      </div>
+      <p class="text-gray-500 mt-2">리디 저작권 침해 모니터링 시스템</p>
     </div>
     <form id="login-form" onsubmit="handleLogin(event)">
       <div class="mb-6">
@@ -905,7 +908,7 @@ app.get('/', (c) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jobdori - 웹툰 불법사이트 모니터링</title>
+  <title>Jobdori - 리디 저작권 침해 모니터링</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <style>
@@ -920,12 +923,12 @@ app.get('/', (c) => {
     <!-- 헤더 -->
     <div class="bg-white rounded-lg shadow-md p-6 mb-6">
       <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-800">
-            <i class="fas fa-shield-alt text-blue-600 mr-2"></i>
-            Jobdori
-          </h1>
-          <p class="text-gray-600 mt-1">웹툰 불법사이트 모니터링 시스템</p>
+        <div class="flex items-center gap-3">
+          <img src="https://www.genspark.ai/api/files/s/BCOfAM7E" alt="RIDI" class="h-10">
+          <div>
+            <h1 class="text-2xl font-bold text-gray-800">Jobdori</h1>
+            <p class="text-gray-600 text-sm">리디 저작권 침해 모니터링 시스템</p>
+          </div>
         </div>
         <div class="flex gap-3">
           <button onclick="openTitlesModal()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition">
