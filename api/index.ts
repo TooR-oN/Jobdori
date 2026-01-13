@@ -1517,21 +1517,17 @@ app.get('/api/report-tracking/:sessionId', async (c) => {
     const page = parseInt(c.req.query('page') || '1')
     const limit = parseInt(c.req.query('limit') || '50')
     
-    const items = await getReportTrackingBySession(sessionId, status)
-    
-    const total = items.length
-    const startIndex = (page - 1) * limit
-    const paginatedItems = items.slice(startIndex, startIndex + limit)
+    const result = await getReportTrackingBySession(sessionId, status, page, limit)
     
     return c.json({
       success: true,
       session_id: sessionId,
-      items: paginatedItems,
+      items: result.items,
       pagination: {
         page,
         limit,
-        total,
-        totalPages: Math.ceil(total / limit)
+        total: result.total,
+        totalPages: Math.ceil(result.total / limit)
       }
     })
   } catch (error) {
