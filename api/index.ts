@@ -1402,19 +1402,43 @@ app.get('/api/stats/by-title', async (c) => {
   try {
     await ensureDbMigration()
     
+    // 기간 필터 파라미터
+    const startDate = c.req.query('start_date') // YYYY-MM-DD
+    const endDate = c.req.query('end_date')     // YYYY-MM-DD
+    
     // report_tracking에서 작품별 통계 집계
-    const stats = await query`
-      SELECT 
-        title,
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
-        COUNT(*) FILTER (WHERE report_status = '차단') as blocked,
-        COUNT(*) FILTER (WHERE report_status = '미신고') as unreported
-      FROM report_tracking
-      WHERE title IS NOT NULL AND title != ''
-      GROUP BY title
-      ORDER BY total DESC
-    `
+    let stats
+    if (startDate && endDate) {
+      // 기간 필터 적용
+      stats = await query`
+        SELECT 
+          title,
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+          COUNT(*) FILTER (WHERE report_status = '차단') as blocked,
+          COUNT(*) FILTER (WHERE report_status = '미신고') as unreported
+        FROM report_tracking
+        WHERE title IS NOT NULL AND title != ''
+          AND created_at >= ${startDate}::date
+          AND created_at < (${endDate}::date + INTERVAL '1 day')
+        GROUP BY title
+        ORDER BY total DESC
+      `
+    } else {
+      // 전체 기간
+      stats = await query`
+        SELECT 
+          title,
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+          COUNT(*) FILTER (WHERE report_status = '차단') as blocked,
+          COUNT(*) FILTER (WHERE report_status = '미신고') as unreported
+        FROM report_tracking
+        WHERE title IS NOT NULL AND title != ''
+        GROUP BY title
+        ORDER BY total DESC
+      `
+    }
     
     // 차단율 계산 및 결과 정리
     const result = stats.map((s: any) => {
@@ -2145,11 +2169,20 @@ app.get('/', (c) => {
       <div class="space-y-4">
         <!-- 상단: 작품별 신고/차단 통계 테이블 -->
         <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
-          <div class="flex justify-between items-center mb-4">
+          <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
             <h3 class="text-lg font-bold"><i class="fas fa-table text-green-500 mr-2"></i>작품별 신고/차단 통계</h3>
-            <button onclick="loadTitleStats()" class="text-blue-500 hover:text-blue-700 text-sm">
-              <i class="fas fa-sync-alt mr-1"></i>새로고침
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-sm text-gray-600">기간:</span>
+              <input type="date" id="stats-start-date" class="border rounded px-2 py-1 text-sm">
+              <span class="text-gray-400">~</span>
+              <input type="date" id="stats-end-date" class="border rounded px-2 py-1 text-sm">
+              <button onclick="loadTitleStats()" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">
+                <i class="fas fa-search mr-1"></i>조회
+              </button>
+              <button onclick="resetStatsDateFilter()" class="text-gray-500 hover:text-gray-700 text-sm">
+                <i class="fas fa-undo mr-1"></i>전체
+              </button>
+            </div>
           </div>
           <div class="overflow-x-auto max-h-[40vh] overflow-y-auto">
             <table class="w-full text-sm">
@@ -2618,7 +2651,16 @@ app.get('/', (c) => {
       const tableEl = document.getElementById('title-stats-table');
       tableEl.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>로딩 중...</td></tr>';
       
-      const data = await fetchAPI('/api/stats/by-title');
+      // 기간 필터 파라미터 가져오기
+      const startDate = document.getElementById('stats-start-date').value;
+      const endDate = document.getElementById('stats-end-date').value;
+      
+      let url = '/api/stats/by-title';
+      if (startDate && endDate) {
+        url += '?start_date=' + startDate + '&end_date=' + endDate;
+      }
+      
+      const data = await fetchAPI(url);
       
       if (data.success && data.stats.length > 0) {
         tableEl.innerHTML = data.stats.map(s => {
@@ -2634,8 +2676,14 @@ app.get('/', (c) => {
           '</tr>';
         }).join('');
       } else {
-        tableEl.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">데이터가 없습니다.</td></tr>';
+        tableEl.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">해당 기간에 데이터가 없습니다.</td></tr>';
       }
+    }
+    
+    function resetStatsDateFilter() {
+      document.getElementById('stats-start-date').value = '';
+      document.getElementById('stats-end-date').value = '';
+      loadTitleStats();
     }
     
     function filterTitleList() {
@@ -3593,6 +3641,7 @@ app.get('/', (c) => {
     window.selectTitleForStats = selectTitleForStats;
     window.loadTitlesForManualAdd = loadTitlesForManualAdd;
     window.loadTitleStats = loadTitleStats;
+    window.resetStatsDateFilter = resetStatsDateFilter;
     
     // 초기 로드
     loadDashboard();
