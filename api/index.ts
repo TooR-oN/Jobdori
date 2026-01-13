@@ -76,8 +76,65 @@ async function ensureDbMigration() {
         END IF;
       END $$
     `
+    
+    // report_tracking 테이블 생성 (없으면)
+    await db`
+      CREATE TABLE IF NOT EXISTS report_tracking (
+        id SERIAL PRIMARY KEY,
+        session_id VARCHAR(50) NOT NULL,
+        url TEXT NOT NULL,
+        domain VARCHAR(255) NOT NULL,
+        report_status VARCHAR(20) DEFAULT '미신고',
+        report_id VARCHAR(50),
+        reason TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE(session_id, url)
+      )
+    `
+    
+    // report_tracking 인덱스 생성
+    await db`
+      CREATE INDEX IF NOT EXISTS idx_report_tracking_session 
+      ON report_tracking(session_id, report_status)
+    `
+    
+    // report_uploads 테이블 생성 (없으면)
+    await db`
+      CREATE TABLE IF NOT EXISTS report_uploads (
+        id SERIAL PRIMARY KEY,
+        session_id VARCHAR(50) NOT NULL,
+        report_id VARCHAR(50) NOT NULL,
+        file_name VARCHAR(255),
+        matched_count INTEGER DEFAULT 0,
+        total_urls_in_html INTEGER DEFAULT 0,
+        uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `
+    
+    // report_reasons 테이블 생성 (없으면)
+    await db`
+      CREATE TABLE IF NOT EXISTS report_reasons (
+        id SERIAL PRIMARY KEY,
+        reason_text VARCHAR(255) UNIQUE NOT NULL,
+        usage_count INTEGER DEFAULT 1,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `
+    
+    // 기본 사유 옵션 추가
+    await db`
+      INSERT INTO report_reasons (reason_text, usage_count)
+      VALUES 
+        ('저작권 미확인', 100),
+        ('검토 필요', 99),
+        ('중복 신고', 98),
+        ('URL 오류', 97)
+      ON CONFLICT (reason_text) DO NOTHING
+    `
+    
     dbMigrationDone = true
-    console.log('✅ DB migration completed')
+    console.log('✅ DB migration completed (including report_tracking tables)')
   } catch (error) {
     console.error('DB migration error:', error)
   }
@@ -1656,11 +1713,15 @@ app.get('/api/report-tracking/:sessionId/export', async (c) => {
 // 세션 목록 (신고 추적용)
 app.get('/api/report-tracking/sessions', async (c) => {
   try {
+    await ensureDbMigration()
+    
     const sessions = await getSessions()
+    console.log('📋 Total sessions:', sessions.length)
     
     // 각 세션의 신고 추적 통계 조회
     const sessionsWithStats = await Promise.all(sessions.map(async (s: any) => {
       const stats = await getReportTrackingStatsBySession(s.id)
+      console.log(`📊 Session ${s.id} stats:`, stats)
       return {
         id: s.id,
         created_at: s.created_at,
@@ -1671,6 +1732,7 @@ app.get('/api/report-tracking/sessions', async (c) => {
     
     // 신고 추적 데이터가 있는 세션만 필터링
     const filteredSessions = sessionsWithStats.filter(s => s.tracking_stats.total > 0)
+    console.log('✅ Filtered sessions with data:', filteredSessions.length)
     
     return c.json({
       success: true,
@@ -1742,14 +1804,14 @@ app.get('/', (c) => {
         <button id="tab-sessions" onclick="switchTab('sessions')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
           <i class="fas fa-history md:mr-2"></i><span class="hidden md:inline">모니터링 회차</span>
         </button>
+        <button id="tab-report-tracking" onclick="switchTab('report-tracking')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
+          <i class="fas fa-file-alt md:mr-2"></i><span class="hidden md:inline">신고결과 추적</span>
+        </button>
         <button id="tab-sites" onclick="switchTab('sites')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
           <i class="fas fa-globe md:mr-2"></i><span class="hidden md:inline">사이트 목록</span>
         </button>
         <button id="tab-title-stats" onclick="switchTab('title-stats')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
           <i class="fas fa-book md:mr-2"></i><span class="hidden md:inline">작품별 통계</span>
-        </button>
-        <button id="tab-report-tracking" onclick="switchTab('report-tracking')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
-          <i class="fas fa-file-alt md:mr-2"></i><span class="hidden md:inline">신고결과 추적</span>
         </button>
       </div>
     </div>
