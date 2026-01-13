@@ -1032,71 +1032,6 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
   }
 })
 
-// 작품별 월별 불법 URL 통계 API
-app.get('/api/titles/:title/monthly-stats', async (c) => {
-  try {
-    const title = decodeURIComponent(c.req.param('title'))
-    
-    // 완료된 세션 목록 가져오기
-    const sessions = await query`
-      SELECT id, file_final_results, created_at
-      FROM sessions
-      WHERE status = 'completed' AND file_final_results IS NOT NULL
-      ORDER BY created_at ASC
-    `
-    
-    // 월별 불법 URL 수 집계
-    const monthlyData: Record<string, number> = {}
-    
-    for (const session of sessions) {
-      if (!session.file_final_results?.startsWith('http')) continue
-      
-      try {
-        const response = await fetch(session.file_final_results)
-        if (!response.ok) continue
-        
-        const results: FinalResult[] = await response.json()
-        const illegalSites = await getSitesByType('illegal')
-        const legalSites = await getSitesByType('legal')
-        const illegalSet = new Set(illegalSites.map(s => s.domain.toLowerCase()))
-        const legalSet = new Set(legalSites.map(s => s.domain.toLowerCase()))
-        
-        // 해당 작품의 불법 URL 수 계산
-        let illegalCount = 0
-        for (const r of results) {
-          if (r.title !== title) continue
-          
-          const domain = new URL(r.url).hostname.replace(/^www\./, '').toLowerCase()
-          let status = r.final_status
-          if (illegalSet.has(domain)) status = 'illegal'
-          else if (legalSet.has(domain)) status = 'legal'
-          
-          if (status === 'illegal') illegalCount++
-        }
-        
-        // 월별 집계
-        const month = session.created_at.substring(0, 7) // YYYY-MM
-        monthlyData[month] = (monthlyData[month] || 0) + illegalCount
-      } catch {
-        // 개별 세션 오류 무시
-      }
-    }
-    
-    // 정렬된 배열로 변환
-    const stats = Object.entries(monthlyData)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([month, count]) => ({ month, illegalCount: count }))
-    
-    return c.json({
-      success: true,
-      title,
-      stats
-    })
-  } catch {
-    return c.json({ success: false, error: 'Failed to load monthly stats' }, 500)
-  }
-})
-
 // 모니터링 대상 작품 목록 API (상세보기용)
 app.get('/api/titles/list', async (c) => {
   try {
@@ -1396,26 +1331,16 @@ app.get('/', (c) => {
               <p class="text-sm mt-2">월별 불법 URL 통계와 검색 순위 변화를 확인할 수 있습니다.</p>
             </div>
             <div id="title-stats-content" class="hidden">
-              <h3 class="text-lg font-bold mb-4"><i class="fas fa-chart-bar text-purple-500 mr-2"></i><span id="selected-title-name"></span></h3>
+              <h3 class="text-lg font-bold mb-4"><i class="fas fa-chart-line text-purple-500 mr-2"></i><span id="selected-title-name"></span></h3>
               
-              <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                <!-- 월별 불법 URL 막대그래프 -->
-                <div class="bg-gray-50 rounded-lg p-4">
-                  <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-bar mr-2 text-red-500"></i>월별 불법 URL 수</h4>
-                  <div class="h-64">
-                    <canvas id="monthly-illegal-chart"></canvas>
-                  </div>
-                  <p id="monthly-chart-empty" class="hidden text-center text-gray-400 py-8">데이터가 없습니다.</p>
+              <!-- 검색 순위 꺾은선 그래프 -->
+              <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-line mr-2 text-blue-500"></i>Manta 검색 순위 변화</h4>
+                <p class="text-xs text-gray-500 mb-3">작품명만 검색 시 manta.net 순위 (1위가 가장 좋음)</p>
+                <div class="h-72">
+                  <canvas id="ranking-history-chart"></canvas>
                 </div>
-                
-                <!-- 검색 순위 꺾은선 그래프 -->
-                <div class="bg-gray-50 rounded-lg p-4">
-                  <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-line mr-2 text-blue-500"></i>Manta 검색 순위 변화</h4>
-                  <div class="h-64">
-                    <canvas id="ranking-history-chart"></canvas>
-                  </div>
-                  <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
-                </div>
+                <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
               </div>
             </div>
           </div>
@@ -1652,7 +1577,6 @@ app.get('/', (c) => {
     // ============================================
     // 작품별 통계 - 차트 및 데이터 관리
     // ============================================
-    let monthlyChart = null;
     let rankingChart = null;
     let allTitlesForStats = []; // 전체 작품 목록 저장
     
@@ -1700,62 +1624,8 @@ app.get('/', (c) => {
       document.getElementById('title-stats-content').classList.remove('hidden');
       document.getElementById('selected-title-name').textContent = title;
       
-      // 데이터 로드
-      await Promise.all([
-        loadMonthlyIllegalChart(title),
-        loadRankingHistoryChart(title)
-      ]);
-    }
-    
-    async function loadMonthlyIllegalChart(title) {
-      const canvas = document.getElementById('monthly-illegal-chart');
-      const emptyMsg = document.getElementById('monthly-chart-empty');
-      
-      // 기존 차트 제거
-      if (monthlyChart) {
-        monthlyChart.destroy();
-        monthlyChart = null;
-      }
-      
-      const data = await fetchAPI('/api/titles/' + encodeURIComponent(title) + '/monthly-stats');
-      if (!data.success || !data.stats || data.stats.length === 0) {
-        canvas.style.display = 'none';
-        emptyMsg.classList.remove('hidden');
-        return;
-      }
-      
-      canvas.style.display = 'block';
-      emptyMsg.classList.add('hidden');
-      
-      const labels = data.stats.map(s => s.month);
-      const values = data.stats.map(s => s.illegalCount);
-      
-      monthlyChart = new Chart(canvas, {
-        type: 'bar',
-        data: {
-          labels: labels,
-          datasets: [{
-            label: '불법 URL 수',
-            data: values,
-            backgroundColor: 'rgba(239, 68, 68, 0.7)',
-            borderColor: 'rgba(239, 68, 68, 1)',
-            borderWidth: 1
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false }
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              ticks: { stepSize: 1 }
-            }
-          }
-        }
-      });
+      // 순위 히스토리 차트 로드
+      await loadRankingHistoryChart(title);
     }
     
     async function loadRankingHistoryChart(title) {
