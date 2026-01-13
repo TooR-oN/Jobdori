@@ -2663,7 +2663,20 @@ app.get('/', (c) => {
       const data = await fetchAPI(url);
       
       if (data.success && data.stats.length > 0) {
-        tableEl.innerHTML = data.stats.map(s => {
+        // 전체 합계 계산
+        const totals = data.stats.reduce((acc, s) => {
+          acc.discovered += s.discovered;
+          acc.reported += s.reported;
+          acc.blocked += s.blocked;
+          return acc;
+        }, { discovered: 0, reported: 0, blocked: 0 });
+        const totalBlockRate = totals.reported > 0 ? Math.round((totals.blocked / totals.reported) * 100 * 10) / 10 : 0;
+        const totalBlockRateColor = totalBlockRate >= 80 ? 'text-green-600' : 
+                                    totalBlockRate >= 50 ? 'text-yellow-600' : 
+                                    totalBlockRate > 0 ? 'text-red-600' : 'text-gray-400';
+        
+        // 데이터 행 렌더링
+        let html = data.stats.map(s => {
           const blockRateColor = s.blockRate >= 80 ? 'text-green-600' : 
                                  s.blockRate >= 50 ? 'text-yellow-600' : 
                                  s.blockRate > 0 ? 'text-red-600' : 'text-gray-400';
@@ -2675,6 +2688,17 @@ app.get('/', (c) => {
             '<td class="py-2 px-3 text-center ' + blockRateColor + ' font-bold">' + s.blockRate + '%</td>' +
           '</tr>';
         }).join('');
+        
+        // 합계 행 추가
+        html += '<tr class="bg-gray-100 font-bold border-t-2 border-gray-300">' +
+          '<td class="py-3 px-3">합계 (' + data.stats.length + '개 작품)</td>' +
+          '<td class="py-3 px-3 text-center">' + totals.discovered.toLocaleString() + '</td>' +
+          '<td class="py-3 px-3 text-center text-blue-600">' + totals.reported.toLocaleString() + '</td>' +
+          '<td class="py-3 px-3 text-center text-green-600">' + totals.blocked.toLocaleString() + '</td>' +
+          '<td class="py-3 px-3 text-center ' + totalBlockRateColor + '">' + totalBlockRate + '%</td>' +
+        '</tr>';
+        
+        tableEl.innerHTML = html;
       } else {
         tableEl.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">해당 기간에 데이터가 없습니다.</td></tr>';
       }
