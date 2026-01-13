@@ -1370,78 +1370,47 @@ app.get('/api/titles/list', async (c) => {
 const LITELLM_ENDPOINT = 'https://litellm.iaiai.ai/v1'
 const LITELLM_MODEL = 'gemini-2.5-pro-preview'
 
-// Gemini를 통한 HTML에서 URL 추출
-async function extractUrlsFromHtmlWithGemini(htmlContent: string): Promise<string[]> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) {
-    console.error('GEMINI_API_KEY not set')
-    return []
-  }
-
-  try {
-    const response = await fetch(`${LITELLM_ENDPOINT}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: LITELLM_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: `You are an HTML parsing expert. Extract all external URLs from the provided HTML content.
-Rules:
-1. Only extract URLs from anchor tags with class "external-link" or similar external link indicators
-2. Exclude any Google-related domains (google.com, googleapis.com, googleusercontent.com, gstatic.com)
-3. Exclude w3.org domains
-4. Return ONLY a JSON array of unique URLs, nothing else
-5. If no URLs found, return empty array []
-
-Output format: ["https://example1.com/page", "https://example2.com/page"]`
-          },
-          {
-            role: 'user',
-            content: `Extract external URLs from this HTML:\n\n${htmlContent.substring(0, 100000)}`
-          }
-        ],
-        temperature: 0,
-        max_tokens: 4000
-      })
-    })
-
-    if (!response.ok) {
-      console.error('LiteLLM API error:', response.status, await response.text())
-      return []
+// HTML에서 외부 URL 추출 (정규식 기반 - Google 신고 결과 페이지 최적화)
+function extractUrlsFromHtml(htmlContent: string): string[] {
+  const urls: string[] = []
+  
+  // 방법 1: external-link 클래스를 가진 <a> 태그에서 URL 추출
+  // Google Report Content 페이지 형식: <a class="external-link ...">https://example.com/...</a>
+  const externalLinkRegex = /<a[^>]*class="[^"]*external-link[^"]*"[^>]*>([^<]+)<\/a>/gi
+  let match
+  while ((match = externalLinkRegex.exec(htmlContent)) !== null) {
+    const url = match[1].trim()
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      urls.push(url)
     }
-
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content || '[]'
+  }
+  
+  // 방법 2: external-link 클래스가 없는 경우, 일반 정규식으로 추출
+  if (urls.length === 0) {
+    console.log('No external-link tags found, using regex fallback...')
+    const urlRegex = /https?:\/\/[^\s"'<>\]]+/g
+    const allUrls = htmlContent.match(urlRegex) || []
     
-    // JSON 파싱 시도
-    try {
-      // 마크다운 코드 블록 제거
-      const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim()
-      const urls = JSON.parse(cleanContent)
-      if (Array.isArray(urls)) {
-        return urls.filter((url: string) => typeof url === 'string' && url.startsWith('http'))
+    // 필터링: Google 관련 도메인 제외
+    const excludedDomains = [
+      'google.com', 'googleapis.com', 'googleusercontent.com', 'gstatic.com',
+      'w3.org', 'accounts.google.com', 'ogs.google.com', 'fonts.googleapis.com',
+      'fonts.gstatic.com', 'ssl.gstatic.com', 'lh3.google.com'
+    ]
+    
+    for (const url of allUrls) {
+      const isExcluded = excludedDomains.some(domain => url.includes(domain))
+      if (!isExcluded && !urls.includes(url)) {
+        urls.push(url)
       }
-    } catch (parseError) {
-      console.error('Failed to parse Gemini response:', parseError)
-      // 정규식으로 URL 추출 시도
-      const urlMatches = content.match(/https?:\/\/[^\s"'\]]+/g) || []
-      return urlMatches.filter((url: string) => 
-        !url.includes('google.com') && 
-        !url.includes('googleapis.com') && 
-        !url.includes('w3.org')
-      )
     }
-    
-    return []
-  } catch (error) {
-    console.error('Gemini URL extraction error:', error)
-    return []
   }
+  
+  // 중복 제거 및 정리
+  const uniqueUrls = [...new Set(urls)]
+  console.log(`📎 Extracted ${uniqueUrls.length} unique URLs from HTML`)
+  
+  return uniqueUrls
 }
 
 // ⚠️ 정적 라우트는 동적 라우트(:sessionId) 앞에 배치해야 함
@@ -1703,10 +1672,9 @@ app.post('/api/report-tracking/:sessionId/upload', async (c) => {
       return c.json({ success: false, error: 'Missing html_content or report_id' }, 400)
     }
     
-    // Gemini로 URL 추출
+    // HTML에서 URL 추출 (정규식 기반)
     console.log(`📥 Processing HTML upload for session ${sessionId}, report_id: ${report_id}`)
-    const extractedUrls = await extractUrlsFromHtmlWithGemini(html_content)
-    console.log(`📋 Extracted ${extractedUrls.length} URLs from HTML`)
+    const extractedUrls = extractUrlsFromHtml(html_content)
     
     if (extractedUrls.length === 0) {
       return c.json({ 
