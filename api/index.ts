@@ -403,7 +403,7 @@ async function getReportTrackingBySession(
 }
 
 // 회차별 신고 통계 조회
-async function getReportTrackingStats(sessionId: string): Promise<{
+async function getReportTrackingStatsBySession(sessionId: string): Promise<{
   total: number
   차단: number
   '대기 중': number
