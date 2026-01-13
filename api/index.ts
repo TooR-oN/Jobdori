@@ -122,17 +122,6 @@ async function ensureDbMigration() {
       )
     `
     
-    // 기본 사유 옵션 추가
-    await db`
-      INSERT INTO report_reasons (reason_text, usage_count)
-      VALUES 
-        ('저작권 미확인', 100),
-        ('검토 필요', 99),
-        ('중복 신고', 98),
-        ('URL 오류', 97)
-      ON CONFLICT (reason_text) DO NOTHING
-    `
-    
     dbMigrationDone = true
     console.log('✅ DB migration completed (including report_tracking tables)')
   } catch (error) {
@@ -1605,6 +1594,105 @@ app.put('/api/report-tracking/:id/reason', async (c) => {
   }
 })
 
+// URL 수동 추가 (신고결과 추적 + 모니터링 회차 연동)
+app.post('/api/report-tracking/:sessionId/add-url', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId')
+    const { url } = await c.req.json()
+    
+    if (!url) {
+      return c.json({ success: false, error: 'URL을 입력해주세요.' }, 400)
+    }
+    
+    // URL 유효성 검사
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return c.json({ success: false, error: 'http:// 또는 https://로 시작하는 URL을 입력해주세요.' }, 400)
+    }
+    
+    // 도메인 추출
+    let domain: string
+    try {
+      const urlObj = new URL(url)
+      domain = urlObj.hostname.replace('www.', '')
+    } catch {
+      return c.json({ success: false, error: '올바른 URL 형식이 아닙니다.' }, 400)
+    }
+    
+    // 1. report_tracking 테이블에 추가
+    const trackingResult = await createReportTracking({
+      session_id: sessionId,
+      url: url,
+      domain: domain,
+      report_status: '미신고'
+    })
+    
+    if (!trackingResult) {
+      return c.json({ success: false, error: '이미 등록된 URL입니다.' }, 400)
+    }
+    
+    // 2. 도메인을 불법 사이트 목록에 추가 (중복 무시)
+    await addSite(domain, 'illegal')
+    
+    // 3. 세션의 Blob 결과 파일 업데이트 (모니터링 회차 연동)
+    const session = await getSessionById(sessionId)
+    if (session?.file_final_results?.startsWith('http')) {
+      try {
+        // 기존 결과 다운로드
+        const existingResults = await downloadResults(session.file_final_results)
+        
+        // 새 결과 추가
+        const newResult: FinalResult = {
+          title: '수동 추가',
+          domain: domain,
+          url: url,
+          search_query: '수동 추가',
+          page: 0,
+          rank: 0,
+          status: 'illegal',
+          llm_judgment: null,
+          llm_reason: null,
+          final_status: 'illegal',
+          reviewed_at: new Date().toISOString()
+        }
+        
+        existingResults.push(newResult)
+        
+        // Blob에 다시 업로드
+        const { put } = await import('@vercel/blob')
+        const blob = await put(
+          `results/${sessionId}/final-results.json`,
+          JSON.stringify(existingResults),
+          { access: 'public', addRandomSuffix: false }
+        )
+        
+        // 세션 업데이트
+        await query`
+          UPDATE sessions SET
+            file_final_results = ${blob.url},
+            results_total = ${existingResults.length},
+            results_illegal = ${existingResults.filter(r => r.final_status === 'illegal').length}
+          WHERE id = ${sessionId}
+        `
+        
+        console.log(`✅ URL added to session ${sessionId}: ${url}`)
+      } catch (blobError) {
+        console.error('Blob update error:', blobError)
+        // Blob 업데이트 실패해도 report_tracking에는 추가됨
+      }
+    }
+    
+    return c.json({
+      success: true,
+      message: 'URL이 추가되었습니다.',
+      url: url,
+      domain: domain
+    })
+  } catch (error) {
+    console.error('Add URL error:', error)
+    return c.json({ success: false, error: 'URL 추가 실패' }, 500)
+  }
+})
+
 // HTML 업로드 및 URL 매칭
 app.post('/api/report-tracking/:sessionId/upload', async (c) => {
   try {
@@ -2087,8 +2175,20 @@ app.get('/', (c) => {
               </div>
             </div>
             
-            <!-- HTML 업로드 -->
+            <!-- URL 수동 추가 -->
             <div class="border-t pt-4">
+              <h4 class="font-semibold text-sm mb-2"><i class="fas fa-plus-circle mr-1"></i>URL 수동 추가</h4>
+              <div class="flex gap-1">
+                <input type="text" id="manual-url-input" placeholder="https://..." class="flex-1 border rounded px-2 py-1.5 text-sm">
+                <button onclick="addManualUrl()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm">
+                  <i class="fas fa-plus"></i>
+                </button>
+              </div>
+              <p class="text-xs text-gray-400 mt-1">불법 URL을 직접 추가합니다.</p>
+            </div>
+            
+            <!-- HTML 업로드 -->
+            <div class="border-t pt-4 mt-4">
               <h4 class="font-semibold text-sm mb-2"><i class="fas fa-upload mr-1"></i>신고 결과 업로드</h4>
               <input type="text" id="report-id-input" placeholder="신고 ID (예: 12345)" class="w-full border rounded px-3 py-2 text-sm mb-2">
               <input type="file" id="html-file-input" accept=".html,.htm" class="hidden" onchange="handleHtmlUpload()">
@@ -3249,6 +3349,40 @@ app.get('/', (c) => {
       };
       
       reader.readAsText(file);
+    }
+    
+    async function addManualUrl() {
+      const input = document.getElementById('manual-url-input');
+      const url = input.value.trim();
+      const sessionId = currentReportSessionId;
+      
+      if (!sessionId) {
+        alert('먼저 회차를 선택해주세요.');
+        return;
+      }
+      
+      if (!url) {
+        alert('URL을 입력해주세요.');
+        return;
+      }
+      
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        alert('http:// 또는 https://로 시작하는 URL을 입력해주세요.');
+        return;
+      }
+      
+      const data = await fetchAPI('/api/report-tracking/' + sessionId + '/add-url', {
+        method: 'POST',
+        body: JSON.stringify({ url })
+      });
+      
+      if (data.success) {
+        alert('URL이 추가되었습니다.\\n\\n도메인: ' + data.domain);
+        input.value = '';
+        loadReportTracking(currentReportPage);
+      } else {
+        alert('URL 추가 실패: ' + (data.error || '알 수 없는 오류'));
+      }
     }
     
     async function copyReportUrls() {
