@@ -64,6 +64,36 @@ export interface PendingReview {
   created_at: string
 }
 
+// 신고결과 추적 관련 타입
+export interface ReportTracking {
+  id: number
+  session_id: string
+  url: string
+  domain: string
+  report_status: '차단' | '대기 중' | '색인없음' | '거부' | '미신고'
+  report_id: string | null
+  reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ReportUpload {
+  id: number
+  session_id: string
+  report_id: string
+  file_name: string | null
+  matched_count: number
+  total_urls_in_html: number
+  uploaded_at: string
+}
+
+export interface ReportReason {
+  id: number
+  reason_text: string
+  usage_count: number
+  created_at: string
+}
+
 // ============================================
 // Sessions
 // ============================================
@@ -269,6 +299,231 @@ export async function deletePendingReviewByDomain(domain: string): Promise<boole
 }
 
 // ============================================
+// Report Tracking (신고결과 추적)
+// ============================================
+
+// 회차별 신고 추적 목록 조회
+export async function getReportTrackingBySession(
+  sessionId: string,
+  filter?: string,
+  page: number = 1,
+  limit: number = 50
+): Promise<{ items: ReportTracking[], total: number }> {
+  const offset = (page - 1) * limit
+  
+  let rows: ReportTracking[]
+  let countResult: any[]
+  
+  if (filter && filter !== '전체') {
+    rows = await sql`
+      SELECT * FROM report_tracking 
+      WHERE session_id = ${sessionId} AND report_status = ${filter}
+      ORDER BY updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    ` as ReportTracking[]
+    
+    countResult = await sql`
+      SELECT COUNT(*) as count FROM report_tracking 
+      WHERE session_id = ${sessionId} AND report_status = ${filter}
+    `
+  } else {
+    rows = await sql`
+      SELECT * FROM report_tracking 
+      WHERE session_id = ${sessionId}
+      ORDER BY updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    ` as ReportTracking[]
+    
+    countResult = await sql`
+      SELECT COUNT(*) as count FROM report_tracking 
+      WHERE session_id = ${sessionId}
+    `
+  }
+  
+  return {
+    items: rows,
+    total: parseInt(countResult[0]?.count || '0')
+  }
+}
+
+// 회차별 신고 통계 조회
+export async function getReportTrackingStats(sessionId: string): Promise<{
+  total: number
+  차단: number
+  '대기 중': number
+  색인없음: number
+  거부: number
+  미신고: number
+}> {
+  const rows = await sql`
+    SELECT report_status, COUNT(*) as count 
+    FROM report_tracking 
+    WHERE session_id = ${sessionId}
+    GROUP BY report_status
+  `
+  
+  const stats = {
+    total: 0,
+    '차단': 0,
+    '대기 중': 0,
+    '색인없음': 0,
+    '거부': 0,
+    '미신고': 0
+  }
+  
+  for (const row of rows) {
+    const status = row.report_status as keyof typeof stats
+    const count = parseInt(row.count)
+    if (status in stats) {
+      stats[status] = count
+    }
+    stats.total += count
+  }
+  
+  return stats
+}
+
+// 신고 추적 항목 생성 (모니터링 완료 시 불법 URL 자동 등록)
+export async function createReportTracking(item: Partial<ReportTracking>): Promise<ReportTracking> {
+  const rows = await sql`
+    INSERT INTO report_tracking (session_id, url, domain, report_status, report_id, reason)
+    VALUES (${item.session_id}, ${item.url}, ${item.domain}, ${item.report_status || '미신고'}, 
+            ${item.report_id || null}, ${item.reason || null})
+    ON CONFLICT (session_id, url) DO UPDATE SET
+      report_status = COALESCE(EXCLUDED.report_status, report_tracking.report_status),
+      updated_at = NOW()
+    RETURNING *
+  `
+  return rows[0] as ReportTracking
+}
+
+// 신고 추적 상태 업데이트
+export async function updateReportTrackingStatus(
+  id: number,
+  status: string,
+  reportId?: string
+): Promise<ReportTracking | null> {
+  const rows = await sql`
+    UPDATE report_tracking SET
+      report_status = ${status},
+      report_id = COALESCE(${reportId || null}, report_id),
+      updated_at = NOW()
+    WHERE id = ${id}
+    RETURNING *
+  `
+  return rows[0] as ReportTracking || null
+}
+
+// 신고 추적 사유 업데이트
+export async function updateReportTrackingReason(
+  id: number,
+  reason: string
+): Promise<ReportTracking | null> {
+  const rows = await sql`
+    UPDATE report_tracking SET
+      reason = ${reason},
+      updated_at = NOW()
+    WHERE id = ${id}
+    RETURNING *
+  `
+  return rows[0] as ReportTracking || null
+}
+
+// URL 매칭으로 상태 일괄 업데이트 (HTML 업로드 시)
+export async function bulkUpdateReportTrackingByUrls(
+  sessionId: string,
+  urls: string[],
+  status: string,
+  reportId: string
+): Promise<number> {
+  if (urls.length === 0) return 0
+  
+  const result = await sql`
+    UPDATE report_tracking SET
+      report_status = ${status},
+      report_id = ${reportId},
+      updated_at = NOW()
+    WHERE session_id = ${sessionId} AND url = ANY(${urls})
+    RETURNING id
+  `
+  return result.length
+}
+
+// 회차별 URL 목록 조회 (복사용)
+export async function getReportTrackingUrls(
+  sessionId: string,
+  filter?: string
+): Promise<string[]> {
+  let rows: any[]
+  
+  if (filter && filter !== '전체') {
+    rows = await sql`
+      SELECT url FROM report_tracking 
+      WHERE session_id = ${sessionId} AND report_status = ${filter}
+      ORDER BY updated_at DESC
+    `
+  } else {
+    rows = await sql`
+      SELECT url FROM report_tracking 
+      WHERE session_id = ${sessionId}
+      ORDER BY updated_at DESC
+    `
+  }
+  
+  return rows.map(r => r.url)
+}
+
+// ============================================
+// Report Uploads (HTML 업로드 이력)
+// ============================================
+
+// 업로드 이력 조회
+export async function getReportUploadsBySession(sessionId: string): Promise<ReportUpload[]> {
+  const rows = await sql`
+    SELECT * FROM report_uploads 
+    WHERE session_id = ${sessionId}
+    ORDER BY uploaded_at DESC
+  `
+  return rows as ReportUpload[]
+}
+
+// 업로드 이력 생성
+export async function createReportUpload(upload: Partial<ReportUpload>): Promise<ReportUpload> {
+  const rows = await sql`
+    INSERT INTO report_uploads (session_id, report_id, file_name, matched_count, total_urls_in_html)
+    VALUES (${upload.session_id}, ${upload.report_id}, ${upload.file_name || null}, 
+            ${upload.matched_count || 0}, ${upload.total_urls_in_html || 0})
+    RETURNING *
+  `
+  return rows[0] as ReportUpload
+}
+
+// ============================================
+// Report Reasons (사유 드롭다운 옵션)
+// ============================================
+
+// 사유 목록 조회 (사용 빈도순)
+export async function getReportReasons(): Promise<ReportReason[]> {
+  const rows = await sql`
+    SELECT * FROM report_reasons 
+    ORDER BY usage_count DESC, created_at ASC
+  `
+  return rows as ReportReason[]
+}
+
+// 사유 추가 또는 사용 횟수 증가
+export async function addOrUpdateReportReason(reasonText: string): Promise<ReportReason> {
+  const rows = await sql`
+    INSERT INTO report_reasons (reason_text, usage_count)
+    VALUES (${reasonText}, 1)
+    ON CONFLICT (reason_text) DO UPDATE SET
+      usage_count = report_reasons.usage_count + 1
+    RETURNING *
+  `
+  return rows[0] as ReportReason
+}
+
+// ============================================
 // Database Initialization
 // ============================================
 
@@ -398,6 +653,65 @@ export async function initializeDatabase(): Promise<void> {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_manta_ranking_history_title 
     ON manta_ranking_history(title, recorded_at DESC)
+  `
+
+  // ============================================
+  // 신고결과 추적 테이블
+  // ============================================
+
+  // report_tracking 테이블 (URL별 신고 상태)
+  await sql`
+    CREATE TABLE IF NOT EXISTS report_tracking (
+      id SERIAL PRIMARY KEY,
+      session_id VARCHAR(50) NOT NULL,
+      url TEXT NOT NULL,
+      domain VARCHAR(255) NOT NULL,
+      report_status VARCHAR(20) DEFAULT '미신고',
+      report_id VARCHAR(50),
+      reason TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      UNIQUE(session_id, url)
+    )
+  `
+
+  // report_tracking 인덱스
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_report_tracking_session 
+    ON report_tracking(session_id, report_status)
+  `
+
+  // report_uploads 테이블 (HTML 업로드 이력)
+  await sql`
+    CREATE TABLE IF NOT EXISTS report_uploads (
+      id SERIAL PRIMARY KEY,
+      session_id VARCHAR(50) NOT NULL,
+      report_id VARCHAR(50) NOT NULL,
+      file_name VARCHAR(255),
+      matched_count INTEGER DEFAULT 0,
+      total_urls_in_html INTEGER DEFAULT 0,
+      uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )
+  `
+
+  // report_reasons 테이블 (사유 드롭다운 옵션)
+  await sql`
+    CREATE TABLE IF NOT EXISTS report_reasons (
+      id SERIAL PRIMARY KEY,
+      reason_text VARCHAR(255) UNIQUE NOT NULL,
+      usage_count INTEGER DEFAULT 1,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )
+  `
+
+  // 기본 사유 옵션 추가
+  await sql`
+    INSERT INTO report_reasons (reason_text, usage_count) VALUES
+      ('저작권 미확인', 100),
+      ('검토 필요', 99),
+      ('중복 신고', 98),
+      ('URL 오류', 97)
+    ON CONFLICT (reason_text) DO NOTHING
   `
 
   console.log('✅ Database tables initialized')

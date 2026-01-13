@@ -279,6 +279,249 @@ async function getMonthlyStatsByMonth(month: string): Promise<any | null> {
 }
 
 // ============================================
+// Report Tracking Functions (신고결과 추적)
+// ============================================
+
+// 신고 추적 항목 생성 (불법 URL 등록)
+async function createReportTracking(item: {
+  session_id: string
+  url: string
+  domain: string
+  report_status?: string
+  report_id?: string
+  reason?: string
+}): Promise<any> {
+  const rows = await query`
+    INSERT INTO report_tracking (session_id, url, domain, report_status, report_id, reason)
+    VALUES (${item.session_id}, ${item.url}, ${item.domain}, ${item.report_status || '미신고'}, 
+            ${item.report_id || null}, ${item.reason || null})
+    ON CONFLICT (session_id, url) DO UPDATE SET
+      report_status = COALESCE(EXCLUDED.report_status, report_tracking.report_status),
+      updated_at = NOW()
+    RETURNING *
+  `
+  return rows[0]
+}
+
+// 회차별 신고 추적 목록 조회
+async function getReportTrackingBySession(
+  sessionId: string,
+  filter?: string,
+  page: number = 1,
+  limit: number = 50
+): Promise<{ items: any[], total: number }> {
+  const offset = (page - 1) * limit
+  
+  let rows: any[]
+  let countResult: any[]
+  
+  if (filter && filter !== '전체') {
+    rows = await query`
+      SELECT * FROM report_tracking 
+      WHERE session_id = ${sessionId} AND report_status = ${filter}
+      ORDER BY updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `
+    countResult = await query`
+      SELECT COUNT(*) as count FROM report_tracking 
+      WHERE session_id = ${sessionId} AND report_status = ${filter}
+    `
+  } else {
+    rows = await query`
+      SELECT * FROM report_tracking 
+      WHERE session_id = ${sessionId}
+      ORDER BY updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `
+    countResult = await query`
+      SELECT COUNT(*) as count FROM report_tracking 
+      WHERE session_id = ${sessionId}
+    `
+  }
+  
+  return {
+    items: rows,
+    total: parseInt(countResult[0]?.count || '0')
+  }
+}
+
+// 회차별 신고 통계 조회
+async function getReportTrackingStats(sessionId: string): Promise<{
+  total: number
+  차단: number
+  '대기 중': number
+  색인없음: number
+  거부: number
+  미신고: number
+}> {
+  const rows = await query`
+    SELECT report_status, COUNT(*) as count 
+    FROM report_tracking 
+    WHERE session_id = ${sessionId}
+    GROUP BY report_status
+  `
+  
+  const stats = {
+    total: 0,
+    '차단': 0,
+    '대기 중': 0,
+    '색인없음': 0,
+    '거부': 0,
+    '미신고': 0
+  }
+  
+  for (const row of rows) {
+    const status = row.report_status as keyof typeof stats
+    const count = parseInt(row.count)
+    if (status in stats) {
+      (stats as any)[status] = count
+    }
+    stats.total += count
+  }
+  
+  return stats
+}
+
+// 신고 추적 상태 업데이트
+async function updateReportTrackingStatus(
+  id: number,
+  status: string,
+  reportId?: string
+): Promise<any | null> {
+  const rows = await query`
+    UPDATE report_tracking SET
+      report_status = ${status},
+      report_id = COALESCE(${reportId || null}, report_id),
+      updated_at = NOW()
+    WHERE id = ${id}
+    RETURNING *
+  `
+  return rows[0] || null
+}
+
+// 신고 추적 사유 업데이트
+async function updateReportTrackingReason(id: number, reason: string): Promise<any | null> {
+  const rows = await query`
+    UPDATE report_tracking SET
+      reason = ${reason},
+      updated_at = NOW()
+    WHERE id = ${id}
+    RETURNING *
+  `
+  return rows[0] || null
+}
+
+// URL 매칭으로 상태 일괄 업데이트 (HTML 업로드 시)
+async function bulkUpdateReportTrackingByUrls(
+  sessionId: string,
+  urls: string[],
+  status: string,
+  reportId: string
+): Promise<number> {
+  if (urls.length === 0) return 0
+  
+  const result = await query`
+    UPDATE report_tracking SET
+      report_status = ${status},
+      report_id = ${reportId},
+      updated_at = NOW()
+    WHERE session_id = ${sessionId} AND url = ANY(${urls})
+    RETURNING id
+  `
+  return result.length
+}
+
+// 회차별 URL 목록 조회 (복사용)
+async function getReportTrackingUrls(sessionId: string, filter?: string): Promise<string[]> {
+  let rows: any[]
+  
+  if (filter && filter !== '전체') {
+    rows = await query`
+      SELECT url FROM report_tracking 
+      WHERE session_id = ${sessionId} AND report_status = ${filter}
+      ORDER BY updated_at DESC
+    `
+  } else {
+    rows = await query`
+      SELECT url FROM report_tracking 
+      WHERE session_id = ${sessionId}
+      ORDER BY updated_at DESC
+    `
+  }
+  
+  return rows.map(r => r.url)
+}
+
+// 업로드 이력 조회
+async function getReportUploadsBySession(sessionId: string): Promise<any[]> {
+  return query`
+    SELECT * FROM report_uploads 
+    WHERE session_id = ${sessionId}
+    ORDER BY uploaded_at DESC
+  `
+}
+
+// 업로드 이력 생성
+async function createReportUpload(upload: {
+  session_id: string
+  report_id: string
+  file_name?: string
+  matched_count?: number
+  total_urls_in_html?: number
+}): Promise<any> {
+  const rows = await query`
+    INSERT INTO report_uploads (session_id, report_id, file_name, matched_count, total_urls_in_html)
+    VALUES (${upload.session_id}, ${upload.report_id}, ${upload.file_name || null}, 
+            ${upload.matched_count || 0}, ${upload.total_urls_in_html || 0})
+    RETURNING *
+  `
+  return rows[0]
+}
+
+// 사유 목록 조회 (사용 빈도순)
+async function getReportReasons(): Promise<any[]> {
+  return query`
+    SELECT * FROM report_reasons 
+    ORDER BY usage_count DESC, created_at ASC
+  `
+}
+
+// 사유 추가 또는 사용 횟수 증가
+async function addOrUpdateReportReason(reasonText: string): Promise<any> {
+  const rows = await query`
+    INSERT INTO report_reasons (reason_text, usage_count)
+    VALUES (${reasonText}, 1)
+    ON CONFLICT (reason_text) DO UPDATE SET
+      usage_count = report_reasons.usage_count + 1
+    RETURNING *
+  `
+  return rows[0]
+}
+
+// 도메인으로 세션 내 모든 URL을 report_tracking에 등록
+async function registerIllegalUrlsToReportTracking(
+  sessionId: string,
+  domain: string,
+  urls: string[]
+): Promise<number> {
+  let registered = 0
+  for (const url of urls) {
+    try {
+      await createReportTracking({
+        session_id: sessionId,
+        url,
+        domain,
+        report_status: '미신고'
+      })
+      registered++
+    } catch {
+      // 중복 등 오류 무시
+    }
+  }
+  return registered
+}
+
+// ============================================
 // Blob Functions
 // ============================================
 
@@ -470,6 +713,17 @@ app.post('/api/review', async (c) => {
     
     if (action === 'approve') {
       await addSite(item.domain, 'illegal')
+      
+      // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록
+      if (item.session_id && item.urls && Array.isArray(item.urls)) {
+        const registeredCount = await registerIllegalUrlsToReportTracking(
+          item.session_id,
+          item.domain,
+          item.urls
+        )
+        console.log(`✅ Report tracking registered: ${registeredCount} URLs for domain ${item.domain}`)
+      }
+      
       await deletePendingReview(parseInt(id))
     } else if (action === 'reject') {
       await addSite(item.domain, 'legal')
@@ -477,7 +731,8 @@ app.post('/api/review', async (c) => {
     }
     
     return c.json({ success: true, action })
-  } catch {
+  } catch (error) {
+    console.error('Review processing error:', error)
     return c.json({ success: false, error: 'Failed to process review' }, 500)
   }
 })
@@ -495,6 +750,7 @@ app.post('/api/review/bulk', async (c) => {
     
     let processed = 0
     let failed = 0
+    let totalUrlsRegistered = 0
     
     for (const id of ids) {
       try {
@@ -506,18 +762,31 @@ app.post('/api/review/bulk', async (c) => {
         
         if (action === 'approve') {
           await addSite(item.domain, 'illegal')
+          
+          // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록
+          if (item.session_id && item.urls && Array.isArray(item.urls)) {
+            const registeredCount = await registerIllegalUrlsToReportTracking(
+              item.session_id,
+              item.domain,
+              item.urls
+            )
+            totalUrlsRegistered += registeredCount
+          }
         } else {
           await addSite(item.domain, 'legal')
         }
         await deletePendingReview(parseInt(id))
         processed++
-      } catch {
+      } catch (error) {
+        console.error(`Bulk review error for id ${id}:`, error)
         failed++
       }
     }
     
-    return c.json({ success: true, processed, failed, action })
-  } catch {
+    console.log(`✅ Bulk review completed: ${processed} processed, ${failed} failed, ${totalUrlsRegistered} URLs registered`)
+    return c.json({ success: true, processed, failed, action, urls_registered: totalUrlsRegistered })
+  } catch (error) {
+    console.error('Bulk review processing error:', error)
     return c.json({ success: false, error: 'Failed to process bulk review' }, 500)
   }
 })
