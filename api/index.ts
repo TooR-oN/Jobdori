@@ -1317,6 +1317,372 @@ app.get('/api/titles/list', async (c) => {
 })
 
 // ============================================
+// API - Report Tracking (신고결과 추적)
+// ============================================
+
+// LiteLLM + Gemini 설정
+const LITELLM_ENDPOINT = 'https://litellm.iaiai.ai/v1'
+const LITELLM_MODEL = 'gemini-2.5-pro-preview'
+
+// Gemini를 통한 HTML에서 URL 추출
+async function extractUrlsFromHtmlWithGemini(htmlContent: string): Promise<string[]> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    console.error('GEMINI_API_KEY not set')
+    return []
+  }
+
+  try {
+    const response = await fetch(`${LITELLM_ENDPOINT}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: LITELLM_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an HTML parsing expert. Extract all external URLs from the provided HTML content.
+Rules:
+1. Only extract URLs from anchor tags with class "external-link" or similar external link indicators
+2. Exclude any Google-related domains (google.com, googleapis.com, googleusercontent.com, gstatic.com)
+3. Exclude w3.org domains
+4. Return ONLY a JSON array of unique URLs, nothing else
+5. If no URLs found, return empty array []
+
+Output format: ["https://example1.com/page", "https://example2.com/page"]`
+          },
+          {
+            role: 'user',
+            content: `Extract external URLs from this HTML:\n\n${htmlContent.substring(0, 100000)}`
+          }
+        ],
+        temperature: 0,
+        max_tokens: 4000
+      })
+    })
+
+    if (!response.ok) {
+      console.error('LiteLLM API error:', response.status, await response.text())
+      return []
+    }
+
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content || '[]'
+    
+    // JSON 파싱 시도
+    try {
+      // 마크다운 코드 블록 제거
+      const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim()
+      const urls = JSON.parse(cleanContent)
+      if (Array.isArray(urls)) {
+        return urls.filter((url: string) => typeof url === 'string' && url.startsWith('http'))
+      }
+    } catch (parseError) {
+      console.error('Failed to parse Gemini response:', parseError)
+      // 정규식으로 URL 추출 시도
+      const urlMatches = content.match(/https?:\/\/[^\s"'\]]+/g) || []
+      return urlMatches.filter((url: string) => 
+        !url.includes('google.com') && 
+        !url.includes('googleapis.com') && 
+        !url.includes('w3.org')
+      )
+    }
+    
+    return []
+  } catch (error) {
+    console.error('Gemini URL extraction error:', error)
+    return []
+  }
+}
+
+// 회차별 신고 추적 목록 조회
+app.get('/api/report-tracking/:sessionId', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId')
+    const status = c.req.query('status')
+    const page = parseInt(c.req.query('page') || '1')
+    const limit = parseInt(c.req.query('limit') || '50')
+    
+    const items = await getReportTrackingBySession(sessionId, status)
+    
+    const total = items.length
+    const startIndex = (page - 1) * limit
+    const paginatedItems = items.slice(startIndex, startIndex + limit)
+    
+    return c.json({
+      success: true,
+      session_id: sessionId,
+      items: paginatedItems,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    })
+  } catch (error) {
+    console.error('Report tracking list error:', error)
+    return c.json({ success: false, error: 'Failed to load report tracking' }, 500)
+  }
+})
+
+// 회차별 통계 조회
+app.get('/api/report-tracking/:sessionId/stats', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId')
+    const stats = await getReportTrackingStatsBySession(sessionId)
+    
+    return c.json({
+      success: true,
+      session_id: sessionId,
+      stats
+    })
+  } catch (error) {
+    console.error('Report tracking stats error:', error)
+    return c.json({ success: false, error: 'Failed to load stats' }, 500)
+  }
+})
+
+// 상태 업데이트
+app.put('/api/report-tracking/:id/status', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'))
+    const { status, report_id } = await c.req.json()
+    
+    if (!status) {
+      return c.json({ success: false, error: 'Missing status' }, 400)
+    }
+    
+    const validStatuses = ['미신고', '차단', '대기 중', '색인없음', '거부']
+    if (!validStatuses.includes(status)) {
+      return c.json({ success: false, error: 'Invalid status' }, 400)
+    }
+    
+    const updated = await updateReportTrackingStatus(id, status, report_id)
+    if (!updated) {
+      return c.json({ success: false, error: 'Item not found' }, 404)
+    }
+    
+    return c.json({ success: true, item: updated })
+  } catch (error) {
+    console.error('Status update error:', error)
+    return c.json({ success: false, error: 'Failed to update status' }, 500)
+  }
+})
+
+// 사유 업데이트
+app.put('/api/report-tracking/:id/reason', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'))
+    const { reason } = await c.req.json()
+    
+    if (!reason) {
+      return c.json({ success: false, error: 'Missing reason' }, 400)
+    }
+    
+    // 사유 목록에 추가/업데이트
+    await addOrUpdateReportReason(reason)
+    
+    const updated = await updateReportTrackingReason(id, reason)
+    if (!updated) {
+      return c.json({ success: false, error: 'Item not found' }, 404)
+    }
+    
+    return c.json({ success: true, item: updated })
+  } catch (error) {
+    console.error('Reason update error:', error)
+    return c.json({ success: false, error: 'Failed to update reason' }, 500)
+  }
+})
+
+// 사유 목록 조회
+app.get('/api/report-tracking/reasons', async (c) => {
+  try {
+    const reasons = await getReportReasons()
+    return c.json({
+      success: true,
+      reasons: reasons.map((r: any) => ({
+        id: r.id,
+        text: r.reason_text,
+        usage_count: r.usage_count
+      }))
+    })
+  } catch (error) {
+    console.error('Reasons list error:', error)
+    return c.json({ success: false, error: 'Failed to load reasons' }, 500)
+  }
+})
+
+// HTML 업로드 및 URL 매칭
+app.post('/api/report-tracking/:sessionId/upload', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId')
+    const { html_content, report_id, file_name } = await c.req.json()
+    
+    if (!html_content || !report_id) {
+      return c.json({ success: false, error: 'Missing html_content or report_id' }, 400)
+    }
+    
+    // Gemini로 URL 추출
+    console.log(`📥 Processing HTML upload for session ${sessionId}, report_id: ${report_id}`)
+    const extractedUrls = await extractUrlsFromHtmlWithGemini(html_content)
+    console.log(`📋 Extracted ${extractedUrls.length} URLs from HTML`)
+    
+    if (extractedUrls.length === 0) {
+      return c.json({ 
+        success: false, 
+        error: 'No URLs extracted from HTML. Check if the HTML contains external links.' 
+      }, 400)
+    }
+    
+    // 세션의 URL과 매칭하여 상태 업데이트
+    const matchedCount = await bulkUpdateReportTrackingByUrls(
+      sessionId,
+      extractedUrls,
+      '차단',
+      report_id
+    )
+    
+    console.log(`✅ Matched and updated ${matchedCount} URLs`)
+    
+    // 업로드 이력 저장
+    await createReportUpload({
+      session_id: sessionId,
+      report_id,
+      file_name: file_name || 'uploaded.html',
+      matched_count: matchedCount,
+      total_urls_in_html: extractedUrls.length
+    })
+    
+    return c.json({
+      success: true,
+      report_id,
+      extracted_urls: extractedUrls.length,
+      matched_urls: matchedCount,
+      message: `${matchedCount}개 URL이 '차단' 상태로 업데이트되었습니다.`
+    })
+  } catch (error) {
+    console.error('HTML upload error:', error)
+    return c.json({ success: false, error: 'Failed to process HTML upload' }, 500)
+  }
+})
+
+// 업로드 이력 조회
+app.get('/api/report-tracking/:sessionId/uploads', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId')
+    const uploads = await getReportUploadsBySession(sessionId)
+    
+    return c.json({
+      success: true,
+      session_id: sessionId,
+      uploads: uploads.map((u: any) => ({
+        id: u.id,
+        report_id: u.report_id,
+        file_name: u.file_name,
+        matched_count: u.matched_count,
+        total_urls_in_html: u.total_urls_in_html,
+        uploaded_at: u.uploaded_at
+      }))
+    })
+  } catch (error) {
+    console.error('Uploads list error:', error)
+    return c.json({ success: false, error: 'Failed to load uploads' }, 500)
+  }
+})
+
+// URL 목록 내보내기 (복사용)
+app.get('/api/report-tracking/:sessionId/urls', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId')
+    const status = c.req.query('status')
+    
+    const urls = await getReportTrackingUrls(sessionId, status)
+    
+    return c.json({
+      success: true,
+      session_id: sessionId,
+      filter: status || '전체',
+      count: urls.length,
+      urls
+    })
+  } catch (error) {
+    console.error('URLs export error:', error)
+    return c.json({ success: false, error: 'Failed to export URLs' }, 500)
+  }
+})
+
+// CSV 내보내기
+app.get('/api/report-tracking/:sessionId/export', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId')
+    const items = await getReportTrackingBySession(sessionId)
+    
+    // CSV 생성
+    const headers = ['URL', '도메인', '신고상태', '신고ID', '사유', '등록일', '수정일']
+    const rows = items.map((item: any) => [
+      item.url,
+      item.domain,
+      item.report_status,
+      item.report_id || '',
+      item.reason || '',
+      item.created_at,
+      item.updated_at
+    ])
+    
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map((cell: string) => `"${(cell || '').replace(/"/g, '""')}"`).join(','))
+    ].join('\n')
+    
+    // BOM 추가 (Excel 한글 호환)
+    const bom = '\uFEFF'
+    
+    return new Response(bom + csvContent, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="report-tracking-${sessionId}.csv"`
+      }
+    })
+  } catch (error) {
+    console.error('CSV export error:', error)
+    return c.json({ success: false, error: 'Failed to export CSV' }, 500)
+  }
+})
+
+// 세션 목록 (신고 추적용)
+app.get('/api/report-tracking/sessions', async (c) => {
+  try {
+    const sessions = await getSessions()
+    
+    // 각 세션의 신고 추적 통계 조회
+    const sessionsWithStats = await Promise.all(sessions.map(async (s: any) => {
+      const stats = await getReportTrackingStatsBySession(s.id)
+      return {
+        id: s.id,
+        created_at: s.created_at,
+        status: s.status,
+        tracking_stats: stats
+      }
+    }))
+    
+    // 신고 추적 데이터가 있는 세션만 필터링
+    const filteredSessions = sessionsWithStats.filter(s => s.tracking_stats.total > 0)
+    
+    return c.json({
+      success: true,
+      sessions: filteredSessions
+    })
+  } catch (error) {
+    console.error('Sessions list error:', error)
+    return c.json({ success: false, error: 'Failed to load sessions' }, 500)
+  }
+})
+
+// ============================================
 // Main Page (Full UI)
 // ============================================
 
@@ -1381,6 +1747,9 @@ app.get('/', (c) => {
         </button>
         <button id="tab-title-stats" onclick="switchTab('title-stats')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
           <i class="fas fa-book md:mr-2"></i><span class="hidden md:inline">작품별 통계</span>
+        </button>
+        <button id="tab-report-tracking" onclick="switchTab('report-tracking')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
+          <i class="fas fa-file-alt md:mr-2"></i><span class="hidden md:inline">신고결과 추적</span>
         </button>
       </div>
     </div>
@@ -1616,6 +1985,123 @@ app.get('/', (c) => {
         </div>
       </div>
     </div>
+
+    <!-- 신고결과 추적 탭 -->
+    <div id="content-report-tracking" class="tab-content hidden">
+      <div class="flex flex-col lg:flex-row gap-4">
+        <!-- 좌측: 회차 선택 및 업로드 -->
+        <div class="w-full lg:w-72 flex-shrink-0">
+          <div class="bg-white rounded-lg shadow-md p-4 sticky top-4">
+            <h3 class="font-bold text-blue-600 mb-3"><i class="fas fa-calendar-alt mr-2"></i>모니터링 회차</h3>
+            <select id="report-session-select" onchange="loadReportTracking()" class="w-full border rounded-lg px-3 py-2 text-sm mb-4">
+              <option value="">회차 선택...</option>
+            </select>
+            
+            <!-- 통계 카드 -->
+            <div id="report-stats" class="space-y-2 mb-4">
+              <div class="grid grid-cols-2 gap-2 text-center text-xs">
+                <div class="bg-gray-50 p-2 rounded">
+                  <div class="font-bold text-lg" id="rt-total">0</div>
+                  <div class="text-gray-500">전체</div>
+                </div>
+                <div class="bg-green-50 p-2 rounded">
+                  <div class="font-bold text-lg text-green-600" id="rt-blocked">0</div>
+                  <div class="text-gray-500">차단</div>
+                </div>
+                <div class="bg-yellow-50 p-2 rounded">
+                  <div class="font-bold text-lg text-yellow-600" id="rt-pending">0</div>
+                  <div class="text-gray-500">대기 중</div>
+                </div>
+                <div class="bg-purple-50 p-2 rounded">
+                  <div class="font-bold text-lg text-purple-600" id="rt-unreported">0</div>
+                  <div class="text-gray-500">미신고</div>
+                </div>
+                <div class="bg-gray-100 p-2 rounded">
+                  <div class="font-bold text-lg text-gray-600" id="rt-notfound">0</div>
+                  <div class="text-gray-500">색인없음</div>
+                </div>
+                <div class="bg-red-50 p-2 rounded">
+                  <div class="font-bold text-lg text-red-600" id="rt-rejected">0</div>
+                  <div class="text-gray-500">거부</div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- HTML 업로드 -->
+            <div class="border-t pt-4">
+              <h4 class="font-semibold text-sm mb-2"><i class="fas fa-upload mr-1"></i>신고 결과 업로드</h4>
+              <input type="text" id="report-id-input" placeholder="신고 ID (예: 12345)" class="w-full border rounded px-3 py-2 text-sm mb-2">
+              <input type="file" id="html-file-input" accept=".html,.htm" class="hidden" onchange="handleHtmlUpload()">
+              <button onclick="document.getElementById('html-file-input').click()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded text-sm">
+                <i class="fas fa-file-upload mr-1"></i>HTML 파일 선택
+              </button>
+              <p class="text-xs text-gray-400 mt-2">구글 신고 결과 페이지를 업로드하면 차단된 URL을 자동 매칭합니다.</p>
+            </div>
+            
+            <!-- 업로드 이력 -->
+            <div class="border-t pt-4 mt-4">
+              <h4 class="font-semibold text-sm mb-2"><i class="fas fa-history mr-1"></i>업로드 이력</h4>
+              <div id="upload-history" class="max-h-32 overflow-y-auto text-xs space-y-1">
+                <div class="text-gray-400 text-center py-2">이력 없음</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 우측: URL 테이블 -->
+        <div class="flex-1">
+          <div class="bg-white rounded-lg shadow-md p-4">
+            <!-- 필터 및 내보내기 -->
+            <div class="flex flex-wrap gap-2 mb-4 justify-between items-center">
+              <div class="flex gap-2">
+                <select id="report-status-filter" onchange="loadReportTracking()" class="border rounded px-3 py-1 text-sm">
+                  <option value="">전체 상태</option>
+                  <option value="미신고">미신고</option>
+                  <option value="차단">차단</option>
+                  <option value="대기 중">대기 중</option>
+                  <option value="색인없음">색인없음</option>
+                  <option value="거부">거부</option>
+                </select>
+                <input type="text" id="report-url-search" placeholder="URL 검색..." class="border rounded px-3 py-1 text-sm w-40" oninput="filterReportTable()">
+              </div>
+              <div class="flex gap-2">
+                <button onclick="copyReportUrls()" class="text-sm text-blue-500 hover:text-blue-700">
+                  <i class="fas fa-copy mr-1"></i>URL 복사
+                </button>
+                <button onclick="exportReportCsv()" class="text-sm text-green-500 hover:text-green-700">
+                  <i class="fas fa-download mr-1"></i>CSV 내보내기
+                </button>
+              </div>
+            </div>
+            
+            <!-- URL 테이블 -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-3 py-2 text-left">URL</th>
+                    <th class="px-3 py-2 text-left w-28">도메인</th>
+                    <th class="px-3 py-2 text-center w-24">상태</th>
+                    <th class="px-3 py-2 text-left w-20">신고ID</th>
+                    <th class="px-3 py-2 text-left w-36">사유</th>
+                  </tr>
+                </thead>
+                <tbody id="report-tracking-table">
+                  <tr><td colspan="5" class="text-center py-8 text-gray-400">회차를 선택하세요</td></tr>
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- 페이지네이션 -->
+            <div id="report-pagination" class="flex justify-center gap-2 mt-4 hidden">
+              <button onclick="loadReportTracking(currentReportPage - 1)" class="px-3 py-1 border rounded text-sm" id="rt-prev-btn">이전</button>
+              <span id="rt-page-info" class="px-3 py-1 text-sm">1 / 1</span>
+              <button onclick="loadReportTracking(currentReportPage + 1)" class="px-3 py-1 border rounded text-sm" id="rt-next-btn">다음</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 작품 변경 모달 -->
@@ -1717,6 +2203,7 @@ app.get('/', (c) => {
       else if (tab === 'sessions') loadSessions();
       else if (tab === 'sites') loadSites();
       else if (tab === 'title-stats') loadTitleSelectList();
+      else if (tab === 'report-tracking') loadReportTrackingSessions();
     }
     
     async function loadDashboard() {
@@ -2422,6 +2909,315 @@ app.get('/', (c) => {
         body: JSON.stringify({ title })
       });
       loadTitles();
+    }
+    
+    // ============================================
+    // 신고결과 추적 함수들
+    // ============================================
+    
+    let currentReportPage = 1;
+    let currentReportSessionId = null;
+    let reportTrackingData = [];
+    let reasonsList = [];
+    
+    async function loadReportTrackingSessions() {
+      const data = await fetchAPI('/api/report-tracking/sessions');
+      const select = document.getElementById('report-session-select');
+      
+      if (data.success && data.sessions.length > 0) {
+        select.innerHTML = '<option value="">회차 선택...</option>' +
+          data.sessions.map(s => {
+            const date = new Date(s.created_at).toLocaleDateString('ko-KR');
+            const stats = s.tracking_stats;
+            return '<option value="' + s.id + '">' + date + ' (' + stats.total + '개)</option>';
+          }).join('');
+          
+        // 이전 선택 복구
+        if (currentReportSessionId) {
+          select.value = currentReportSessionId;
+          loadReportTracking();
+        }
+      } else {
+        select.innerHTML = '<option value="">데이터 없음</option>';
+      }
+      
+      // 사유 목록 로드
+      loadReasons();
+    }
+    
+    async function loadReasons() {
+      const data = await fetchAPI('/api/report-tracking/reasons');
+      if (data.success) {
+        reasonsList = data.reasons;
+      }
+    }
+    
+    async function loadReportTracking(page = 1) {
+      const sessionId = document.getElementById('report-session-select').value;
+      if (!sessionId) {
+        document.getElementById('report-tracking-table').innerHTML = 
+          '<tr><td colspan="5" class="text-center py-8 text-gray-400">회차를 선택하세요</td></tr>';
+        return;
+      }
+      
+      currentReportSessionId = sessionId;
+      currentReportPage = page;
+      
+      const status = document.getElementById('report-status-filter').value;
+      const url = '/api/report-tracking/' + sessionId + '?page=' + page + '&limit=50' + (status ? '&status=' + encodeURIComponent(status) : '');
+      
+      const data = await fetchAPI(url);
+      
+      if (data.success) {
+        reportTrackingData = data.items;
+        renderReportTable();
+        
+        // 페이지네이션
+        const pagination = data.pagination;
+        document.getElementById('report-pagination').classList.toggle('hidden', pagination.totalPages <= 1);
+        document.getElementById('rt-page-info').textContent = pagination.page + ' / ' + pagination.totalPages;
+        document.getElementById('rt-prev-btn').disabled = pagination.page <= 1;
+        document.getElementById('rt-next-btn').disabled = pagination.page >= pagination.totalPages;
+      }
+      
+      // 통계 로드
+      loadReportStats(sessionId);
+      
+      // 업로드 이력 로드
+      loadUploadHistory(sessionId);
+    }
+    
+    async function loadReportStats(sessionId) {
+      const data = await fetchAPI('/api/report-tracking/' + sessionId + '/stats');
+      if (data.success) {
+        const stats = data.stats;
+        document.getElementById('rt-total').textContent = stats.total || 0;
+        document.getElementById('rt-blocked').textContent = stats['차단'] || 0;
+        document.getElementById('rt-pending').textContent = stats['대기 중'] || 0;
+        document.getElementById('rt-unreported').textContent = stats['미신고'] || 0;
+        document.getElementById('rt-notfound').textContent = stats['색인없음'] || 0;
+        document.getElementById('rt-rejected').textContent = stats['거부'] || 0;
+      }
+    }
+    
+    async function loadUploadHistory(sessionId) {
+      const data = await fetchAPI('/api/report-tracking/' + sessionId + '/uploads');
+      const container = document.getElementById('upload-history');
+      
+      if (data.success && data.uploads.length > 0) {
+        container.innerHTML = data.uploads.map(u => {
+          const date = new Date(u.uploaded_at).toLocaleDateString('ko-KR');
+          return '<div class="p-2 bg-gray-50 rounded">' +
+            '<div class="font-semibold">#' + u.report_id + '</div>' +
+            '<div class="text-gray-500">' + date + ' · 매칭: ' + u.matched_count + '/' + u.total_urls_in_html + '</div>' +
+          '</div>';
+        }).join('');
+      } else {
+        container.innerHTML = '<div class="text-gray-400 text-center py-2">이력 없음</div>';
+      }
+    }
+    
+    function renderReportTable() {
+      const tbody = document.getElementById('report-tracking-table');
+      const searchTerm = (document.getElementById('report-url-search').value || '').toLowerCase();
+      
+      let filtered = reportTrackingData;
+      if (searchTerm) {
+        filtered = filtered.filter(item => 
+          item.url.toLowerCase().includes(searchTerm) || 
+          item.domain.toLowerCase().includes(searchTerm)
+        );
+      }
+      
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">데이터 없음</td></tr>';
+        return;
+      }
+      
+      tbody.innerHTML = filtered.map(item => {
+        const statusColors = {
+          '차단': 'bg-green-100 text-green-800',
+          '대기 중': 'bg-yellow-100 text-yellow-800',
+          '색인없음': 'bg-gray-100 text-gray-800',
+          '거부': 'bg-red-100 text-red-800',
+          '미신고': 'bg-purple-100 text-purple-800'
+        };
+        const statusClass = statusColors[item.report_status] || 'bg-gray-100';
+        
+        return '<tr class="border-b hover:bg-gray-50" data-id="' + item.id + '">' +
+          '<td class="px-3 py-2"><a href="' + item.url + '" target="_blank" class="text-blue-600 hover:underline truncate block max-w-xs" title="' + item.url + '">' + truncateUrl(item.url) + '</a></td>' +
+          '<td class="px-3 py-2 text-gray-600">' + item.domain + '</td>' +
+          '<td class="px-3 py-2 text-center">' +
+            '<select onchange="updateReportStatus(' + item.id + ', this.value)" class="text-xs px-2 py-1 rounded border ' + statusClass + '">' +
+              '<option value="미신고"' + (item.report_status === '미신고' ? ' selected' : '') + '>미신고</option>' +
+              '<option value="차단"' + (item.report_status === '차단' ? ' selected' : '') + '>차단</option>' +
+              '<option value="대기 중"' + (item.report_status === '대기 중' ? ' selected' : '') + '>대기 중</option>' +
+              '<option value="색인없음"' + (item.report_status === '색인없음' ? ' selected' : '') + '>색인없음</option>' +
+              '<option value="거부"' + (item.report_status === '거부' ? ' selected' : '') + '>거부</option>' +
+            '</select>' +
+          '</td>' +
+          '<td class="px-3 py-2 text-gray-500 text-xs">' + (item.report_id || '-') + '</td>' +
+          '<td class="px-3 py-2">' + renderReasonSelect(item) + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+    
+    function truncateUrl(url) {
+      if (url.length > 50) {
+        return url.substring(0, 47) + '...';
+      }
+      return url;
+    }
+    
+    function renderReasonSelect(item) {
+      const needsReason = ['미신고', '거부'].includes(item.report_status);
+      if (!needsReason) return '<span class="text-gray-400 text-xs">-</span>';
+      
+      const options = reasonsList.map(r => 
+        '<option value="' + r.text + '"' + (item.reason === r.text ? ' selected' : '') + '>' + r.text + '</option>'
+      ).join('');
+      
+      return '<select onchange="updateReportReason(' + item.id + ', this.value)" class="text-xs px-2 py-1 rounded border w-full">' +
+        '<option value="">사유 선택...</option>' +
+        options +
+        '<option value="__custom__">+ 직접 입력</option>' +
+      '</select>';
+    }
+    
+    async function updateReportStatus(id, status) {
+      const reportId = document.getElementById('report-id-input').value || null;
+      const data = await fetchAPI('/api/report-tracking/' + id + '/status', {
+        method: 'PUT',
+        body: JSON.stringify({ status, report_id: reportId })
+      });
+      
+      if (data.success) {
+        // 테이블에서 해당 항목 업데이트
+        const item = reportTrackingData.find(i => i.id === id);
+        if (item) {
+          item.report_status = status;
+          if (reportId) item.report_id = reportId;
+        }
+        renderReportTable();
+        loadReportStats(currentReportSessionId);
+      } else {
+        alert('상태 변경 실패: ' + (data.error || '알 수 없는 오류'));
+      }
+    }
+    
+    async function updateReportReason(id, reason) {
+      if (reason === '__custom__') {
+        const customReason = prompt('사유를 입력하세요:');
+        if (!customReason) {
+          loadReportTracking(currentReportPage);
+          return;
+        }
+        reason = customReason;
+      }
+      
+      const data = await fetchAPI('/api/report-tracking/' + id + '/reason', {
+        method: 'PUT',
+        body: JSON.stringify({ reason })
+      });
+      
+      if (data.success) {
+        const item = reportTrackingData.find(i => i.id === id);
+        if (item) item.reason = reason;
+        
+        // 새 사유가 추가되었을 수 있으므로 목록 다시 로드
+        await loadReasons();
+        renderReportTable();
+      } else {
+        alert('사유 변경 실패: ' + (data.error || '알 수 없는 오류'));
+      }
+    }
+    
+    function filterReportTable() {
+      renderReportTable();
+    }
+    
+    async function handleHtmlUpload() {
+      const fileInput = document.getElementById('html-file-input');
+      const reportId = document.getElementById('report-id-input').value;
+      const sessionId = currentReportSessionId;
+      
+      if (!fileInput.files.length) return;
+      if (!sessionId) {
+        alert('먼저 회차를 선택해주세요.');
+        return;
+      }
+      if (!reportId) {
+        alert('신고 ID를 입력해주세요.');
+        return;
+      }
+      
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      
+      reader.onload = async function(e) {
+        const htmlContent = e.target.result;
+        
+        // 로딩 표시
+        const uploadBtn = document.querySelector('[onclick*="html-file-input"]');
+        const originalText = uploadBtn.innerHTML;
+        uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>처리 중...';
+        uploadBtn.disabled = true;
+        
+        try {
+          const data = await fetchAPI('/api/report-tracking/' + sessionId + '/upload', {
+            method: 'POST',
+            body: JSON.stringify({
+              html_content: htmlContent,
+              report_id: reportId,
+              file_name: file.name
+            })
+          });
+          
+          if (data.success) {
+            alert('업로드 완료!\\n\\n추출된 URL: ' + data.extracted_urls + '개\\n매칭된 URL: ' + data.matched_urls + '개');
+            loadReportTracking(currentReportPage);
+          } else {
+            alert('업로드 실패: ' + (data.error || '알 수 없는 오류'));
+          }
+        } catch (error) {
+          alert('업로드 오류: ' + error.message);
+        } finally {
+          uploadBtn.innerHTML = originalText;
+          uploadBtn.disabled = false;
+          fileInput.value = '';
+        }
+      };
+      
+      reader.readAsText(file);
+    }
+    
+    async function copyReportUrls() {
+      const status = document.getElementById('report-status-filter').value;
+      const sessionId = currentReportSessionId;
+      
+      if (!sessionId) {
+        alert('회차를 선택해주세요.');
+        return;
+      }
+      
+      const data = await fetchAPI('/api/report-tracking/' + sessionId + '/urls' + (status ? '?status=' + encodeURIComponent(status) : ''));
+      
+      if (data.success && data.urls.length > 0) {
+        const text = data.urls.join('\\n');
+        await navigator.clipboard.writeText(text);
+        alert(data.count + '개 URL이 복사되었습니다.' + (status ? ' (필터: ' + status + ')' : ''));
+      } else {
+        alert('복사할 URL이 없습니다.');
+      }
+    }
+    
+    function exportReportCsv() {
+      const sessionId = currentReportSessionId;
+      if (!sessionId) {
+        alert('회차를 선택해주세요.');
+        return;
+      }
+      window.open('/api/report-tracking/' + sessionId + '/export', '_blank');
     }
     
     // 초기 로드
