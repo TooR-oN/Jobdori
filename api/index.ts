@@ -122,6 +122,25 @@ async function ensureDbMigration() {
       )
     `
     
+    // report_tracking 테이블에 title 컬럼 추가 (없으면)
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'report_tracking' AND column_name = 'title'
+        ) THEN
+          ALTER TABLE report_tracking ADD COLUMN title TEXT;
+        END IF;
+      END $$
+    `
+    
+    // title 컬럼에 인덱스 추가
+    await db`
+      CREATE INDEX IF NOT EXISTS idx_report_tracking_title 
+      ON report_tracking(title)
+    `
+    
     dbMigrationDone = true
     console.log('✅ DB migration completed (including report_tracking tables)')
   } catch (error) {
@@ -333,16 +352,18 @@ async function createReportTracking(item: {
   session_id: string
   url: string
   domain: string
+  title?: string
   report_status?: string
   report_id?: string
   reason?: string
 }): Promise<any> {
   const rows = await query`
-    INSERT INTO report_tracking (session_id, url, domain, report_status, report_id, reason)
-    VALUES (${item.session_id}, ${item.url}, ${item.domain}, ${item.report_status || '미신고'}, 
+    INSERT INTO report_tracking (session_id, url, domain, title, report_status, report_id, reason)
+    VALUES (${item.session_id}, ${item.url}, ${item.domain}, ${item.title || null}, ${item.report_status || '미신고'}, 
             ${item.report_id || null}, ${item.reason || null})
     ON CONFLICT (session_id, url) DO UPDATE SET
       report_status = COALESCE(EXCLUDED.report_status, report_tracking.report_status),
+      title = COALESCE(EXCLUDED.title, report_tracking.title),
       updated_at = NOW()
     RETURNING *
   `
@@ -544,19 +565,20 @@ async function addOrUpdateReportReason(reasonText: string): Promise<any> {
   return rows[0]
 }
 
-// 도메인으로 세션 내 모든 URL을 report_tracking에 등록
+// 도메인으로 세션 내 모든 URL을 report_tracking에 등록 (title 포함)
 async function registerIllegalUrlsToReportTracking(
   sessionId: string,
   domain: string,
-  urls: string[]
+  urls: { url: string, title?: string }[]
 ): Promise<number> {
   let registered = 0
-  for (const url of urls) {
+  for (const item of urls) {
     try {
       await createReportTracking({
         session_id: sessionId,
-        url,
+        url: item.url,
         domain,
+        title: item.title,
         report_status: '미신고'
       })
       registered++
@@ -760,12 +782,17 @@ app.post('/api/review', async (c) => {
     if (action === 'approve') {
       await addSite(item.domain, 'illegal')
       
-      // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록
+      // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록 (title 포함)
       if (item.session_id && item.urls && Array.isArray(item.urls)) {
+        // urls와 titles를 매핑하여 등록
+        const urlsWithTitles = item.urls.map((url: string, idx: number) => ({
+          url,
+          title: item.titles && Array.isArray(item.titles) ? item.titles[idx] : null
+        }))
         const registeredCount = await registerIllegalUrlsToReportTracking(
           item.session_id,
           item.domain,
-          item.urls
+          urlsWithTitles
         )
         console.log(`✅ Report tracking registered: ${registeredCount} URLs for domain ${item.domain}`)
       }
@@ -809,12 +836,16 @@ app.post('/api/review/bulk', async (c) => {
         if (action === 'approve') {
           await addSite(item.domain, 'illegal')
           
-          // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록
+          // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록 (title 포함)
           if (item.session_id && item.urls && Array.isArray(item.urls)) {
+            const urlsWithTitles = item.urls.map((url: string, idx: number) => ({
+              url,
+              title: item.titles && Array.isArray(item.titles) ? item.titles[idx] : null
+            }))
             const registeredCount = await registerIllegalUrlsToReportTracking(
               item.session_id,
               item.domain,
-              item.urls
+              urlsWithTitles
             )
             totalUrlsRegistered += registeredCount
           }
@@ -1363,6 +1394,55 @@ app.get('/api/titles/list', async (c) => {
 })
 
 // ============================================
+// API - Title Stats (작품별 통계)
+// ============================================
+
+// 작품별 통계 조회 API
+app.get('/api/stats/by-title', async (c) => {
+  try {
+    await ensureDbMigration()
+    
+    // report_tracking에서 작품별 통계 집계
+    const stats = await query`
+      SELECT 
+        title,
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+        COUNT(*) FILTER (WHERE report_status = '차단') as blocked,
+        COUNT(*) FILTER (WHERE report_status = '미신고') as unreported
+      FROM report_tracking
+      WHERE title IS NOT NULL AND title != ''
+      GROUP BY title
+      ORDER BY total DESC
+    `
+    
+    // 차단율 계산 및 결과 정리
+    const result = stats.map((s: any) => {
+      const reported = parseInt(s.reported) || 0
+      const blocked = parseInt(s.blocked) || 0
+      const blockRate = reported > 0 ? Math.round((blocked / reported) * 100 * 10) / 10 : 0
+      
+      return {
+        title: s.title,
+        discovered: parseInt(s.total) || 0,  // 발견
+        reported: reported,                   // 신고
+        blocked: blocked,                     // 차단
+        blockRate: blockRate                  // 차단율
+      }
+    })
+    
+    return c.json({
+      success: true,
+      stats: result,
+      total: result.length
+    })
+  } catch (error) {
+    console.error('Title stats error:', error)
+    return c.json({ success: false, error: 'Failed to load title stats' }, 500)
+  }
+})
+
+// ============================================
 // API - Report Tracking (신고결과 추적)
 // ============================================
 
@@ -1567,10 +1647,14 @@ app.put('/api/report-tracking/:id/reason', async (c) => {
 app.post('/api/report-tracking/:sessionId/add-url', async (c) => {
   try {
     const sessionId = c.req.param('sessionId')
-    const { url } = await c.req.json()
+    const { url, title } = await c.req.json()
     
     if (!url) {
       return c.json({ success: false, error: 'URL을 입력해주세요.' }, 400)
+    }
+    
+    if (!title) {
+      return c.json({ success: false, error: '작품을 선택해주세요.' }, 400)
     }
     
     // URL 유효성 검사
@@ -1587,11 +1671,12 @@ app.post('/api/report-tracking/:sessionId/add-url', async (c) => {
       return c.json({ success: false, error: '올바른 URL 형식이 아닙니다.' }, 400)
     }
     
-    // 1. report_tracking 테이블에 추가
+    // 1. report_tracking 테이블에 추가 (title 포함)
     const trackingResult = await createReportTracking({
       session_id: sessionId,
       url: url,
       domain: domain,
+      title: title,
       report_status: '미신고'
     })
     
@@ -1611,7 +1696,7 @@ app.post('/api/report-tracking/:sessionId/add-url', async (c) => {
         
         // 새 결과 추가
         const newResult: FinalResult = {
-          title: '수동 추가',
+          title: title,
           domain: domain,
           url: url,
           search_query: '수동 추가',
@@ -2098,6 +2183,36 @@ app.get('/', (c) => {
               </div>
             </div>
           </div>
+          
+          <!-- 작품별 신고/차단 통계 테이블 -->
+          <div class="bg-white rounded-lg shadow-md p-4 md:p-6 mt-4">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-lg font-bold"><i class="fas fa-table text-green-500 mr-2"></i>작품별 신고/차단 통계</h3>
+              <button onclick="loadTitleStats()" class="text-blue-500 hover:text-blue-700 text-sm">
+                <i class="fas fa-sync-alt mr-1"></i>새로고침
+              </button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="bg-gray-50 border-b">
+                    <th class="text-left py-2 px-3">작품명</th>
+                    <th class="text-center py-2 px-3">발견</th>
+                    <th class="text-center py-2 px-3">신고</th>
+                    <th class="text-center py-2 px-3">차단</th>
+                    <th class="text-center py-2 px-3">차단율</th>
+                  </tr>
+                </thead>
+                <tbody id="title-stats-table">
+                  <tr><td colspan="5" class="text-center py-8 text-gray-400">로딩 중...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="text-xs text-gray-400 mt-3">
+              <i class="fas fa-info-circle mr-1"></i>
+              발견: 모니터링으로 수집된 불법 URL 수 | 신고: 발견 - 미신고 | 차단: 구글에서 차단된 URL 수
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -2146,13 +2261,16 @@ app.get('/', (c) => {
             <!-- URL 수동 추가 -->
             <div class="border-t pt-4">
               <h4 class="font-semibold text-sm mb-2"><i class="fas fa-plus-circle mr-1"></i>URL 수동 추가</h4>
+              <select id="manual-title-select" class="w-full border rounded px-2 py-1.5 text-sm mb-2">
+                <option value="">-- 작품 선택 --</option>
+              </select>
               <div class="flex gap-1">
                 <input type="text" id="manual-url-input" placeholder="https://..." class="flex-1 border rounded px-2 py-1.5 text-sm">
                 <button onclick="addManualUrl()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm">
                   <i class="fas fa-plus"></i>
                 </button>
               </div>
-              <p class="text-xs text-gray-400 mt-1">불법 URL을 직접 추가합니다.</p>
+              <p class="text-xs text-gray-400 mt-1">작품을 선택하고 불법 URL을 추가합니다.</p>
             </div>
             
             <!-- HTML 업로드 -->
@@ -2330,7 +2448,7 @@ app.get('/', (c) => {
       else if (tab === 'pending') loadPending();
       else if (tab === 'sessions') loadSessions();
       else if (tab === 'sites') loadSites();
-      else if (tab === 'title-stats') loadTitleSelectList();
+      else if (tab === 'title-stats') { loadTitleSelectList(); loadTitleStats(); }
       else if (tab === 'report-tracking') loadReportTrackingSessions();
     }
     
@@ -2485,6 +2603,30 @@ app.get('/', (c) => {
         '<div class="font-medium text-gray-800 truncate">' + title + '</div>' +
         '</div>'
       ).join('');
+    }
+    
+    async function loadTitleStats() {
+      const tableEl = document.getElementById('title-stats-table');
+      tableEl.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>로딩 중...</td></tr>';
+      
+      const data = await fetchAPI('/api/stats/by-title');
+      
+      if (data.success && data.stats.length > 0) {
+        tableEl.innerHTML = data.stats.map(s => {
+          const blockRateColor = s.blockRate >= 80 ? 'text-green-600' : 
+                                 s.blockRate >= 50 ? 'text-yellow-600' : 
+                                 s.blockRate > 0 ? 'text-red-600' : 'text-gray-400';
+          return '<tr class="border-b hover:bg-gray-50">' +
+            '<td class="py-2 px-3 font-medium">' + s.title + '</td>' +
+            '<td class="py-2 px-3 text-center">' + s.discovered + '</td>' +
+            '<td class="py-2 px-3 text-center text-blue-600">' + s.reported + '</td>' +
+            '<td class="py-2 px-3 text-center text-green-600">' + s.blocked + '</td>' +
+            '<td class="py-2 px-3 text-center ' + blockRateColor + ' font-bold">' + s.blockRate + '%</td>' +
+          '</tr>';
+        }).join('');
+      } else {
+        tableEl.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">데이터가 없습니다.</td></tr>';
+      }
     }
     
     function filterTitleList() {
@@ -3080,6 +3222,15 @@ app.get('/', (c) => {
       }
     }
     
+    async function loadTitlesForManualAdd() {
+      const data = await fetchAPI('/api/titles/list');
+      const select = document.getElementById('manual-title-select');
+      if (data.success && select) {
+        select.innerHTML = '<option value="">-- 작품 선택 --</option>' +
+          data.titles.map(t => '<option value="' + t + '">' + t + '</option>').join('');
+      }
+    }
+    
     async function loadReportTracking(page = 1) {
       const sessionId = document.getElementById('report-session-select').value;
       if (!sessionId) {
@@ -3113,6 +3264,9 @@ app.get('/', (c) => {
       
       // 업로드 이력 로드
       loadUploadHistory(sessionId);
+      
+      // 수동 추가용 작품 목록 로드
+      loadTitlesForManualAdd();
     }
     
     async function loadReportStats(sessionId) {
@@ -3321,11 +3475,18 @@ app.get('/', (c) => {
     
     async function addManualUrl() {
       const input = document.getElementById('manual-url-input');
+      const titleSelect = document.getElementById('manual-title-select');
       const url = input.value.trim();
+      const title = titleSelect.value;
       const sessionId = currentReportSessionId;
       
       if (!sessionId) {
         alert('먼저 회차를 선택해주세요.');
+        return;
+      }
+      
+      if (!title) {
+        alert('작품을 선택해주세요.');
         return;
       }
       
@@ -3341,11 +3502,11 @@ app.get('/', (c) => {
       
       const data = await fetchAPI('/api/report-tracking/' + sessionId + '/add-url', {
         method: 'POST',
-        body: JSON.stringify({ url })
+        body: JSON.stringify({ url, title })
       });
       
       if (data.success) {
-        alert('URL이 추가되었습니다.\\n\\n도메인: ' + data.domain);
+        alert('URL이 추가되었습니다.\\n\\n작품: ' + title + '\\n도메인: ' + data.domain);
         input.value = '';
         loadReportTracking(currentReportPage);
       } else {
@@ -3421,6 +3582,8 @@ app.get('/', (c) => {
     window.openAllTitlesModal = openAllTitlesModal;
     window.closeAllTitlesModal = closeAllTitlesModal;
     window.selectTitleForStats = selectTitleForStats;
+    window.loadTitlesForManualAdd = loadTitlesForManualAdd;
+    window.loadTitleStats = loadTitleStats;
     
     // 초기 로드
     loadDashboard();
