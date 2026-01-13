@@ -3382,6 +3382,46 @@ app.get('/', (c) => {
       window.open('/api/report-tracking/' + sessionId + '/export', '_blank');
     }
     
+    // 전역 함수 등록 (onclick, onchange에서 호출되는 함수들)
+    window.handleHtmlUpload = handleHtmlUpload;
+    window.addManualUrl = addManualUrl;
+    window.copyReportUrls = copyReportUrls;
+    window.exportReportCsv = exportReportCsv;
+    window.loadReportTracking = loadReportTracking;
+    window.updateReportStatus = updateReportStatus;
+    window.updateReportReason = updateReportReason;
+    window.filterReportTable = filterReportTable;
+    window.loadReportTrackingSessions = loadReportTrackingSessions;
+    window.switchTab = switchTab;
+    window.handleLogout = handleLogout;
+    window.loadDashboard = loadDashboard;
+    window.loadPending = loadPending;
+    window.loadSessions = loadSessions;
+    window.loadSessionResults = loadSessionResults;
+    window.openSessionDetail = openSessionDetail;
+    window.closeSessionDetail = closeSessionDetail;
+    window.goToPage = goToPage;
+    window.goToSessionsPage = goToSessionsPage;
+    window.downloadSessionReport = downloadSessionReport;
+    window.copyAllIllegalUrls = copyAllIllegalUrls;
+    window.copyUrl = copyUrl;
+    window.loadSites = loadSites;
+    window.addNewSite = addNewSite;
+    window.removeSiteItem = removeSiteItem;
+    window.openTitlesModal = openTitlesModal;
+    window.closeTitlesModal = closeTitlesModal;
+    window.loadTitles = loadTitles;
+    window.addNewTitle = addNewTitle;
+    window.removeTitle = removeTitle;
+    window.restoreTitle = restoreTitle;
+    window.reviewItem = reviewItem;
+    window.bulkReview = bulkReview;
+    window.toggleSelectAll = toggleSelectAll;
+    window.updateSelectAllState = updateSelectAllState;
+    window.openAllTitlesModal = openAllTitlesModal;
+    window.closeAllTitlesModal = closeAllTitlesModal;
+    window.selectTitleForStats = selectTitleForStats;
+    
     // 초기 로드
     loadDashboard();
     loadPending();
