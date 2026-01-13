@@ -2142,76 +2142,85 @@ app.get('/', (c) => {
 
     <!-- 작품별 통계 탭 -->
     <div id="content-title-stats" class="tab-content hidden">
-      <div class="flex flex-col md:flex-row gap-4">
-        <!-- 좌측: 작품 목록 -->
-        <div class="w-full md:w-64 lg:w-72 flex-shrink-0">
-          <div class="bg-white rounded-lg shadow-md p-4 sticky top-4">
-            <h3 class="font-bold text-purple-600 mb-3"><i class="fas fa-list mr-2"></i>작품 목록</h3>
-            <!-- 검색 입력 -->
-            <div class="relative mb-3">
-              <input type="text" id="title-search-input" placeholder="작품 검색..." 
-                     class="w-full border rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                     oninput="filterTitleList()">
-              <i class="fas fa-search absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
-            </div>
-            <!-- 작품 목록 -->
-            <div id="title-stats-list" class="max-h-[60vh] overflow-y-auto space-y-1">
-              <div class="text-gray-400 text-sm text-center py-4">로딩 중...</div>
-            </div>
+      <div class="space-y-4">
+        <!-- 상단: 작품별 신고/차단 통계 테이블 -->
+        <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold"><i class="fas fa-table text-green-500 mr-2"></i>작품별 신고/차단 통계</h3>
+            <button onclick="loadTitleStats()" class="text-blue-500 hover:text-blue-700 text-sm">
+              <i class="fas fa-sync-alt mr-1"></i>새로고침
+            </button>
           </div>
+          <div class="overflow-x-auto max-h-[40vh] overflow-y-auto">
+            <table class="w-full text-sm">
+              <thead class="sticky top-0 bg-white">
+                <tr class="bg-gray-50 border-b">
+                  <th class="text-left py-2 px-3">작품명</th>
+                  <th class="text-center py-2 px-3">발견</th>
+                  <th class="text-center py-2 px-3">신고</th>
+                  <th class="text-center py-2 px-3">차단</th>
+                  <th class="text-center py-2 px-3">차단율</th>
+                </tr>
+              </thead>
+              <tbody id="title-stats-table">
+                <tr><td colspan="5" class="text-center py-8 text-gray-400">로딩 중...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-xs text-gray-400 mt-3">
+            <i class="fas fa-info-circle mr-1"></i>
+            발견: 모니터링으로 수집된 불법 URL 수 | 신고: 발견 - 미신고 | 차단: 구글에서 차단된 URL 수
+          </p>
         </div>
         
-        <!-- 우측: 통계 그래프 -->
-        <div class="flex-1">
-          <div id="title-detail-panel" class="bg-white rounded-lg shadow-md p-4 md:p-6">
-            <div id="title-stats-placeholder" class="text-center py-16 text-gray-400">
-              <i class="fas fa-chart-bar text-6xl mb-4"></i>
-              <p class="text-lg">좌측에서 작품을 선택하세요</p>
-              <p class="text-sm mt-2">월별 불법 URL 통계와 검색 순위 변화를 확인할 수 있습니다.</p>
-            </div>
-            <div id="title-stats-content" class="hidden">
-              <h3 class="text-lg font-bold mb-4"><i class="fas fa-chart-line text-purple-500 mr-2"></i><span id="selected-title-name"></span></h3>
-              
-              <!-- 검색 순위 꺾은선 그래프 -->
-              <div class="bg-gray-50 rounded-lg p-4">
-                <h4 class="font-semibold mb-3 text-sm"><i class="fas fa-chart-line mr-2 text-blue-500"></i>Manta 검색 순위 변화</h4>
-                <p class="text-xs text-gray-500 mb-3">작품명만 검색 시 manta.net 순위 (1위가 가장 좋음)</p>
-                <div class="h-72">
-                  <canvas id="ranking-history-chart"></canvas>
-                </div>
-                <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
-              </div>
-            </div>
+        <!-- 하단: Manta 검색 순위 변화 (작품목록 + 차트 통합) -->
+        <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold"><i class="fas fa-chart-line text-blue-500 mr-2"></i>Manta 검색 순위 변화</h3>
+            <button onclick="loadTitleSelectList()" class="text-blue-500 hover:text-blue-700 text-sm">
+              <i class="fas fa-sync-alt mr-1"></i>새로고침
+            </button>
           </div>
           
-          <!-- 작품별 신고/차단 통계 테이블 -->
-          <div class="bg-white rounded-lg shadow-md p-4 md:p-6 mt-4">
-            <div class="flex justify-between items-center mb-4">
-              <h3 class="text-lg font-bold"><i class="fas fa-table text-green-500 mr-2"></i>작품별 신고/차단 통계</h3>
-              <button onclick="loadTitleStats()" class="text-blue-500 hover:text-blue-700 text-sm">
-                <i class="fas fa-sync-alt mr-1"></i>새로고침
-              </button>
+          <div class="flex flex-col md:flex-row gap-4">
+            <!-- 좌측: 작품 목록 -->
+            <div class="w-full md:w-56 lg:w-64 flex-shrink-0">
+              <div class="border rounded-lg p-3">
+                <h4 class="font-semibold text-sm text-gray-700 mb-2"><i class="fas fa-list mr-1"></i>작품 목록</h4>
+                <!-- 검색 입력 -->
+                <div class="relative mb-2">
+                  <input type="text" id="title-search-input" placeholder="작품 검색..." 
+                         class="w-full border rounded px-2 py-1.5 pr-7 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                         oninput="filterTitleList()">
+                  <i class="fas fa-search absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
+                </div>
+                <!-- 작품 목록 -->
+                <div id="title-stats-list" class="max-h-[35vh] overflow-y-auto space-y-0.5">
+                  <div class="text-gray-400 text-sm text-center py-4">로딩 중...</div>
+                </div>
+              </div>
             </div>
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="bg-gray-50 border-b">
-                    <th class="text-left py-2 px-3">작품명</th>
-                    <th class="text-center py-2 px-3">발견</th>
-                    <th class="text-center py-2 px-3">신고</th>
-                    <th class="text-center py-2 px-3">차단</th>
-                    <th class="text-center py-2 px-3">차단율</th>
-                  </tr>
-                </thead>
-                <tbody id="title-stats-table">
-                  <tr><td colspan="5" class="text-center py-8 text-gray-400">로딩 중...</td></tr>
-                </tbody>
-              </table>
+            
+            <!-- 우측: 순위 변화 차트 -->
+            <div class="flex-1">
+              <div id="title-stats-placeholder" class="text-center py-12 text-gray-400 border rounded-lg">
+                <i class="fas fa-chart-line text-5xl mb-3"></i>
+                <p class="text-base">좌측에서 작품을 선택하세요</p>
+                <p class="text-sm mt-1">선택한 작품의 Manta 검색 순위 변화를 확인할 수 있습니다.</p>
+              </div>
+              <div id="title-stats-content" class="hidden">
+                <div class="border rounded-lg p-4">
+                  <div class="flex items-center justify-between mb-3">
+                    <h4 class="font-semibold text-sm"><i class="fas fa-chart-area mr-1 text-blue-500"></i><span id="selected-title-name"></span></h4>
+                    <span class="text-xs text-gray-500">1위가 가장 좋음</span>
+                  </div>
+                  <div class="h-[35vh]">
+                    <canvas id="ranking-history-chart"></canvas>
+                  </div>
+                  <p id="ranking-chart-empty" class="hidden text-center text-gray-400 py-8">순위 데이터가 없습니다.</p>
+                </div>
+              </div>
             </div>
-            <p class="text-xs text-gray-400 mt-3">
-              <i class="fas fa-info-circle mr-1"></i>
-              발견: 모니터링으로 수집된 불법 URL 수 | 신고: 발견 - 미신고 | 차단: 구글에서 차단된 URL 수
-            </p>
           </div>
         </div>
       </div>
@@ -2598,7 +2607,7 @@ app.get('/', (c) => {
       const listEl = document.getElementById('title-stats-list');
       listEl.innerHTML = titles.map(title =>
         '<div onclick="selectTitleForStats(\\'' + title.replace(/'/g, "\\\\'") + '\\')" ' +
-        'class="title-stats-item p-3 border-b border-gray-100 hover:bg-purple-50 cursor-pointer transition" ' +
+        'class="title-stats-item px-2 py-1.5 rounded hover:bg-blue-50 cursor-pointer transition text-sm" ' +
         'data-title="' + title.replace(/"/g, '&quot;') + '">' +
         '<div class="font-medium text-gray-800 truncate">' + title + '</div>' +
         '</div>'
@@ -2638,11 +2647,11 @@ app.get('/', (c) => {
     async function selectTitleForStats(title) {
       // 선택 상태 표시
       document.querySelectorAll('.title-stats-item').forEach(item => {
-        item.classList.remove('bg-purple-100', 'border-l-4', 'border-l-purple-500');
+        item.classList.remove('bg-blue-100', 'text-blue-700', 'font-semibold');
       });
       const selectedItem = document.querySelector('.title-stats-item[data-title="' + title.replace(/"/g, '&quot;') + '"]');
       if (selectedItem) {
-        selectedItem.classList.add('bg-purple-100', 'border-l-4', 'border-l-purple-500');
+        selectedItem.classList.add('bg-blue-100', 'text-blue-700', 'font-semibold');
       }
       
       // placeholder 숨기고 content 표시
