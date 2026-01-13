@@ -1218,13 +1218,37 @@ app.get('/api/dashboard', async (c) => {
       .slice(0, 10)
       .map(([domain, count]) => ({ domain, count }))
     
+    // 월별 신고/차단 통계 조회 (report_tracking 기반)
+    const startDate = targetMonth + '-01'
+    const endDate = targetMonth + '-31'
+    const reportStats = await query`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+        COUNT(*) FILTER (WHERE report_status = '차단') as blocked
+      FROM report_tracking
+      WHERE created_at >= ${startDate}::date
+        AND created_at < (${endDate}::date + INTERVAL '1 day')
+    `
+    
+    const discovered = parseInt(reportStats[0]?.total) || 0
+    const reported = parseInt(reportStats[0]?.reported) || 0
+    const blocked = parseInt(reportStats[0]?.blocked) || 0
+    const blockRate = reported > 0 ? Math.round((blocked / reported) * 100 * 10) / 10 : 0
+    
     return c.json({
       success: true,
       month: targetMonth,
       sessions_count: sessions.length,
       top_contents: topContents,
       top_illegal_sites: topIllegalSites,
-      total_stats: totalStats
+      total_stats: totalStats,
+      report_stats: {
+        discovered,
+        reported,
+        blocked,
+        blockRate
+      }
     })
   } catch {
     return c.json({ success: false, error: 'Failed to load dashboard' }, 500)
@@ -1990,20 +2014,20 @@ app.get('/', (c) => {
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-6">
           <div class="bg-blue-50 p-3 md:p-4 rounded-lg text-center">
-            <div class="text-xl md:text-3xl font-bold text-blue-600" id="dash-total">0</div>
-            <div class="text-gray-600 text-xs md:text-base">전체 URL</div>
+            <div class="text-xl md:text-3xl font-bold text-blue-600" id="dash-discovered">0</div>
+            <div class="text-gray-600 text-xs md:text-base">발견</div>
           </div>
-          <div class="bg-red-50 p-3 md:p-4 rounded-lg text-center">
-            <div class="text-xl md:text-3xl font-bold text-red-600" id="dash-illegal">0</div>
-            <div class="text-gray-600 text-xs md:text-base">불법 URL</div>
+          <div class="bg-yellow-50 p-3 md:p-4 rounded-lg text-center">
+            <div class="text-xl md:text-3xl font-bold text-yellow-600" id="dash-reported">0</div>
+            <div class="text-gray-600 text-xs md:text-base">신고</div>
           </div>
           <div class="bg-green-50 p-3 md:p-4 rounded-lg text-center">
-            <div class="text-xl md:text-3xl font-bold text-green-600" id="dash-legal">0</div>
-            <div class="text-gray-600 text-xs md:text-base">합법 URL</div>
+            <div class="text-xl md:text-3xl font-bold text-green-600" id="dash-blocked">0</div>
+            <div class="text-gray-600 text-xs md:text-base">차단</div>
           </div>
           <div class="bg-purple-50 p-3 md:p-4 rounded-lg text-center">
-            <div class="text-xl md:text-3xl font-bold text-purple-600" id="dash-sessions">0</div>
-            <div class="text-gray-600 text-xs md:text-base">모니터링 횟수</div>
+            <div class="text-xl md:text-3xl font-bold text-purple-600" id="dash-blockrate">0%</div>
+            <div class="text-gray-600 text-xs md:text-base">차단율</div>
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
@@ -2507,10 +2531,12 @@ app.get('/', (c) => {
       const data = await fetchAPI('/api/dashboard' + (month ? '?month=' + month : ''));
       
       if (data.success) {
-        document.getElementById('dash-total').textContent = data.total_stats?.total || 0;
-        document.getElementById('dash-illegal').textContent = data.total_stats?.illegal || 0;
-        document.getElementById('dash-legal').textContent = data.total_stats?.legal || 0;
-        document.getElementById('dash-sessions').textContent = data.sessions_count || 0;
+        // 신고/차단 통계 표시
+        const rs = data.report_stats || {};
+        document.getElementById('dash-discovered').textContent = (rs.discovered || 0).toLocaleString();
+        document.getElementById('dash-reported').textContent = (rs.reported || 0).toLocaleString();
+        document.getElementById('dash-blocked').textContent = (rs.blocked || 0).toLocaleString();
+        document.getElementById('dash-blockrate').textContent = (rs.blockRate || 0) + '%';
         
         const topContents = data.top_contents || [];
         document.getElementById('top-contents').innerHTML = topContents.length ? 
