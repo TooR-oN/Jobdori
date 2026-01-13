@@ -64,6 +64,18 @@ async function ensureDbMigration() {
         END IF;
       END $$
     `
+    // pending_reviews 테이블에 domain UNIQUE 제약조건 추가
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint 
+          WHERE conname = 'pending_reviews_domain_unique'
+        ) THEN
+          ALTER TABLE pending_reviews ADD CONSTRAINT pending_reviews_domain_unique UNIQUE (domain);
+        END IF;
+      END $$
+    `
     dbMigrationDone = true
     console.log('✅ DB migration completed')
   } catch (error) {

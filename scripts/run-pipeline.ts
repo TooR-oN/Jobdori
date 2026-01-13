@@ -183,7 +183,7 @@ async function savePendingReviewsToDb(results: LLMJudgedResult[], sessionId: str
   const domainGroups = new Map<string, LLMJudgedResult[]>();
   
   for (const result of results) {
-    if (result.status === 'unknown' && result.llm_judgment) {
+    if (result.status === 'unknown') {
       const domain = result.domain.toLowerCase();
       if (!domainGroups.has(domain)) {
         domainGroups.set(domain, []);
