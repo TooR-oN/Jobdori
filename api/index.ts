@@ -1455,7 +1455,61 @@ Output format: ["https://example1.com/page", "https://example2.com/page"]`
   }
 }
 
-// 회차별 신고 추적 목록 조회
+// ⚠️ 정적 라우트는 동적 라우트(:sessionId) 앞에 배치해야 함
+
+// 세션 목록 (신고 추적용) - 정적 라우트
+app.get('/api/report-tracking/sessions', async (c) => {
+  try {
+    await ensureDbMigration()
+    
+    const sessions = await getSessions()
+    console.log('📋 Total sessions:', sessions.length)
+    
+    // 각 세션의 신고 추적 통계 조회
+    const sessionsWithStats = await Promise.all(sessions.map(async (s: any) => {
+      const stats = await getReportTrackingStatsBySession(s.id)
+      console.log(`📊 Session ${s.id} stats:`, stats)
+      return {
+        id: s.id,
+        created_at: s.created_at,
+        status: s.status,
+        tracking_stats: stats
+      }
+    }))
+    
+    // 신고 추적 데이터가 있는 세션만 필터링
+    const filteredSessions = sessionsWithStats.filter(s => s.tracking_stats.total > 0)
+    console.log('✅ Filtered sessions with data:', filteredSessions.length)
+    
+    return c.json({
+      success: true,
+      sessions: filteredSessions
+    })
+  } catch (error) {
+    console.error('Sessions list error:', error)
+    return c.json({ success: false, error: 'Failed to load sessions' }, 500)
+  }
+})
+
+// 사유 목록 조회 - 정적 라우트
+app.get('/api/report-tracking/reasons', async (c) => {
+  try {
+    const reasons = await getReportReasons()
+    return c.json({
+      success: true,
+      reasons: reasons.map((r: any) => ({
+        id: r.id,
+        text: r.reason_text,
+        usage_count: r.usage_count
+      }))
+    })
+  } catch (error) {
+    console.error('Reasons list error:', error)
+    return c.json({ success: false, error: 'Failed to load reasons' }, 500)
+  }
+})
+
+// 회차별 신고 추적 목록 조회 - 동적 라우트
 app.get('/api/report-tracking/:sessionId', async (c) => {
   try {
     const sessionId = c.req.param('sessionId')
@@ -1552,24 +1606,6 @@ app.put('/api/report-tracking/:id/reason', async (c) => {
   } catch (error) {
     console.error('Reason update error:', error)
     return c.json({ success: false, error: 'Failed to update reason' }, 500)
-  }
-})
-
-// 사유 목록 조회
-app.get('/api/report-tracking/reasons', async (c) => {
-  try {
-    const reasons = await getReportReasons()
-    return c.json({
-      success: true,
-      reasons: reasons.map((r: any) => ({
-        id: r.id,
-        text: r.reason_text,
-        usage_count: r.usage_count
-      }))
-    })
-  } catch (error) {
-    console.error('Reasons list error:', error)
-    return c.json({ success: false, error: 'Failed to load reasons' }, 500)
   }
 })
 
@@ -1707,40 +1743,6 @@ app.get('/api/report-tracking/:sessionId/export', async (c) => {
   } catch (error) {
     console.error('CSV export error:', error)
     return c.json({ success: false, error: 'Failed to export CSV' }, 500)
-  }
-})
-
-// 세션 목록 (신고 추적용)
-app.get('/api/report-tracking/sessions', async (c) => {
-  try {
-    await ensureDbMigration()
-    
-    const sessions = await getSessions()
-    console.log('📋 Total sessions:', sessions.length)
-    
-    // 각 세션의 신고 추적 통계 조회
-    const sessionsWithStats = await Promise.all(sessions.map(async (s: any) => {
-      const stats = await getReportTrackingStatsBySession(s.id)
-      console.log(`📊 Session ${s.id} stats:`, stats)
-      return {
-        id: s.id,
-        created_at: s.created_at,
-        status: s.status,
-        tracking_stats: stats
-      }
-    }))
-    
-    // 신고 추적 데이터가 있는 세션만 필터링
-    const filteredSessions = sessionsWithStats.filter(s => s.tracking_stats.total > 0)
-    console.log('✅ Filtered sessions with data:', filteredSessions.length)
-    
-    return c.json({
-      success: true,
-      sessions: filteredSessions
-    })
-  } catch (error) {
-    console.error('Sessions list error:', error)
-    return c.json({ success: false, error: 'Failed to load sessions' }, 500)
   }
 })
 
