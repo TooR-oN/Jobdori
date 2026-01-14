@@ -300,6 +300,15 @@ async function deletePendingReview(id: number): Promise<boolean> {
   return true
 }
 
+async function updatePendingReviewAiResult(id: number, judgment: string, reason: string): Promise<boolean> {
+  await query`
+    UPDATE pending_reviews 
+    SET llm_judgment = ${judgment}, llm_reason = ${reason}
+    WHERE id = ${id}
+  `
+  return true
+}
+
 async function getSitesByType(type: 'illegal' | 'legal'): Promise<any[]> {
   return query`SELECT * FROM sites WHERE type = ${type} ORDER BY domain`
 }
@@ -792,6 +801,118 @@ app.get('/api/pending', async (c) => {
     return c.json({ success: true, count: items.length, items })
   } catch {
     return c.json({ success: false, error: 'Failed to load pending reviews' }, 500)
+  }
+})
+
+// AI 일괄 검토 API
+app.post('/api/pending/ai-review', async (c) => {
+  try {
+    const { env } = c
+    const apiKey = env.GEMINI_API_KEY
+    
+    if (!apiKey) {
+      return c.json({ success: false, error: 'GEMINI_API_KEY가 설정되지 않았습니다.' }, 400)
+    }
+    
+    const items = await getPendingReviews()
+    if (items.length === 0) {
+      return c.json({ success: true, message: '검토할 항목이 없습니다.', processed: 0 })
+    }
+    
+    const BATCH_SIZE = 20
+    const results: { id: number; domain: string; judgment: string; reason: string }[] = []
+    
+    // 배치별로 처리
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      const batch = items.slice(i, i + BATCH_SIZE)
+      const domains = batch.map((item: any) => item.domain)
+      
+      // AI에게 도메인 분석 요청
+      const prompt = `당신은 웹툰/만화 불법 유통 사이트를 판별하는 전문가입니다.
+다음 도메인들이 불법 콘텐츠 유통 사이트인지 판단해주세요.
+
+판단 기준:
+- 불법: 웹툰, 만화, 영상 등 저작권 콘텐츠를 불법 유통하는 사이트
+- 합법: 공식 서비스, 정부기관, 일반 기업, 커뮤니티 등 합법적인 사이트
+- 불확실: 판단이 어려운 경우
+
+각 도메인에 대해 반드시 다음 JSON 배열 형식으로만 응답하세요 (다른 텍스트 없이):
+[
+  {"domain": "example.com", "judgment": "불법", "reason": "웹툰 불법 유통 사이트"},
+  {"domain": "google.com", "judgment": "합법", "reason": "검색 엔진 서비스"}
+]
+
+분석할 도메인 목록:
+${domains.map((d: string, idx: number) => `${idx + 1}. ${d}`).join('\n')}`
+
+      try {
+        const response = await fetch(`${LITELLM_ENDPOINT}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: LITELLM_MODEL,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1
+          })
+        })
+        
+        if (!response.ok) {
+          console.error(`AI API error: ${response.status}`)
+          continue
+        }
+        
+        const data = await response.json() as any
+        const content = data.choices?.[0]?.message?.content || ''
+        
+        // JSON 추출 (```json ... ``` 또는 순수 JSON)
+        let jsonStr = content
+        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/)
+        if (jsonMatch) {
+          jsonStr = jsonMatch[1]
+        }
+        
+        try {
+          const aiResults = JSON.parse(jsonStr.trim())
+          
+          // 결과를 DB에 저장
+          for (const result of aiResults) {
+            const item = batch.find((b: any) => b.domain === result.domain)
+            if (item) {
+              // judgment를 DB 형식으로 변환
+              let dbJudgment = 'uncertain'
+              if (result.judgment === '불법') dbJudgment = 'likely_illegal'
+              else if (result.judgment === '합법') dbJudgment = 'likely_legal'
+              else dbJudgment = 'uncertain'
+              
+              await updatePendingReviewAiResult(item.id, dbJudgment, result.reason)
+              results.push({
+                id: item.id,
+                domain: result.domain,
+                judgment: result.judgment,
+                reason: result.reason
+              })
+            }
+          }
+        } catch (parseError) {
+          console.error('AI 응답 파싱 실패:', parseError, content)
+        }
+      } catch (batchError) {
+        console.error('배치 처리 오류:', batchError)
+      }
+    }
+    
+    return c.json({
+      success: true,
+      processed: results.length,
+      total: items.length,
+      results
+    })
+  } catch (error) {
+    console.error('AI review error:', error)
+    return c.json({ success: false, error: 'AI 검토 중 오류가 발생했습니다.' }, 500)
   }
 })
 
@@ -1521,7 +1642,7 @@ app.get('/api/stats/by-title', async (c) => {
 
 // LiteLLM + Gemini 설정
 const LITELLM_ENDPOINT = 'https://litellm.iaiai.ai/v1'
-const LITELLM_MODEL = 'gemini-2.5-pro-preview'
+const LITELLM_MODEL = 'gemini-3-pro-preview'
 
 // HTML에서 외부 URL 추출 (정규식 기반 - Google 신고 결과 페이지 최적화)
 function extractUrlsFromHtml(htmlContent: string): string[] {
@@ -2110,7 +2231,36 @@ app.get('/', (c) => {
       <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h2 class="text-lg md:text-xl font-bold"><i class="fas fa-clock text-yellow-500 mr-2"></i>승인 대기 목록</h2>
-          <div id="bulk-actions" class="hidden flex flex-wrap gap-2">
+          <div class="flex flex-wrap gap-2 items-center">
+            <button id="ai-review-btn" onclick="runAiReview()" class="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1.5 rounded text-sm">
+              <i class="fas fa-robot mr-1"></i>AI 일괄 검토
+            </button>
+          </div>
+        </div>
+        
+        <!-- AI 검토 진행률 표시 -->
+        <div id="ai-review-progress" class="hidden mb-4 p-4 bg-purple-50 rounded-lg">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-medium text-purple-700">
+              <i class="fas fa-spinner fa-spin mr-2"></i>AI 검토 중...
+            </span>
+            <span id="ai-progress-text" class="text-sm text-purple-600">0/0 (0%)</span>
+          </div>
+          <div class="w-full bg-purple-200 rounded-full h-2">
+            <div id="ai-progress-bar" class="bg-purple-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+        
+        <!-- 필터 및 일괄 처리 버튼 -->
+        <div id="bulk-actions" class="hidden flex flex-col sm:flex-row sm:items-center gap-3 mb-4 pb-4 border-b">
+          <div class="flex flex-wrap gap-2">
+            <span class="text-sm text-gray-600 mr-2">필터:</span>
+            <button onclick="filterPending('all')" class="pending-filter-btn px-3 py-1 rounded text-sm bg-gray-200 hover:bg-gray-300" data-filter="all">전체</button>
+            <button onclick="filterPending('likely_illegal')" class="pending-filter-btn px-3 py-1 rounded text-sm bg-red-100 hover:bg-red-200 text-red-700" data-filter="likely_illegal">🔴 불법</button>
+            <button onclick="filterPending('likely_legal')" class="pending-filter-btn px-3 py-1 rounded text-sm bg-green-100 hover:bg-green-200 text-green-700" data-filter="likely_legal">🟢 합법</button>
+            <button onclick="filterPending('uncertain')" class="pending-filter-btn px-3 py-1 rounded text-sm bg-yellow-100 hover:bg-yellow-200 text-yellow-700" data-filter="uncertain">🟡 불확실</button>
+          </div>
+          <div class="flex flex-wrap gap-2 items-center sm:ml-auto">
             <label class="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" id="select-all-pending" onchange="toggleSelectAll()" class="w-4 h-4 cursor-pointer">
               <span>전체 선택</span>
@@ -2891,10 +3041,14 @@ app.get('/', (c) => {
       });
     }
     
+    let allPendingItems = [];
+    let currentPendingFilter = 'all';
+    
     async function loadPending() {
       const data = await fetchAPI('/api/pending');
       if (data.success) {
         document.getElementById('pending-badge').textContent = data.count;
+        allPendingItems = data.items;
         
         // 일괄 처리 버튼 표시/숨김
         const bulkActions = document.getElementById('bulk-actions');
@@ -2905,32 +3059,122 @@ app.get('/', (c) => {
         }
         
         bulkActions.classList.remove('hidden');
-        document.getElementById('pending-list').innerHTML = data.items.map(item => 
-          '<div class="border rounded-lg p-4 mb-3 hover:shadow-md transition pending-item" data-id="' + item.id + '">' +
-            '<div class="flex justify-between items-start gap-3">' +
-              '<div class="flex items-start gap-3 flex-1 min-w-0">' +
-                '<input type="checkbox" class="pending-checkbox w-5 h-5 mt-1 cursor-pointer flex-shrink-0" data-id="' + item.id + '" onchange="updateSelectAllState()">' +
-                '<div class="min-w-0">' +
-                  '<div class="flex flex-wrap items-center gap-2">' +
-                    '<a href="https://' + item.domain + '" target="_blank" rel="noopener noreferrer" class="font-bold text-lg text-blue-600 hover:text-blue-800 hover:underline truncate">' + item.domain + ' <i class="fas fa-external-link-alt text-xs"></i></a>' +
-                    '<span class="text-sm px-2 py-1 rounded flex-shrink-0 ' + 
-                      (item.llm_judgment === 'likely_illegal' ? 'bg-red-100 text-red-700' : 
-                       item.llm_judgment === 'likely_legal' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700') + '">' +
-                      (item.llm_judgment || 'unknown') + '</span>' +
-                  '</div>' +
-                  '<div class="text-sm text-gray-600 mt-1">' + (item.llm_reason || 'API 키가 설정되지 않아 판별 불가') + '</div>' +
+        renderPendingList();
+      }
+    }
+    
+    function renderPendingList() {
+      // 필터 적용
+      let filteredItems = allPendingItems;
+      if (currentPendingFilter !== 'all') {
+        filteredItems = allPendingItems.filter(item => 
+          (item.llm_judgment || 'uncertain') === currentPendingFilter
+        );
+      }
+      
+      // 필터 버튼 활성화 상태 업데이트
+      document.querySelectorAll('.pending-filter-btn').forEach(btn => {
+        btn.classList.remove('ring-2', 'ring-offset-1', 'ring-gray-400');
+        if (btn.dataset.filter === currentPendingFilter) {
+          btn.classList.add('ring-2', 'ring-offset-1', 'ring-gray-400');
+        }
+      });
+      
+      if (filteredItems.length === 0) {
+        document.getElementById('pending-list').innerHTML = '<div class="text-gray-500 text-center py-8"><i class="fas fa-filter text-4xl mb-2"></i><br>해당 필터에 맞는 항목이 없습니다.</div>';
+        return;
+      }
+      
+      document.getElementById('pending-list').innerHTML = filteredItems.map(item => {
+        const judgmentLabel = item.llm_judgment === 'likely_illegal' ? '🔴 불법' : 
+                             item.llm_judgment === 'likely_legal' ? '🟢 합법' : '🟡 불확실';
+        return '<div class="border rounded-lg p-4 mb-3 hover:shadow-md transition pending-item" data-id="' + item.id + '" data-judgment="' + (item.llm_judgment || 'uncertain') + '">' +
+          '<div class="flex justify-between items-start gap-3">' +
+            '<div class="flex items-start gap-3 flex-1 min-w-0">' +
+              '<input type="checkbox" class="pending-checkbox w-5 h-5 mt-1 cursor-pointer flex-shrink-0" data-id="' + item.id + '" onchange="updateSelectAllState()">' +
+              '<div class="min-w-0">' +
+                '<div class="flex flex-wrap items-center gap-2">' +
+                  '<a href="https://' + item.domain + '" target="_blank" rel="noopener noreferrer" class="font-bold text-lg text-blue-600 hover:text-blue-800 hover:underline truncate">' + item.domain + ' <i class="fas fa-external-link-alt text-xs"></i></a>' +
+                  '<span class="text-sm px-2 py-1 rounded flex-shrink-0 ' + 
+                    (item.llm_judgment === 'likely_illegal' ? 'bg-red-100 text-red-700' : 
+                     item.llm_judgment === 'likely_legal' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700') + '">' +
+                    judgmentLabel + '</span>' +
                 '</div>' +
-              '</div>' +
-              '<div class="flex gap-2 flex-shrink-0">' +
-                '<button onclick="reviewItem(' + item.id + ', \\'approve\\')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm"><i class="fas fa-ban mr-1"></i>불법</button>' +
-                '<button onclick="reviewItem(' + item.id + ', \\'reject\\')" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm"><i class="fas fa-check mr-1"></i>합법</button>' +
+                '<div class="text-sm text-gray-600 mt-1">' + (item.llm_reason || 'AI 검토가 필요합니다') + '</div>' +
               '</div>' +
             '</div>' +
-          '</div>'
-        ).join('');
+            '<div class="flex gap-2 flex-shrink-0">' +
+              '<button onclick="reviewItem(' + item.id + ', \\'approve\\')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm"><i class="fas fa-ban mr-1"></i>불법</button>' +
+              '<button onclick="reviewItem(' + item.id + ', \\'reject\\')" class="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded text-sm"><i class="fas fa-check mr-1"></i>합법</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+      
+      // 전체 선택 체크박스 초기화
+      document.getElementById('select-all-pending').checked = false;
+    }
+    
+    function filterPending(filter) {
+      currentPendingFilter = filter;
+      renderPendingList();
+    }
+    
+    async function runAiReview() {
+      const btn = document.getElementById('ai-review-btn');
+      const progressDiv = document.getElementById('ai-review-progress');
+      const progressBar = document.getElementById('ai-progress-bar');
+      const progressText = document.getElementById('ai-progress-text');
+      
+      // 버튼 비활성화 및 진행률 표시
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>검토 중...';
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+      progressDiv.classList.remove('hidden');
+      
+      try {
+        // 진행률 시뮬레이션 (실제 API는 배치를 내부에서 처리)
+        const total = allPendingItems.length;
+        progressText.textContent = '0/' + total + ' (0%)';
+        progressBar.style.width = '0%';
         
-        // 전체 선택 체크박스 초기화
-        document.getElementById('select-all-pending').checked = false;
+        // 진행률 애니메이션 시작
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+          if (progress < 90) {
+            progress += Math.random() * 10;
+            progress = Math.min(progress, 90);
+            progressBar.style.width = progress + '%';
+            const estimated = Math.floor(total * progress / 100);
+            progressText.textContent = estimated + '/' + total + ' (' + Math.floor(progress) + '%)';
+          }
+        }, 500);
+        
+        const data = await fetchAPI('/api/pending/ai-review', { method: 'POST' });
+        
+        clearInterval(progressInterval);
+        
+        if (data.success) {
+          progressBar.style.width = '100%';
+          progressText.textContent = data.processed + '/' + data.total + ' (100%)';
+          
+          showToast('AI 검토 완료: ' + data.processed + '개 도메인 처리됨');
+          
+          // 잠시 후 진행률 숨기고 목록 새로고침
+          setTimeout(() => {
+            progressDiv.classList.add('hidden');
+            loadPending();
+          }, 1500);
+        } else {
+          throw new Error(data.error || 'AI 검토 실패');
+        }
+      } catch (error) {
+        progressDiv.classList.add('hidden');
+        alert('AI 검토 중 오류가 발생했습니다: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-robot mr-1"></i>AI 일괄 검토';
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
       }
     }
     
@@ -3829,6 +4073,9 @@ app.get('/', (c) => {
     window.bulkReview = bulkReview;
     window.toggleSelectAll = toggleSelectAll;
     window.updateSelectAllState = updateSelectAllState;
+    window.filterPending = filterPending;
+    window.runAiReview = runAiReview;
+    window.renderPendingList = renderPendingList;
     window.openAllTitlesModal = openAllTitlesModal;
     window.closeAllTitlesModal = closeAllTitlesModal;
     window.selectTitleForStats = selectTitleForStats;
