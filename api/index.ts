@@ -806,15 +806,23 @@ app.get('/api/pending', async (c) => {
 
 // AI 일괄 검토 API
 app.post('/api/pending/ai-review', async (c) => {
+  const errors: string[] = []
+  
   try {
     // Vercel은 process.env, Cloudflare Workers는 c.env 사용
     const apiKey = process.env.GEMINI_API_KEY || c.env?.GEMINI_API_KEY
+    
+    console.log('🔍 AI Review - API Key exists:', !!apiKey)
+    console.log('🔍 AI Review - Endpoint:', LITELLM_ENDPOINT)
+    console.log('🔍 AI Review - Model:', LITELLM_MODEL)
     
     if (!apiKey) {
       return c.json({ success: false, error: 'GEMINI_API_KEY가 설정되지 않았습니다.' }, 400)
     }
     
     const items = await getPendingReviews()
+    console.log('🔍 AI Review - Pending items count:', items.length)
+    
     if (items.length === 0) {
       return c.json({ success: true, message: '검토할 항목이 없습니다.', processed: 0 })
     }
@@ -826,6 +834,8 @@ app.post('/api/pending/ai-review', async (c) => {
     for (let i = 0; i < items.length; i += BATCH_SIZE) {
       const batch = items.slice(i, i + BATCH_SIZE)
       const domains = batch.map((item: any) => item.domain)
+      
+      console.log(`🔍 AI Review - Processing batch ${i / BATCH_SIZE + 1}, domains:`, domains.slice(0, 3))
       
       // AI에게 도메인 분석 요청
       const prompt = `당신은 웹툰/만화 불법 유통 사이트를 판별하는 전문가입니다.
@@ -859,13 +869,21 @@ ${domains.map((d: string, idx: number) => `${idx + 1}. ${d}`).join('\n')}`
           })
         })
         
+        console.log('🔍 AI Review - Response status:', response.status)
+        
         if (!response.ok) {
-          console.error(`AI API error: ${response.status}`)
+          const errorText = await response.text()
+          const errorMsg = `API 오류 (${response.status}): ${errorText.substring(0, 200)}`
+          console.error('❌ AI API error:', errorMsg)
+          errors.push(errorMsg)
           continue
         }
         
         const data = await response.json() as any
         const content = data.choices?.[0]?.message?.content || ''
+        
+        console.log('🔍 AI Review - Response content length:', content.length)
+        console.log('🔍 AI Review - Response preview:', content.substring(0, 200))
         
         // JSON 추출 (```json ... ``` 또는 순수 JSON)
         let jsonStr = content
@@ -876,6 +894,7 @@ ${domains.map((d: string, idx: number) => `${idx + 1}. ${d}`).join('\n')}`
         
         try {
           const aiResults = JSON.parse(jsonStr.trim())
+          console.log('🔍 AI Review - Parsed results count:', aiResults.length)
           
           // 결과를 DB에 저장
           for (const result of aiResults) {
@@ -896,23 +915,30 @@ ${domains.map((d: string, idx: number) => `${idx + 1}. ${d}`).join('\n')}`
               })
             }
           }
-        } catch (parseError) {
-          console.error('AI 응답 파싱 실패:', parseError, content)
+        } catch (parseError: any) {
+          const errorMsg = `JSON 파싱 실패: ${parseError.message}, 응답: ${content.substring(0, 100)}`
+          console.error('❌', errorMsg)
+          errors.push(errorMsg)
         }
-      } catch (batchError) {
-        console.error('배치 처리 오류:', batchError)
+      } catch (batchError: any) {
+        const errorMsg = `배치 처리 오류: ${batchError.message}`
+        console.error('❌', errorMsg)
+        errors.push(errorMsg)
       }
     }
+    
+    console.log('🔍 AI Review - Final results:', results.length, 'errors:', errors.length)
     
     return c.json({
       success: true,
       processed: results.length,
       total: items.length,
-      results
+      results,
+      errors: errors.length > 0 ? errors : undefined
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('AI review error:', error)
-    return c.json({ success: false, error: 'AI 검토 중 오류가 발생했습니다.' }, 500)
+    return c.json({ success: false, error: `AI 검토 중 오류가 발생했습니다: ${error.message}` }, 500)
   }
 })
 
@@ -3178,7 +3204,14 @@ app.get('/', (c) => {
           progressBar.style.width = '100%';
           progressText.textContent = data.processed + '/' + data.total + ' (100%)';
           
-          showToast('AI 검토 완료: ' + data.processed + '개 도메인 처리됨');
+          // 에러가 있으면 표시
+          if (data.errors && data.errors.length > 0) {
+            console.error('AI Review errors:', data.errors);
+            showToast('AI 검토 완료: ' + data.processed + '개 처리 (일부 오류 발생)', 5000);
+            alert('일부 오류 발생:\\n' + data.errors.slice(0, 3).join('\\n'));
+          } else {
+            showToast('AI 검토 완료: ' + data.processed + '개 도메인 처리됨');
+          }
           
           // 잠시 후 진행률 숨기고 목록 새로고침
           setTimeout(() => {
@@ -3190,7 +3223,7 @@ app.get('/', (c) => {
         }
       } catch (error) {
         progressDiv.classList.add('hidden');
-        alert('AI 검토 중 오류가 발생했습니다: ' + error.message);
+        alert('AI 검토 중 오류가 발생했습니다: ' + (error.message || error));
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-robot mr-1"></i>AI 일괄 검토';
