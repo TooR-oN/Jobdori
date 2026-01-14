@@ -2689,6 +2689,26 @@ app.get('/', (c) => {
     let currentSessionId = null;
     let currentPage = 1;
     
+    // 토스트 메시지 표시 함수
+    function showToast(message, duration = 3000) {
+      // 기존 토스트 제거
+      const existingToast = document.getElementById('toast-message');
+      if (existingToast) existingToast.remove();
+      
+      // 새 토스트 생성
+      const toast = document.createElement('div');
+      toast.id = 'toast-message';
+      toast.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg z-50 transition-opacity duration-300';
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      
+      // 자동 제거
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
+    
     async function fetchAPI(url, options = {}) {
       try {
         const response = await fetch(url, {
