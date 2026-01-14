@@ -141,6 +141,19 @@ async function ensureDbMigration() {
       ON report_tracking(title)
     `
     
+    // titles 테이블에 manta_url 컬럼 추가 (없으면)
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'titles' AND column_name = 'manta_url'
+        ) THEN
+          ALTER TABLE titles ADD COLUMN manta_url TEXT;
+        END IF;
+      END $$
+    `
+    
     dbMigrationDone = true
     console.log('✅ DB migration completed (including report_tracking tables)')
   } catch (error) {
@@ -314,11 +327,11 @@ async function getHistoryTitles(): Promise<any[]> {
   return query`SELECT * FROM titles WHERE is_current = false ORDER BY created_at DESC`
 }
 
-async function addTitle(name: string): Promise<any> {
+async function addTitle(name: string, mantaUrl?: string): Promise<any> {
   const rows = await query`
-    INSERT INTO titles (name, is_current)
-    VALUES (${name}, true)
-    ON CONFLICT (name) DO UPDATE SET is_current = true
+    INSERT INTO titles (name, is_current, manta_url)
+    VALUES (${name}, true, ${mantaUrl || null})
+    ON CONFLICT (name) DO UPDATE SET is_current = true, manta_url = COALESCE(${mantaUrl || null}, titles.manta_url)
     RETURNING *
   `
   return rows[0]
@@ -540,6 +553,17 @@ async function createReportUpload(upload: {
     INSERT INTO report_uploads (session_id, report_id, file_name, matched_count, total_urls_in_html)
     VALUES (${upload.session_id}, ${upload.report_id}, ${upload.file_name || null}, 
             ${upload.matched_count || 0}, ${upload.total_urls_in_html || 0})
+    RETURNING *
+  `
+  return rows[0]
+}
+
+// 업로드 이력 신고 ID 수정
+async function updateReportUploadId(uploadId: number, newReportId: string): Promise<any> {
+  const rows = await query`
+    UPDATE report_uploads 
+    SET report_id = ${newReportId}
+    WHERE id = ${uploadId}
     RETURNING *
   `
   return rows[0]
@@ -918,8 +942,8 @@ app.get('/api/titles', async (c) => {
     const history = await getHistoryTitles()
     return c.json({
       success: true,
-      current: current.map((t: any) => t.name),
-      history: history.map((t: any) => t.name)
+      current: current.map((t: any) => ({ name: t.name, manta_url: t.manta_url })),
+      history: history.map((t: any) => ({ name: t.name, manta_url: t.manta_url }))
     })
   } catch {
     return c.json({ success: false, error: 'Failed to load titles' }, 500)
@@ -928,10 +952,10 @@ app.get('/api/titles', async (c) => {
 
 app.post('/api/titles', async (c) => {
   try {
-    const { title } = await c.req.json()
+    const { title, manta_url } = await c.req.json()
     if (!title) return c.json({ success: false, error: 'Missing title' }, 400)
-    await addTitle(title)
-    return c.json({ success: true, title })
+    const result = await addTitle(title, manta_url)
+    return c.json({ success: true, title: result })
   } catch {
     return c.json({ success: false, error: 'Failed to add title' }, 500)
   }
@@ -1406,11 +1430,12 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
 app.get('/api/titles/list', async (c) => {
   try {
     const titles = await query`
-      SELECT name FROM titles WHERE is_current = true ORDER BY name ASC
+      SELECT name, manta_url FROM titles WHERE is_current = true ORDER BY name ASC
     `
     return c.json({
       success: true,
-      titles: titles.map(t => t.name)
+      titles: titles.map(t => t.name),
+      titlesWithUrl: titles.map(t => ({ name: t.name, manta_url: t.manta_url }))
     })
   } catch {
     return c.json({ success: false, error: 'Failed to load titles' }, 500)
@@ -1872,6 +1897,29 @@ app.get('/api/report-tracking/:sessionId/uploads', async (c) => {
   }
 })
 
+// 업로드 이력 신고 ID 수정
+app.put('/api/report-tracking/uploads/:uploadId', async (c) => {
+  try {
+    const uploadId = parseInt(c.req.param('uploadId'))
+    const { report_id } = await c.req.json()
+    
+    if (!report_id) {
+      return c.json({ success: false, error: '신고 ID가 필요합니다.' }, 400)
+    }
+    
+    const updated = await updateReportUploadId(uploadId, report_id)
+    
+    if (!updated) {
+      return c.json({ success: false, error: '업로드 이력을 찾을 수 없습니다.' }, 404)
+    }
+    
+    return c.json({ success: true, upload: updated })
+  } catch (error) {
+    console.error('Update upload error:', error)
+    return c.json({ success: false, error: 'Failed to update upload' }, 500)
+  }
+})
+
 // URL 목록 내보내기 (복사용)
 app.get('/api/report-tracking/:sessionId/urls', async (c) => {
   try {
@@ -2113,8 +2161,8 @@ app.get('/', (c) => {
         <div id="session-stats-bar" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4 text-center text-xs md:text-sm"></div>
         
         <!-- 필터 -->
-        <div class="flex gap-2 md:gap-4 mb-4 items-center flex-wrap">
-          <select id="session-title-filter" class="border rounded px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm flex-1 md:flex-none" onchange="loadSessionResults()">
+        <div class="flex gap-2 md:gap-4 mb-2 items-center flex-wrap">
+          <select id="session-title-filter" class="border rounded px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm flex-1 md:flex-none" onchange="loadSessionResults(); updateSessionMantaUrl()">
             <option value="all">모든 작품</option>
           </select>
           <select id="session-status-filter" class="border rounded px-2 md:px-3 py-1.5 md:py-2 text-xs md:text-sm" onchange="loadSessionResults()">
@@ -2123,6 +2171,16 @@ app.get('/', (c) => {
             <option value="legal">합법</option>
             <option value="pending">대기</option>
           </select>
+        </div>
+        <!-- 선택한 작품의 Manta URL -->
+        <div id="session-manta-url-container" class="mb-4 hidden">
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-gray-500">Manta:</span>
+            <a id="session-manta-url-link" href="#" target="_blank" class="text-blue-500 hover:underline truncate max-w-[300px]"></a>
+            <button onclick="copySessionMantaUrl()" class="text-gray-400 hover:text-blue-500" title="복사">
+              <i class="fas fa-copy"></i>
+            </button>
+          </div>
         </div>
         
         <!-- 데스크톱 테이블 -->
@@ -2445,14 +2503,17 @@ app.get('/', (c) => {
         </div>
         <!-- 새 작품 추가 (하단) -->
         <div class="border-t pt-3 md:pt-4">
-          <div class="flex gap-2">
+          <div class="flex flex-col sm:flex-row gap-2">
             <input type="text" id="new-title-input" placeholder="새 작품명..." 
+                   class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <input type="text" id="new-manta-url-input" placeholder="Manta URL (선택)" 
                    class="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                    onkeypress="if(event.key==='Enter') addNewTitle()">
-            <button onclick="addNewTitle()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 md:px-6 py-2 rounded-lg text-sm">
+            <button onclick="addNewTitle()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 md:px-6 py-2 rounded-lg text-sm whitespace-nowrap">
               <i class="fas fa-plus"></i><span class="hidden sm:inline ml-2">추가</span>
             </button>
           </div>
+          <p class="text-xs text-gray-400 mt-1">예: https://manta.net/en/series/작품명?seriesId=1234</p>
         </div>
       </div>
     </div>
@@ -3011,6 +3072,33 @@ app.get('/', (c) => {
       renderSessionsPage();
     }
     
+    // 세션 작품 Manta URL 저장용 맵
+    let sessionTitleMantaUrls = {};
+    
+    async function updateSessionMantaUrl() {
+      const titleFilter = document.getElementById('session-title-filter').value;
+      const container = document.getElementById('session-manta-url-container');
+      const link = document.getElementById('session-manta-url-link');
+      
+      if (titleFilter === 'all' || !sessionTitleMantaUrls[titleFilter]) {
+        container.classList.add('hidden');
+        return;
+      }
+      
+      const url = sessionTitleMantaUrls[titleFilter];
+      link.href = url;
+      link.textContent = url;
+      container.classList.remove('hidden');
+    }
+    
+    function copySessionMantaUrl() {
+      const link = document.getElementById('session-manta-url-link');
+      if (link.href && link.href !== '#') {
+        navigator.clipboard.writeText(link.href);
+        alert('Manta URL이 복사되었습니다.');
+      }
+    }
+    
     async function loadSessionResults() {
       if (!currentSessionId) return;
       
@@ -3027,9 +3115,18 @@ app.get('/', (c) => {
       const data = await fetchAPI('/api/sessions/' + currentSessionId + '/results?' + params);
       
       if (data.success) {
-        // 타이틀 필터 업데이트
+        // 타이틀 필터 업데이트 + Manta URL 로드
         const titleSelect = document.getElementById('session-title-filter');
         if (titleSelect.options.length <= 1) {
+          // Manta URL 정보 로드
+          const titlesData = await fetchAPI('/api/titles/list');
+          if (titlesData.success && titlesData.titlesWithUrl) {
+            sessionTitleMantaUrls = {};
+            titlesData.titlesWithUrl.forEach(t => {
+              if (t.manta_url) sessionTitleMantaUrls[t.name] = t.manta_url;
+            });
+          }
+          
           data.available_titles.forEach(t => {
             const opt = document.createElement('option');
             opt.value = t;
@@ -3246,31 +3343,45 @@ app.get('/', (c) => {
         document.getElementById('history-titles-count').textContent = data.history.length;
         
         document.getElementById('current-titles-list').innerHTML = data.current.map(t =>
-          '<div class="flex justify-between items-center py-2 border-b hover:bg-purple-50">' +
-            '<span class="truncate">' + t + '</span>' +
-            '<button onclick="removeTitle(\\'' + t.replace(/'/g, "\\\\'") + '\\')" class="text-red-500 hover:text-red-700 ml-2 flex-shrink-0"><i class="fas fa-times"></i></button>' +
+          '<div class="py-2 border-b hover:bg-purple-50">' +
+            '<div class="flex justify-between items-center">' +
+              '<span class="truncate font-medium">' + t.name + '</span>' +
+              '<button onclick="removeTitle(\\'' + t.name.replace(/'/g, "\\\\'") + '\\')" class="text-red-500 hover:text-red-700 ml-2 flex-shrink-0"><i class="fas fa-times"></i></button>' +
+            '</div>' +
+            (t.manta_url ? '<div class="flex items-center mt-1"><a href="' + t.manta_url + '" target="_blank" class="text-xs text-blue-500 hover:underline truncate max-w-[200px]">' + t.manta_url + '</a><button onclick="copyMantaUrl(\\'' + t.manta_url + '\\')" class="text-gray-400 hover:text-blue-500 ml-1" title="복사"><i class="fas fa-copy text-xs"></i></button></div>' : '') +
           '</div>'
         ).join('') || '<div class="text-gray-500 text-center py-4">목록 없음</div>';
         
         document.getElementById('history-titles-list').innerHTML = data.history.map(t =>
-          '<div class="flex justify-between items-center py-2 border-b hover:bg-gray-100">' +
-            '<span class="truncate">' + t + '</span>' +
-            '<button onclick="restoreTitle(\\'' + t.replace(/'/g, "\\\\'") + '\\')" class="text-blue-500 hover:text-blue-700 ml-2 flex-shrink-0" title="복구"><i class="fas fa-undo"></i></button>' +
+          '<div class="py-2 border-b hover:bg-gray-100">' +
+            '<div class="flex justify-between items-center">' +
+              '<span class="truncate">' + t.name + '</span>' +
+              '<button onclick="restoreTitle(\\'' + t.name.replace(/'/g, "\\\\'") + '\\')" class="text-blue-500 hover:text-blue-700 ml-2 flex-shrink-0" title="복구"><i class="fas fa-undo"></i></button>' +
+            '</div>' +
+            (t.manta_url ? '<div class="text-xs text-gray-400 truncate mt-1">' + t.manta_url + '</div>' : '') +
           '</div>'
         ).join('') || '<div class="text-gray-400 text-center py-4">없음</div>';
       }
     }
     
+    function copyMantaUrl(url) {
+      navigator.clipboard.writeText(url);
+      alert('Manta URL이 복사되었습니다.');
+    }
+    
     async function addNewTitle() {
-      const input = document.getElementById('new-title-input');
-      const title = input.value.trim();
+      const titleInput = document.getElementById('new-title-input');
+      const urlInput = document.getElementById('new-manta-url-input');
+      const title = titleInput.value.trim();
+      const mantaUrl = urlInput.value.trim();
       if (!title) return;
       
       await fetchAPI('/api/titles', {
         method: 'POST',
-        body: JSON.stringify({ title })
+        body: JSON.stringify({ title, manta_url: mantaUrl || null })
       });
-      input.value = '';
+      titleInput.value = '';
+      urlInput.value = '';
       loadTitles();
     }
     
@@ -3397,12 +3508,32 @@ app.get('/', (c) => {
         container.innerHTML = data.uploads.map(u => {
           const date = new Date(u.uploaded_at).toLocaleDateString('ko-KR');
           return '<div class="p-2 bg-gray-50 rounded">' +
-            '<div class="font-semibold">#' + u.report_id + '</div>' +
+            '<div class="flex items-center justify-between">' +
+              '<span class="font-semibold">#' + u.report_id + '</span>' +
+              '<button onclick="editUploadReportId(' + u.id + ', \\'' + u.report_id + '\\')" class="text-blue-500 hover:text-blue-700 text-xs">' +
+                '<i class="fas fa-edit"></i>' +
+              '</button>' +
+            '</div>' +
             '<div class="text-gray-500">' + date + ' · 매칭: ' + u.matched_count + '/' + u.total_urls_in_html + '</div>' +
           '</div>';
         }).join('');
       } else {
         container.innerHTML = '<div class="text-gray-400 text-center py-2">이력 없음</div>';
+      }
+    }
+    
+    async function editUploadReportId(uploadId, currentReportId) {
+      const newReportId = prompt('신고 ID를 수정하세요:', currentReportId);
+      if (newReportId && newReportId !== currentReportId) {
+        const data = await fetchAPI('/api/report-tracking/uploads/' + uploadId, {
+          method: 'PUT',
+          body: JSON.stringify({ report_id: newReportId })
+        });
+        if (data.success) {
+          loadUploadHistory(currentReportSessionId);
+        } else {
+          alert('수정 실패: ' + (data.error || '알 수 없는 오류'));
+        }
       }
     }
     
@@ -3527,16 +3658,12 @@ app.get('/', (c) => {
     
     async function handleHtmlUpload() {
       const fileInput = document.getElementById('html-file-input');
-      const reportId = document.getElementById('report-id-input').value;
+      const reportIdInput = document.getElementById('report-id-input');
       const sessionId = currentReportSessionId;
       
       if (!fileInput.files.length) return;
       if (!sessionId) {
         alert('먼저 회차를 선택해주세요.');
-        return;
-      }
-      if (!reportId) {
-        alert('신고 ID를 입력해주세요.');
         return;
       }
       
@@ -3545,6 +3672,18 @@ app.get('/', (c) => {
       
       reader.onload = async function(e) {
         const htmlContent = e.target.result;
+        
+        // HTML에서 신고 ID 자동 추출 (패턴: details/0-6212000039611)
+        const reportIdMatch = htmlContent.match(/details\\/([0-9]+-[0-9]+)/);
+        if (reportIdMatch && reportIdMatch[1]) {
+          reportIdInput.value = reportIdMatch[1];
+        }
+        
+        const reportId = reportIdInput.value;
+        if (!reportId) {
+          alert('신고 ID를 추출할 수 없습니다. 수동으로 입력해주세요.');
+          return;
+        }
         
         // 로딩 표시
         const uploadBtn = document.querySelector('[onclick*="html-file-input"]');
@@ -3654,6 +3793,7 @@ app.get('/', (c) => {
     window.handleHtmlUpload = handleHtmlUpload;
     window.addManualUrl = addManualUrl;
     window.copyReportUrls = copyReportUrls;
+    window.editUploadReportId = editUploadReportId;
     window.exportReportCsv = exportReportCsv;
     window.loadReportTracking = loadReportTracking;
     window.updateReportStatus = updateReportStatus;
@@ -3679,6 +3819,9 @@ app.get('/', (c) => {
     window.openTitlesModal = openTitlesModal;
     window.closeTitlesModal = closeTitlesModal;
     window.loadTitles = loadTitles;
+    window.copyMantaUrl = copyMantaUrl;
+    window.updateSessionMantaUrl = updateSessionMantaUrl;
+    window.copySessionMantaUrl = copySessionMantaUrl;
     window.addNewTitle = addNewTitle;
     window.removeTitle = removeTitle;
     window.restoreTitle = restoreTitle;
