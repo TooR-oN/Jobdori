@@ -807,8 +807,8 @@ app.get('/api/pending', async (c) => {
 // AI 일괄 검토 API
 app.post('/api/pending/ai-review', async (c) => {
   try {
-    const { env } = c
-    const apiKey = env.GEMINI_API_KEY
+    // Vercel은 process.env, Cloudflare Workers는 c.env 사용
+    const apiKey = process.env.GEMINI_API_KEY || c.env?.GEMINI_API_KEY
     
     if (!apiKey) {
       return c.json({ success: false, error: 'GEMINI_API_KEY가 설정되지 않았습니다.' }, 400)
