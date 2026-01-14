@@ -221,6 +221,37 @@ async function savePendingReviewsToDb(results: LLMJudgedResult[], sessionId: str
 }
 
 // ============================================
+// 불법 URL을 신고결과 추적 테이블에 등록
+// ============================================
+
+async function registerIllegalUrlsToReportTracking(sessionId: string, finalResults: FinalResult[]) {
+  const sql = getDb();
+  const illegalResults = finalResults.filter(r => r.final_status === 'illegal');
+  
+  console.log(`📋 Registering ${illegalResults.length} illegal URLs to report_tracking...`);
+  
+  let registered = 0;
+  let skipped = 0;
+  
+  for (const result of illegalResults) {
+    try {
+      await sql`
+        INSERT INTO report_tracking (session_id, url, domain, title, report_status)
+        VALUES (${sessionId}, ${result.url}, ${result.domain}, ${result.title}, '미신고')
+        ON CONFLICT (session_id, url) DO NOTHING
+      `;
+      registered++;
+    } catch (error) {
+      // 중복 등 오류 무시
+      skipped++;
+    }
+  }
+  
+  console.log(`✅ Report tracking: ${registered} registered, ${skipped} skipped`);
+  return registered;
+}
+
+// ============================================
 // 월별 통계 업데이트
 // ============================================
 
@@ -449,6 +480,10 @@ async function runPipeline() {
     // 승인 대기 항목 저장
     const pendingCount = await savePendingReviewsToDb(llmJudgedResults, timestamp);
     console.log(`✅ 승인 대기 ${pendingCount}개 저장`);
+    
+    // 불법 URL을 신고결과 추적 테이블에 등록
+    const reportTrackingCount = await registerIllegalUrlsToReportTracking(timestamp, finalResults);
+    console.log(`✅ 신고결과 추적 ${reportTrackingCount}개 등록`);
     
     // 월별 통계 업데이트
     await updateMonthlyStats(finalResults);
