@@ -1,12 +1,24 @@
 import 'dotenv/config';
+import { neon } from '@neondatabase/serverless';
 import { SearchResult, ClassifiedResult, Config } from './types/index.js';
 import {
   loadConfig,
-  loadSiteList,
   saveJson,
   loadJson,
   getTimestamp,
 } from './utils.js';
+
+// DB 연결
+const getDb = () => neon(process.env.DATABASE_URL!);
+
+/**
+ * DB에서 사이트 목록 로드
+ */
+async function loadSitesFromDb(type: 'illegal' | 'legal'): Promise<Set<string>> {
+  const sql = getDb();
+  const rows = await sql`SELECT domain FROM sites WHERE type = ${type}`;
+  return new Set(rows.map((r: any) => r.domain.toLowerCase()));
+}
 
 // ============================================
 // 1차 판별 (리스트 대조)
@@ -113,15 +125,13 @@ export function groupByDomain(results: ClassifiedResult[]): Map<string, Classifi
 export async function runClassify(searchResults?: SearchResult[]): Promise<ClassifiedResult[]> {
   console.log('🚀 1차 판별 모듈 시작\n');
 
-  // 설정 로드
-  const config = loadConfig();
+  // DB에서 불법/합법 사이트 리스트 로드
+  console.log('📋 DB에서 사이트 목록 로드 중...');
+  const illegalSites = await loadSitesFromDb('illegal');
+  const legalSites = await loadSitesFromDb('legal');
 
-  // 불법/합법 사이트 리스트 로드
-  const illegalSites = loadSiteList(config.paths.illegalSitesFile);
-  const legalSites = loadSiteList(config.paths.legalSitesFile);
-
-  console.log(`📋 불법 사이트 리스트: ${illegalSites.size}개`);
-  console.log(`📋 합법 사이트 리스트: ${legalSites.size}개\n`);
+  console.log(`📋 불법 사이트 리스트 (DB): ${illegalSites.size}개`);
+  console.log(`📋 합법 사이트 리스트 (DB): ${legalSites.size}개\n`);
 
   // 검색 결과 로드 (파라미터로 전달되지 않은 경우)
   let results: SearchResult[];

@@ -15,11 +15,19 @@ import { runClassify } from './classify.js';
 import { runLLMJudge } from './llm-judge.js';
 import {
   loadConfig,
-  loadSiteList,
   saveJson,
   getTimestamp,
   getCurrentISOTime,
 } from './utils.js';
+
+/**
+ * DB에서 사이트 목록 로드
+ */
+async function loadSitesFromDb(type: 'illegal' | 'legal'): Promise<Set<string>> {
+  const sql = getDb();
+  const rows = await sql`SELECT domain FROM sites WHERE type = ${type}`;
+  return new Set(rows.map((r: any) => r.domain.toLowerCase()));
+}
 
 // ============================================
 // Slack 알림 함수
@@ -490,7 +498,7 @@ async function runPipeline() {
     console.log('✅ 월별 통계 업데이트 완료');
     
     // Manta 순위 업데이트 (1페이지 내 불법 URL 수 계산을 위해 불법 사이트 목록 필요)
-    const illegalSites = loadSiteList(config.paths.illegalSitesFile);
+    const illegalSites = await loadSitesFromDb('illegal');
     await updateMantaRankings(searchResults, timestamp, illegalSites);
     
     // 세션 완료 업데이트
