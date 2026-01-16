@@ -3735,7 +3735,7 @@ app.get('/', (c) => {
     
     function copyMantaUrl(url) {
       navigator.clipboard.writeText(url);
-      alert('Manta URL이 복사되었습니다.');
+      // 팝업 없이 조용히 복사
     }
     
     async function addNewTitle() {
