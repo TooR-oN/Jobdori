@@ -1898,6 +1898,30 @@ app.put('/api/report-tracking/:id/reason', async (c) => {
   }
 })
 
+// 신고ID만 업데이트
+app.put('/api/report-tracking/:id/report-id', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'))
+    const { report_id } = await c.req.json()
+    
+    const updated = await query`
+      UPDATE report_tracking 
+      SET report_id = ${report_id || null}, updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *
+    `
+    
+    if (!updated || updated.length === 0) {
+      return c.json({ success: false, error: 'Item not found' }, 404)
+    }
+    
+    return c.json({ success: true, item: updated[0] })
+  } catch (error) {
+    console.error('Report ID update error:', error)
+    return c.json({ success: false, error: 'Failed to update report ID' }, 500)
+  }
+})
+
 // URL 수동 추가 (신고결과 추적 + 모니터링 회차 연동)
 app.post('/api/report-tracking/:sessionId/add-url', async (c) => {
   try {
@@ -3924,7 +3948,13 @@ app.get('/', (c) => {
               '<option value="거부"' + (item.report_status === '거부' ? ' selected' : '') + '>거부</option>' +
             '</select>' +
           '</td>' +
-          '<td class="px-3 py-2 text-gray-500 text-xs">' + (item.report_id || '-') + '</td>' +
+          '<td class="px-3 py-2 text-gray-500 text-xs">' + 
+            '<span class="inline-edit-reportid cursor-pointer hover:bg-gray-100 px-1 rounded" ' +
+              'onclick="startEditReportId(' + item.id + ', this)" ' +
+              'title="클릭하여 수정">' + 
+              (item.report_id || '<span class=\\'text-gray-300\\'>-</span>') + 
+            '</span>' +
+          '</td>' +
           '<td class="px-3 py-2">' + renderReasonSelect(item) + '</td>' +
         '</tr>';
       }).join('');
@@ -4009,6 +4039,79 @@ app.get('/', (c) => {
       document.getElementById('report-url-search').value = '';
       currentSearchTerm = '';
       loadReportTracking(1);
+    }
+    
+    // 신고ID 인라인 편집 함수들
+    function startEditReportId(id, spanEl) {
+      const item = reportTrackingData.find(i => i.id === id);
+      const currentValue = item ? (item.report_id || '') : '';
+      
+      // 입력창으로 교체
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentValue;
+      input.className = 'text-xs px-1 py-0.5 border rounded w-24 focus:outline-none focus:ring-1 focus:ring-blue-500';
+      input.placeholder = '신고ID 입력';
+      
+      // Enter 키로 저장
+      input.onkeydown = function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          saveInlineReportId(id, input.value, spanEl);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          cancelEditReportId(id, spanEl, currentValue);
+        }
+      };
+      
+      // 포커스 잃으면 저장
+      input.onblur = function() {
+        // 약간의 딜레이를 주어 다른 클릭 이벤트 처리 가능하게
+        setTimeout(() => {
+          if (document.activeElement !== input) {
+            saveInlineReportId(id, input.value, spanEl);
+          }
+        }, 100);
+      };
+      
+      spanEl.innerHTML = '';
+      spanEl.appendChild(input);
+      input.focus();
+      input.select();
+    }
+    
+    async function saveInlineReportId(id, newValue, spanEl) {
+      const item = reportTrackingData.find(i => i.id === id);
+      const oldValue = item ? (item.report_id || '') : '';
+      
+      // 값이 변경되지 않았으면 그냥 원래대로
+      if (newValue === oldValue) {
+        spanEl.innerHTML = oldValue || '<span class="text-gray-300">-</span>';
+        return;
+      }
+      
+      // 서버에 저장
+      try {
+        const data = await fetchAPI('/api/report-tracking/' + id + '/report-id', {
+          method: 'PUT',
+          body: JSON.stringify({ report_id: newValue || null })
+        });
+        
+        if (data.success) {
+          if (item) item.report_id = newValue || null;
+          spanEl.innerHTML = newValue || '<span class="text-gray-300">-</span>';
+        } else {
+          alert('신고ID 변경 실패: ' + (data.error || '알 수 없는 오류'));
+          spanEl.innerHTML = oldValue || '<span class="text-gray-300">-</span>';
+        }
+      } catch (error) {
+        alert('신고ID 변경 실패');
+        spanEl.innerHTML = oldValue || '<span class="text-gray-300">-</span>';
+      }
+    }
+    
+    function cancelEditReportId(id, spanEl, originalValue) {
+      spanEl.innerHTML = originalValue || '<span class="text-gray-300">-</span>';
     }
     
     async function handleHtmlUpload() {
@@ -4156,6 +4259,7 @@ app.get('/', (c) => {
     window.filterReportTable = filterReportTable;
     window.searchReportTracking = searchReportTracking;
     window.clearReportSearch = clearReportSearch;
+    window.startEditReportId = startEditReportId;
     window.loadReportTrackingSessions = loadReportTrackingSessions;
     window.switchTab = switchTab;
     window.handleLogout = handleLogout;
