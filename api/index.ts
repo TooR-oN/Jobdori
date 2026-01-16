@@ -1428,8 +1428,14 @@ app.get('/api/sessions/:id/download', async (c) => {
 
 app.get('/api/dashboard/months', async (c) => {
   try {
-    const stats = await getMonthlyStats()
-    const months = stats.map((s: any) => s.month)
+    // 세션 테이블에서 직접 월 목록 추출 (YYYY-MM 형식)
+    const sessionsMonths = await query`
+      SELECT DISTINCT SUBSTRING(id, 1, 7) as month 
+      FROM sessions 
+      WHERE status = 'completed' 
+      ORDER BY month DESC
+    `
+    const months = sessionsMonths.map((s: any) => s.month)
     const now = new Date()
     const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     return c.json({ success: true, months, current_month: currentMonth })
