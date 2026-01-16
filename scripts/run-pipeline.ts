@@ -238,16 +238,36 @@ async function registerIllegalUrlsToReportTracking(sessionId: string, finalResul
   
   console.log(`📋 Registering ${illegalResults.length} illegal URLs to report_tracking...`);
   
+  // 신고 제외 URL 목록 조회
+  const excludedRows = await sql`SELECT url FROM excluded_urls`;
+  const excludedUrls = new Set(excludedRows.map((r: any) => r.url));
+  console.log(`📋 Excluded URLs: ${excludedUrls.size}개`);
+  
   let registered = 0;
   let skipped = 0;
+  let excludedCount = 0;
   
   for (const result of illegalResults) {
     try {
-      await sql`
-        INSERT INTO report_tracking (session_id, url, domain, title, report_status)
-        VALUES (${sessionId}, ${result.url}, ${result.domain}, ${result.title}, '미신고')
-        ON CONFLICT (session_id, url) DO NOTHING
-      `;
+      // 신고 제외 URL인지 확인 (정확히 일치)
+      const isExcluded = excludedUrls.has(result.url);
+      
+      if (isExcluded) {
+        // 신고 제외 URL: 미신고 + 웹사이트 메인 페이지 사유로 등록
+        await sql`
+          INSERT INTO report_tracking (session_id, url, domain, title, report_status, reason)
+          VALUES (${sessionId}, ${result.url}, ${result.domain}, ${result.title}, '미신고', '웹사이트 메인 페이지')
+          ON CONFLICT (session_id, url) DO NOTHING
+        `;
+        excludedCount++;
+      } else {
+        // 일반 불법 URL: 미신고로 등록
+        await sql`
+          INSERT INTO report_tracking (session_id, url, domain, title, report_status)
+          VALUES (${sessionId}, ${result.url}, ${result.domain}, ${result.title}, '미신고')
+          ON CONFLICT (session_id, url) DO NOTHING
+        `;
+      }
       registered++;
     } catch (error) {
       // 중복 등 오류 무시
@@ -255,7 +275,7 @@ async function registerIllegalUrlsToReportTracking(sessionId: string, finalResul
     }
   }
   
-  console.log(`✅ Report tracking: ${registered} registered, ${skipped} skipped`);
+  console.log(`✅ Report tracking: ${registered} registered, ${skipped} skipped, ${excludedCount} auto-excluded`);
   return registered;
 }
 

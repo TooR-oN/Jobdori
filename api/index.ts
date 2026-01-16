@@ -154,6 +154,15 @@ async function ensureDbMigration() {
       END $$
     `
     
+    // excluded_urls 테이블 생성 (신고 제외 URL 관리)
+    await db`
+      CREATE TABLE IF NOT EXISTS excluded_urls (
+        id SERIAL PRIMARY KEY,
+        url TEXT UNIQUE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `
+    
     dbMigrationDone = true
     console.log('✅ DB migration completed (including report_tracking tables)')
   } catch (error) {
@@ -638,15 +647,23 @@ async function registerIllegalUrlsToReportTracking(
   domain: string,
   urls: { url: string, title?: string }[]
 ): Promise<number> {
+  // 신고 제외 URL 목록 조회
+  const excludedRows = await query`SELECT url FROM excluded_urls`
+  const excludedUrls = new Set(excludedRows.map((r: any) => r.url))
+  
   let registered = 0
   for (const item of urls) {
     try {
+      // 신고 제외 URL인지 확인 (정확히 일치)
+      const isExcluded = excludedUrls.has(item.url)
+      
       await createReportTracking({
         session_id: sessionId,
         url: item.url,
         domain,
         title: item.title,
-        report_status: '미신고'
+        report_status: '미신고',
+        reason: isExcluded ? '웹사이트 메인 페이지' : undefined
       })
       registered++
     } catch {
@@ -1110,6 +1127,74 @@ app.delete('/api/sites/:type/:domain', async (c) => {
     return c.json({ success: true, domain, type })
   } catch {
     return c.json({ success: false, error: 'Failed to remove site' }, 500)
+  }
+})
+
+// ============================================
+// API - Excluded URLs (신고 제외 URL)
+// ============================================
+
+// 신고 제외 URL 목록 조회
+app.get('/api/excluded-urls', async (c) => {
+  try {
+    const rows = await query`
+      SELECT id, url, created_at FROM excluded_urls ORDER BY created_at DESC
+    `
+    return c.json({ success: true, items: rows })
+  } catch (error) {
+    console.error('Excluded URLs list error:', error)
+    return c.json({ success: false, error: 'Failed to load excluded URLs' }, 500)
+  }
+})
+
+// 신고 제외 URL 추가
+app.post('/api/excluded-urls', async (c) => {
+  try {
+    const { url } = await c.req.json()
+    
+    if (!url) {
+      return c.json({ success: false, error: 'URL을 입력해주세요.' }, 400)
+    }
+    
+    // URL 형식 검증
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return c.json({ success: false, error: 'http:// 또는 https://로 시작하는 URL을 입력해주세요.' }, 400)
+    }
+    
+    const result = await query`
+      INSERT INTO excluded_urls (url) VALUES (${url})
+      ON CONFLICT (url) DO NOTHING
+      RETURNING *
+    `
+    
+    if (result.length === 0) {
+      return c.json({ success: false, error: '이미 등록된 URL입니다.' }, 400)
+    }
+    
+    return c.json({ success: true, item: result[0] })
+  } catch (error) {
+    console.error('Add excluded URL error:', error)
+    return c.json({ success: false, error: 'Failed to add excluded URL' }, 500)
+  }
+})
+
+// 신고 제외 URL 삭제
+app.delete('/api/excluded-urls/:id', async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'))
+    
+    const result = await query`
+      DELETE FROM excluded_urls WHERE id = ${id} RETURNING *
+    `
+    
+    if (result.length === 0) {
+      return c.json({ success: false, error: 'URL not found' }, 404)
+    }
+    
+    return c.json({ success: true, deleted: result[0] })
+  } catch (error) {
+    console.error('Delete excluded URL error:', error)
+    return c.json({ success: false, error: 'Failed to delete excluded URL' }, 500)
   }
 })
 
@@ -2448,7 +2533,7 @@ app.get('/', (c) => {
     <div id="content-sites" class="tab-content hidden">
       <div class="bg-white rounded-lg shadow-md p-6">
         <h2 class="text-xl font-bold mb-4"><i class="fas fa-globe text-blue-500 mr-2"></i>사이트 목록</h2>
-        <div class="grid grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <h3 class="font-bold text-red-600 mb-3">
               <i class="fas fa-ban mr-2"></i>불법 사이트 (<span id="illegal-count">0</span>개)
@@ -2476,6 +2561,23 @@ app.get('/', (c) => {
               </button>
             </div>
             <div id="legal-sites-list" class="max-h-80 overflow-y-auto border rounded p-3">로딩 중...</div>
+          </div>
+          <div>
+            <h3 class="font-bold text-orange-600 mb-3">
+              <i class="fas fa-eye-slash mr-2"></i>신고 제외 URL (<span id="excluded-count">0</span>개)
+            </h3>
+            <div class="flex gap-2 mb-3">
+              <input type="text" id="new-excluded-url" placeholder="신고 제외할 전체 URL 입력 (https://...)" 
+                     class="flex-1 border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                     onkeypress="if(event.key==='Enter') addExcludedUrl()">
+              <button onclick="addExcludedUrl()" class="bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded text-sm">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+            <p class="text-xs text-gray-400 mb-2">
+              <i class="fas fa-info-circle mr-1"></i>불법 사이트지만 신고해도 처리되지 않는 URL (예: 메인 페이지)
+            </p>
+            <div id="excluded-urls-list" class="max-h-72 overflow-y-auto border rounded p-3">로딩 중...</div>
           </div>
         </div>
       </div>
@@ -3607,17 +3709,33 @@ app.get('/', (c) => {
       const data = await fetchAPI(url);
       
       if (data.success && data.results.length > 0) {
-        const urls = data.results.map(r => r.url).join('\\n');
-        navigator.clipboard.writeText(urls).then(() => {
-          const toast = document.createElement('div');
-          toast.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded shadow-lg z-50';
-          toast.innerHTML = '<i class="fas fa-check mr-2"></i>불법 URL ' + data.results.length + '개가 복사되었습니다';
-          document.body.appendChild(toast);
-          setTimeout(() => toast.remove(), 3000);
-        }).catch(err => {
-          console.error('복사 실패:', err);
-          alert('복사에 실패했습니다.');
-        });
+        // 신고 제외 URL 목록 가져오기
+        const excludedData = await fetchAPI('/api/excluded-urls');
+        const excludedUrls = new Set(excludedData.success ? excludedData.items.map(item => item.url) : []);
+        
+        // 신고 제외 URL 필터링 (정확히 일치하는 것만 제외)
+        const filteredUrls = data.results.filter(r => !excludedUrls.has(r.url));
+        const excludedCount = data.results.length - filteredUrls.length;
+        
+        if (filteredUrls.length > 0) {
+          const urls = filteredUrls.map(r => r.url).join('\\n');
+          navigator.clipboard.writeText(urls).then(() => {
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-2 rounded shadow-lg z-50';
+            let message = '<i class="fas fa-check mr-2"></i>불법 URL ' + filteredUrls.length + '개가 복사되었습니다';
+            if (excludedCount > 0) {
+              message += ' <span class="text-orange-300">(신고제외 ' + excludedCount + '개 제외됨)</span>';
+            }
+            toast.innerHTML = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+          }).catch(err => {
+            console.error('복사 실패:', err);
+            alert('복사에 실패했습니다.');
+          });
+        } else {
+          alert('복사할 불법 URL이 없습니다. (모두 신고 제외 대상)');
+        }
       } else {
         alert('복사할 불법 URL이 없습니다.');
       }
@@ -3640,6 +3758,7 @@ app.get('/', (c) => {
     async function loadSites() {
       const illegalData = await fetchAPI('/api/sites/illegal');
       const legalData = await fetchAPI('/api/sites/legal');
+      const excludedData = await fetchAPI('/api/excluded-urls');
       
       if (illegalData.success) {
         document.getElementById('illegal-count').textContent = illegalData.count;
@@ -3660,6 +3779,20 @@ app.get('/', (c) => {
           '</div>'
         ).join('') || '<div class="text-gray-500">목록 없음</div>';
       }
+      
+      if (excludedData.success) {
+        document.getElementById('excluded-count').textContent = excludedData.items.length;
+        document.getElementById('excluded-urls-list').innerHTML = excludedData.items.map(item =>
+          '<div class="flex justify-between items-center py-1 border-b text-sm group">' +
+            '<a href="' + item.url + '" target="_blank" class="text-blue-600 hover:underline truncate max-w-[200px]" title="' + item.url + '">' + truncateUrl(item.url) + '</a>' +
+            '<button onclick="removeExcludedUrl(' + item.id + ', \\'' + escapeQuotes(item.url) + '\\')" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity ml-2"><i class="fas fa-times"></i></button>' +
+          '</div>'
+        ).join('') || '<div class="text-gray-500">목록 없음</div>';
+      }
+    }
+    
+    function escapeQuotes(str) {
+      return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
     }
     
     async function addNewSite(type) {
@@ -3686,6 +3819,39 @@ app.get('/', (c) => {
       if (!confirm(domain + ' 사이트를 ' + (type === 'illegal' ? '불법' : '합법') + ' 목록에서 삭제하시겠습니까?')) return;
       
       const res = await fetchAPI('/api/sites/' + type + '/' + encodeURIComponent(domain), {
+        method: 'DELETE'
+      });
+      
+      if (res.success) {
+        loadSites();
+      } else {
+        alert(res.error || '삭제 실패');
+      }
+    }
+    
+    async function addExcludedUrl() {
+      const input = document.getElementById('new-excluded-url');
+      const url = input.value.trim();
+      if (!url) return;
+      
+      const res = await fetchAPI('/api/excluded-urls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      
+      if (res.success) {
+        input.value = '';
+        loadSites();
+      } else {
+        alert(res.error || '추가 실패');
+      }
+    }
+    
+    async function removeExcludedUrl(id, url) {
+      if (!confirm('이 URL을 신고 제외 목록에서 삭제하시겠습니까?\\n' + url)) return;
+      
+      const res = await fetchAPI('/api/excluded-urls/' + id, {
         method: 'DELETE'
       });
       
@@ -4335,6 +4501,8 @@ app.get('/', (c) => {
     window.loadSites = loadSites;
     window.addNewSite = addNewSite;
     window.removeSiteItem = removeSiteItem;
+    window.addExcludedUrl = addExcludedUrl;
+    window.removeExcludedUrl = removeExcludedUrl;
     window.openTitlesModal = openTitlesModal;
     window.closeTitlesModal = closeTitlesModal;
     window.loadTitles = loadTitles;
