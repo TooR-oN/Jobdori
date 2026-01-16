@@ -397,14 +397,33 @@ async function getReportTrackingBySession(
   sessionId: string,
   filter?: string,
   page: number = 1,
-  limit: number = 50
+  limit: number = 50,
+  search?: string
 ): Promise<{ items: any[], total: number }> {
   const offset = (page - 1) * limit
+  const searchPattern = search ? `%${search.toLowerCase()}%` : null
   
   let rows: any[]
   let countResult: any[]
   
-  if (filter && filter !== '전체') {
+  if (filter && filter !== '전체' && searchPattern) {
+    // 상태 필터 + 검색어
+    rows = await query`
+      SELECT * FROM report_tracking 
+      WHERE session_id = ${sessionId} 
+        AND report_status = ${filter}
+        AND (LOWER(url) LIKE ${searchPattern} OR LOWER(domain) LIKE ${searchPattern})
+      ORDER BY updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `
+    countResult = await query`
+      SELECT COUNT(*) as count FROM report_tracking 
+      WHERE session_id = ${sessionId} 
+        AND report_status = ${filter}
+        AND (LOWER(url) LIKE ${searchPattern} OR LOWER(domain) LIKE ${searchPattern})
+    `
+  } else if (filter && filter !== '전체') {
+    // 상태 필터만
     rows = await query`
       SELECT * FROM report_tracking 
       WHERE session_id = ${sessionId} AND report_status = ${filter}
@@ -415,7 +434,22 @@ async function getReportTrackingBySession(
       SELECT COUNT(*) as count FROM report_tracking 
       WHERE session_id = ${sessionId} AND report_status = ${filter}
     `
+  } else if (searchPattern) {
+    // 검색어만
+    rows = await query`
+      SELECT * FROM report_tracking 
+      WHERE session_id = ${sessionId}
+        AND (LOWER(url) LIKE ${searchPattern} OR LOWER(domain) LIKE ${searchPattern})
+      ORDER BY updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `
+    countResult = await query`
+      SELECT COUNT(*) as count FROM report_tracking 
+      WHERE session_id = ${sessionId}
+        AND (LOWER(url) LIKE ${searchPattern} OR LOWER(domain) LIKE ${searchPattern})
+    `
   } else {
+    // 필터 없음
     rows = await query`
       SELECT * FROM report_tracking 
       WHERE session_id = ${sessionId}
@@ -1774,8 +1808,9 @@ app.get('/api/report-tracking/:sessionId', async (c) => {
     const status = c.req.query('status')
     const page = parseInt(c.req.query('page') || '1')
     const limit = parseInt(c.req.query('limit') || '50')
+    const search = c.req.query('search') || ''
     
-    const result = await getReportTrackingBySession(sessionId, status, page, limit)
+    const result = await getReportTrackingBySession(sessionId, status, page, limit, search)
     
     return c.json({
       success: true,
@@ -2608,7 +2643,10 @@ app.get('/', (c) => {
                   <option value="색인없음">색인없음</option>
                   <option value="거부">거부</option>
                 </select>
-                <input type="text" id="report-url-search" placeholder="URL 검색..." class="border rounded px-3 py-1 text-sm w-40" oninput="filterReportTable()">
+                <input type="text" id="report-url-search" placeholder="URL 검색..." class="border rounded px-3 py-1 text-sm w-40" onkeydown="if(event.key==='Enter') searchReportTracking()">
+                <button onclick="searchReportTracking()" class="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm ml-1" title="검색">
+                  <i class="fas fa-search"></i>
+                </button>
               </div>
               <div class="flex gap-2">
                 <button onclick="copyReportUrls()" class="text-sm text-blue-500 hover:text-blue-700">
@@ -3746,6 +3784,8 @@ app.get('/', (c) => {
       }
     }
     
+    let currentSearchTerm = '';
+    
     async function loadReportTracking(page = 1) {
       const sessionId = document.getElementById('report-session-select').value;
       if (!sessionId) {
@@ -3758,7 +3798,12 @@ app.get('/', (c) => {
       currentReportPage = page;
       
       const status = document.getElementById('report-status-filter').value;
-      const url = '/api/report-tracking/' + sessionId + '?page=' + page + '&limit=50' + (status ? '&status=' + encodeURIComponent(status) : '');
+      const searchTerm = document.getElementById('report-url-search').value.trim();
+      currentSearchTerm = searchTerm;
+      
+      let url = '/api/report-tracking/' + sessionId + '?page=' + page + '&limit=50';
+      if (status) url += '&status=' + encodeURIComponent(status);
+      if (searchTerm) url += '&search=' + encodeURIComponent(searchTerm);
       
       const data = await fetchAPI(url);
       
@@ -3772,16 +3817,29 @@ app.get('/', (c) => {
         document.getElementById('rt-page-info').textContent = pagination.page + ' / ' + pagination.totalPages;
         document.getElementById('rt-prev-btn').disabled = pagination.page <= 1;
         document.getElementById('rt-next-btn').disabled = pagination.page >= pagination.totalPages;
+        
+        // 검색 결과 표시
+        if (searchTerm && pagination.total > 0) {
+          document.getElementById('rt-page-info').textContent = 
+            pagination.page + ' / ' + pagination.totalPages + ' (검색결과: ' + pagination.total + '개)';
+        }
       }
       
-      // 통계 로드
-      loadReportStats(sessionId);
+      // 통계 로드 (검색 중이 아닐 때만)
+      if (!searchTerm) {
+        loadReportStats(sessionId);
+      }
       
       // 업로드 이력 로드
       loadUploadHistory(sessionId);
       
       // 수동 추가용 작품 목록 로드
       loadTitlesForManualAdd();
+    }
+    
+    function searchReportTracking() {
+      // 검색 시 첫 페이지로 이동
+      loadReportTracking(1);
     }
     
     async function loadReportStats(sessionId) {
@@ -3836,22 +3894,15 @@ app.get('/', (c) => {
     
     function renderReportTable() {
       const tbody = document.getElementById('report-tracking-table');
-      const searchTerm = (document.getElementById('report-url-search').value || '').toLowerCase();
       
-      let filtered = reportTrackingData;
-      if (searchTerm) {
-        filtered = filtered.filter(item => 
-          item.url.toLowerCase().includes(searchTerm) || 
-          item.domain.toLowerCase().includes(searchTerm)
-        );
-      }
-      
-      if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">데이터 없음</td></tr>';
+      if (reportTrackingData.length === 0) {
+        const searchTerm = document.getElementById('report-url-search').value.trim();
+        const message = searchTerm ? '검색 결과가 없습니다' : '데이터 없음';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-gray-400">' + message + '</td></tr>';
         return;
       }
       
-      tbody.innerHTML = filtered.map(item => {
+      tbody.innerHTML = reportTrackingData.map(item => {
         const statusColors = {
           '차단': 'bg-green-100 text-green-800',
           '대기 중': 'bg-yellow-100 text-yellow-800',
@@ -3950,7 +4001,14 @@ app.get('/', (c) => {
     }
     
     function filterReportTable() {
+      // 더 이상 클라이언트 필터링 사용 안 함 - 서버 검색 사용
       renderReportTable();
+    }
+    
+    function clearReportSearch() {
+      document.getElementById('report-url-search').value = '';
+      currentSearchTerm = '';
+      loadReportTracking(1);
     }
     
     async function handleHtmlUpload() {
@@ -4096,6 +4154,8 @@ app.get('/', (c) => {
     window.updateReportStatus = updateReportStatus;
     window.updateReportReason = updateReportReason;
     window.filterReportTable = filterReportTable;
+    window.searchReportTracking = searchReportTracking;
+    window.clearReportSearch = clearReportSearch;
     window.loadReportTrackingSessions = loadReportTrackingSessions;
     window.switchTab = switchTab;
     window.handleLogout = handleLogout;
