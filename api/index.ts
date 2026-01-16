@@ -2637,9 +2637,19 @@ app.get('/', (c) => {
               <h4 class="font-semibold text-sm mb-2"><i class="fas fa-upload mr-1"></i>신고 결과 업로드</h4>
               <input type="text" id="report-id-input" placeholder="신고 ID (예: 12345)" class="w-full border rounded px-3 py-2 text-sm mb-2">
               <input type="file" id="html-file-input" accept=".html,.htm" class="hidden" onchange="handleHtmlUpload()">
-              <button onclick="document.getElementById('html-file-input').click()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded text-sm">
-                <i class="fas fa-file-upload mr-1"></i>HTML 파일 선택
-              </button>
+              
+              <!-- 드래그앤드랍 영역 -->
+              <div id="html-drop-zone" 
+                   class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                   onclick="document.getElementById('html-file-input').click()"
+                   ondragover="handleDragOver(event)"
+                   ondragleave="handleDragLeave(event)"
+                   ondrop="handleFileDrop(event)">
+                <i class="fas fa-cloud-upload-alt text-2xl text-gray-400 mb-2"></i>
+                <p class="text-sm text-gray-500">HTML 파일을 여기에 드래그하거나</p>
+                <p class="text-sm text-blue-500 font-medium">클릭하여 선택</p>
+              </div>
+              
               <p class="text-xs text-gray-400 mt-2">구글 신고 결과 페이지를 업로드하면 차단된 URL을 자동 매칭합니다.</p>
             </div>
             
@@ -4114,6 +4124,51 @@ app.get('/', (c) => {
       spanEl.innerHTML = originalValue || '<span class="text-gray-300">-</span>';
     }
     
+    // 드래그앤드랍 관련 함수들
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const dropZone = document.getElementById('html-drop-zone');
+      dropZone.classList.add('border-blue-500', 'bg-blue-50');
+      dropZone.classList.remove('border-gray-300');
+    }
+    
+    function handleDragLeave(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const dropZone = document.getElementById('html-drop-zone');
+      dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+      dropZone.classList.add('border-gray-300');
+    }
+    
+    function handleFileDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const dropZone = document.getElementById('html-drop-zone');
+      dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+      dropZone.classList.add('border-gray-300');
+      
+      const files = e.dataTransfer.files;
+      if (files.length === 0) return;
+      
+      const file = files[0];
+      
+      // HTML 파일 체크
+      if (!file.name.endsWith('.html') && !file.name.endsWith('.htm')) {
+        alert('HTML 파일만 업로드할 수 있습니다.');
+        return;
+      }
+      
+      // 파일 입력에 설정하고 업로드 처리
+      const fileInput = document.getElementById('html-file-input');
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      fileInput.files = dataTransfer.files;
+      
+      handleHtmlUpload();
+    }
+    
     async function handleHtmlUpload() {
       const fileInput = document.getElementById('html-file-input');
       const reportIdInput = document.getElementById('report-id-input');
@@ -4249,6 +4304,9 @@ app.get('/', (c) => {
     
     // 전역 함수 등록 (onclick, onchange에서 호출되는 함수들)
     window.handleHtmlUpload = handleHtmlUpload;
+    window.handleDragOver = handleDragOver;
+    window.handleDragLeave = handleDragLeave;
+    window.handleFileDrop = handleFileDrop;
     window.addManualUrl = addManualUrl;
     window.copyReportUrls = copyReportUrls;
     window.editUploadReportId = editUploadReportId;
