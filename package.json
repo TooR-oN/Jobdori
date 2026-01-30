@@ -12,7 +12,11 @@
     "run-all": "tsx scripts/run-all.ts",
     "run-pipeline": "tsx scripts/run-pipeline.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",
-    "db:seed": "tsx scripts/db-seed.ts"
+    "db:seed": "tsx scripts/db-seed.ts",
+    "db:migrate-v2": "tsx scripts/db-migrate-v2.ts",
+    "db:migrate-v2:schema": "tsx scripts/db-migrate-v2.ts --schema-only",
+    "db:migrate-v2:data": "tsx scripts/db-migrate-v2.ts --migrate-only",
+    "db:migrate-v2:validate": "tsx scripts/db-migrate-v2.ts --validate-only"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

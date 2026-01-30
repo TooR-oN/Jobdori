@@ -22,6 +22,8 @@ import * as XLSX from 'xlsx'
 // DB & Blob imports
 import * as db from './lib/db.js'
 import * as blob from './lib/blob.js'
+// Phase 2: db-v2 소급 업데이트를 위한 import
+import * as dbV2 from './lib/db-v2.js'
 
 // ============================================
 // 타입 정의
@@ -272,9 +274,77 @@ app.use('*', async (c, next) => {
 
 app.get('/api/pending', async (c) => {
   try {
-    const items = await db.getPendingReviews()
-    return c.json({ success: true, count: items.length, items })
+    // Phase 3: Pagination 지원
+    const page = parseInt(c.req.query('page') || '1')
+    const limit = parseInt(c.req.query('limit') || '20')
+    const judgment = c.req.query('judgment') as 'likely_illegal' | 'likely_legal' | 'uncertain' | undefined
+    const source = c.req.query('source') || 'auto' // 'legacy', 'v2', 'auto'
+    
+    // limit 범위 제한 (1~100)
+    const safeLimit = Math.min(Math.max(limit, 1), 100)
+    
+    // Phase 4: detection_results 기반 승인 대기 목록 우선 사용
+    // source=legacy: 기존 pending_reviews 테이블 사용
+    // source=v2: detection_results 기반 v_pending_domains 사용
+    // source=auto: v2 우선, 없으면 legacy
+    
+    if (source === 'legacy') {
+      // 기존 방식: pending_reviews 테이블
+      const result = await db.getPendingReviewsPaginated(page, safeLimit, judgment)
+      return c.json({ 
+        success: true, 
+        source: 'pending_reviews',
+        count: result.pagination.total, 
+        items: result.items,
+        pagination: result.pagination
+      })
+    }
+    
+    // v2 방식: detection_results 기반 (실시간)
+    const pendingDomains = await dbV2.getPendingDomainsV2()
+    
+    // 필터링 (judgment)
+    let filteredDomains = pendingDomains
+    if (judgment) {
+      filteredDomains = pendingDomains.filter(pd => pd.llm_judgment === judgment)
+    }
+    
+    // 수동 Pagination
+    const total = filteredDomains.length
+    const startIndex = (page - 1) * safeLimit
+    const paginatedDomains = filteredDomains.slice(startIndex, startIndex + safeLimit)
+    
+    // 기존 API 응답 형식과 호환되도록 변환
+    const items = paginatedDomains.map((pd, idx) => ({
+      id: startIndex + idx + 1,  // 가상 ID (페이지 기반)
+      domain: pd.domain,
+      urls: [],  // detection_results에서는 별도 조회 필요
+      titles: pd.titles,
+      llm_judgment: pd.llm_judgment,
+      llm_reason: pd.llm_reason,
+      session_id: null,
+      created_at: pd.first_detected_at,
+      // v2 추가 정보
+      pending_count: Number(pd.pending_count),
+      title_count: Number(pd.title_count),
+      session_count: Number(pd.session_count),
+      last_detected_at: pd.last_detected_at
+    }))
+    
+    return c.json({ 
+      success: true, 
+      source: 'detection_results_v2',
+      count: total, 
+      items,
+      pagination: {
+        page,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit)
+      }
+    })
   } catch (error) {
+    console.error('Pending API error:', error)
     return c.json({ success: false, error: 'Failed to load pending reviews' }, 500)
   }
 })
@@ -304,16 +374,46 @@ app.post('/api/review', async (c) => {
       return c.json({ success: false, error: 'Item not found' }, 404)
     }
     
+    // [Phase 2] 소급 업데이트 결과 저장용 변수
+    let retroactiveUpdateResult: dbV2.ApprovalResult | null = null
+    
     if (action === 'approve') {
+      // [Phase 2] 소급 업데이트: detection_results의 모든 과거 pending 데이터 일괄 업데이트
+      try {
+        retroactiveUpdateResult = await dbV2.approveAsIllegal(item.domain, 'admin')
+        console.log(`✅ [Phase 2] 소급 업데이트 완료: ${retroactiveUpdateResult.affectedDetectionResults}개 결과 업데이트`)
+      } catch (error) {
+        console.error(`⚠️ [Phase 2] 소급 업데이트 실패 (기존 로직 계속 진행):`, error)
+      }
+      
+      // 기존 로직 (호환성 유지)
       await db.addSite(item.domain, 'illegal')
       await db.deletePendingReview(parseInt(id))
     } else if (action === 'reject') {
+      // [Phase 2] 소급 업데이트: detection_results의 모든 과거 pending 데이터 일괄 업데이트
+      try {
+        retroactiveUpdateResult = await dbV2.rejectAsLegal(item.domain, 'admin')
+        console.log(`✅ [Phase 2] 소급 업데이트 완료: ${retroactiveUpdateResult.affectedDetectionResults}개 결과 업데이트`)
+      } catch (error) {
+        console.error(`⚠️ [Phase 2] 소급 업데이트 실패 (기존 로직 계속 진행):`, error)
+      }
+      
+      // 기존 로직 (호환성 유지)
       await db.addSite(item.domain, 'legal')
       await db.deletePendingReview(parseInt(id))
     }
     // hold는 아무것도 하지 않음
     
-    return c.json({ success: true, action })
+    // [Phase 2] 소급 업데이트 정보 응답에 포함
+    const response: any = { success: true, action }
+    if (retroactiveUpdateResult) {
+      response.retroactiveUpdate = {
+        affectedDetectionResults: retroactiveUpdateResult.affectedDetectionResults,
+        message: `${retroactiveUpdateResult.affectedDetectionResults}건의 과거 데이터가 소급 업데이트되었습니다.`
+      }
+    }
+    
+    return c.json(response)
   } catch (error) {
     return c.json({ success: false, error: 'Failed to process review' }, 500)
   }
@@ -329,12 +429,23 @@ app.get('/api/sites/:type', async (c) => {
     if (type !== 'illegal' && type !== 'legal') {
       return c.json({ success: false, error: 'Invalid type' }, 400)
     }
-    const sites = await db.getSitesByType(type)
+    
+    // Phase 3: Pagination 지원
+    const page = parseInt(c.req.query('page') || '1')
+    const limit = parseInt(c.req.query('limit') || '50')
+    const search = c.req.query('search') || ''
+    
+    // limit 범위 제한 (1~200)
+    const safeLimit = Math.min(Math.max(limit, 1), 200)
+    
+    const result = await db.getSitesByTypePaginated(type, page, safeLimit, search)
+    
     return c.json({ 
       success: true, 
       type, 
-      count: sites.length, 
-      sites: sites.map(s => s.domain) 
+      count: result.pagination.total,
+      sites: result.items.map(s => s.domain),
+      pagination: result.pagination
     })
   } catch (error) {
     return c.json({ success: false, error: 'Failed to load sites' }, 500)
@@ -423,11 +534,19 @@ app.post('/api/titles/restore', async (c) => {
 
 app.get('/api/sessions', async (c) => {
   try {
-    const sessionsList = await db.getSessions()
+    // Phase 3: Pagination 지원
+    const page = parseInt(c.req.query('page') || '1')
+    const limit = parseInt(c.req.query('limit') || '20')
+    
+    // limit 범위 제한 (1~100)
+    const safeLimit = Math.min(Math.max(limit, 1), 100)
+    
+    const result = await db.getSessionsPaginated(page, safeLimit)
+    
     return c.json({
       success: true,
-      count: sessionsList.length,
-      sessions: sessionsList.map(s => ({
+      count: result.pagination.total,
+      sessions: result.items.map(s => ({
         id: s.id,
         created_at: s.created_at,
         completed_at: s.completed_at,
@@ -441,7 +560,8 @@ app.get('/api/sessions', async (c) => {
           legal: s.results_legal,
           pending: s.results_pending
         }
-      }))
+      })),
+      pagination: result.pagination
     })
   } catch (error) {
     return c.json({ success: false, error: 'Failed to load sessions' }, 500)
@@ -486,23 +606,79 @@ app.get('/api/sessions/:id/results', async (c) => {
       return c.json({ success: false, error: 'Session not found' }, 404)
     }
     
-    // Blob에서 결과 파일 가져오기
-    let results: FinalResult[] = []
-    if (session.file_final_results) {
-      // file_final_results가 Blob URL인 경우
-      if (session.file_final_results.startsWith('http')) {
-        results = await blob.downloadResults(session.file_final_results)
-      } else {
-        // 아직 마이그레이션되지 않은 경우 빈 배열 반환
-        results = []
+    // 필터링 파라미터
+    const titleFilter = c.req.query('title') || 'all'
+    const statusFilterRaw = c.req.query('status') || 'all'
+    const statusFilter = statusFilterRaw !== 'all' ? statusFilterRaw as 'illegal' | 'legal' | 'pending' : undefined
+    const domainFilter = c.req.query('domain')
+    const page = parseInt(c.req.query('page') || '1')
+    const limit = parseInt(c.req.query('limit') || '50')
+    const source = c.req.query('source') || 'auto' // 'blob', 'db', 'auto'
+    
+    // limit 범위 제한
+    const safeLimit = Math.min(Math.max(limit, 1), 100)
+    
+    // Phase 4: detection_results 테이블에서 직접 조회 (실시간 상태 반영)
+    // source=blob: 기존 Blob 방식
+    // source=db: detection_results 테이블 직접 조회
+    // source=auto: db 우선, 실패 시 blob
+    
+    if (source !== 'blob') {
+      try {
+        // detection_results에서 조회 (실시간 상태 반영)
+        const { items, total } = await dbV2.getDetectionResultsBySession(id, {
+          status: statusFilter,
+          title: titleFilter !== 'all' ? titleFilter : undefined,
+          domain: domainFilter,
+          page,
+          limit: safeLimit
+        })
+        
+        if (items.length > 0 || source === 'db') {
+          // 고유 타이틀 목록 조회
+          const allResults = await dbV2.getDetectionResultsBySession(id, { limit: 10000 })
+          const availableTitles = [...new Set(allResults.items.map(r => r.title))].sort()
+          
+          return c.json({
+            success: true,
+            source: 'detection_results',
+            results: items.map(r => ({
+              title: r.title,
+              domain: r.domain,
+              url: r.url,
+              search_query: r.search_query,
+              page: r.page,
+              rank: r.rank,
+              status: r.initial_status,
+              llm_judgment: r.llm_judgment,
+              llm_reason: r.llm_reason,
+              final_status: r.final_status,
+              reviewed_at: r.reviewed_at
+            })),
+            pagination: {
+              page,
+              limit: safeLimit,
+              total,
+              totalPages: Math.ceil(total / safeLimit)
+            },
+            available_titles: availableTitles
+          })
+        }
+      } catch (dbError) {
+        console.error('Detection results query failed, falling back to blob:', dbError)
+        // db 실패 시 blob으로 fallback (source=auto인 경우)
       }
     }
     
-    // 필터링
-    const titleFilter = c.req.query('title') || 'all'
-    const statusFilter = c.req.query('status') || 'all'
-    const page = parseInt(c.req.query('page') || '1')
-    const limit = parseInt(c.req.query('limit') || '50')
+    // Fallback: Blob에서 결과 파일 가져오기 (기존 방식)
+    let results: FinalResult[] = []
+    if (session.file_final_results) {
+      if (session.file_final_results.startsWith('http')) {
+        results = await blob.downloadResults(session.file_final_results)
+      } else {
+        results = []
+      }
+    }
     
     let filteredResults = results
     
@@ -517,29 +693,31 @@ app.get('/api/sessions/:id/results', async (c) => {
     if (titleFilter !== 'all') {
       filteredResults = filteredResults.filter(r => r.title === titleFilter)
     }
-    if (statusFilter !== 'all') {
+    if (statusFilter) {
       filteredResults = filteredResults.filter(r => r.final_status === statusFilter)
     }
     
     const total = filteredResults.length
-    const startIndex = (page - 1) * limit
-    const paginatedResults = filteredResults.slice(startIndex, startIndex + limit)
+    const startIndex = (page - 1) * safeLimit
+    const paginatedResults = filteredResults.slice(startIndex, startIndex + safeLimit)
     
     // 고유 타이틀 목록
     const availableTitles = [...new Set(results.map(r => r.title))].sort()
     
     return c.json({
       success: true,
+      source: 'blob',
       results: paginatedResults,
       pagination: {
         page,
-        limit,
+        limit: safeLimit,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / safeLimit)
       },
       available_titles: availableTitles
     })
   } catch (error) {
+    console.error('Session results error:', error)
     return c.json({ success: false, error: 'Failed to load results' }, 500)
   }
 })
@@ -581,13 +759,17 @@ app.get('/api/sessions/:id/download', async (c) => {
 
 app.get('/api/dashboard/months', async (c) => {
   try {
-    const stats = await db.getMonthlyStats()
-    const months = stats.map(s => s.month)
+    // Phase 4: v2 View 기반으로 전환 (detection_results에서 실시간 조회)
+    const monthlyStats = await dbV2.getMonthlyStatsV2()
+    const months = monthlyStats.map(s => {
+      const d = new Date(s.month)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    })
     const now = new Date()
     const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     return c.json({
       success: true,
-      months,
+      months: months.length > 0 ? months : [currentMonth],
       current_month: currentMonth
     })
   } catch (error) {
@@ -598,42 +780,55 @@ app.get('/api/dashboard/months', async (c) => {
 app.get('/api/dashboard', async (c) => {
   try {
     const month = c.req.query('month')
-    let stats: db.MonthlyStats | null = null
+    const now = new Date()
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const targetMonth = month || currentMonth
     
-    if (month) {
-      stats = await db.getMonthlyStatsByMonth(month)
-    } else {
-      const allStats = await db.getMonthlyStats()
-      stats = allStats[0] || null
-    }
+    // Phase 4: v2 View 기반으로 전환 (detection_results에서 실시간 조회)
+    const monthlyStats = await dbV2.getMonthlyStatsV2(targetMonth)
+    const stats = monthlyStats[0]
     
     if (!stats) {
-      const now = new Date()
-      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
       return c.json({
         success: true,
-        month: currentMonth,
+        month: targetMonth,
         sessions_count: 0,
         top_contents: [],
         top_illegal_sites: [],
-        total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 }
+        total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 },
+        count_type: 'by_url'  // Phase 4-6: 기준 명시
       })
     }
     
+    // Top 콘텐츠 조회 (실시간)
+    const topContents = await dbV2.getMonthlyTopContentsV2(targetMonth, 5)
+    
+    // Top 불법 사이트 조회 (실시간)
+    const topIllegalSites = await dbV2.getMonthlyTopIllegalSitesV2(targetMonth, 5)
+    
+    // 응답 형식을 기존과 동일하게 유지 (프론트엔드 호환성)
     return c.json({
       success: true,
-      month: stats.month,
-      sessions_count: stats.sessions_count,
-      top_contents: stats.top_contents,
-      top_illegal_sites: stats.top_illegal_sites,
+      month: targetMonth,
+      sessions_count: Number(stats.sessions_count),
+      top_contents: topContents.map(tc => ({
+        name: tc.title,
+        count: Number(tc.illegal_count)
+      })),
+      top_illegal_sites: topIllegalSites.map(ts => ({
+        domain: ts.domain,
+        count: Number(ts.illegal_count)
+      })),
       total_stats: {
-        total: stats.total,
-        illegal: stats.illegal,
-        legal: stats.legal,
-        pending: stats.pending
-      }
+        total: Number(stats.total),
+        illegal: Number(stats.illegal),
+        legal: Number(stats.legal),
+        pending: Number(stats.pending)
+      },
+      count_type: 'by_url'  // Phase 4-6: 기준 명시 (URL 기준 카운트)
     })
   } catch (error) {
+    console.error('Dashboard error:', error)
     return c.json({ success: false, error: 'Failed to load dashboard' }, 500)
   }
 })
@@ -658,6 +853,260 @@ app.get('/api/stats', async (c) => {
     })
   } catch (error) {
     return c.json({ success: false, error: 'Failed to load stats' }, 500)
+  }
+})
+
+// ============================================
+// [Phase 2] API v2 - 실시간 통계 (detection_results 기반)
+// ============================================
+
+/**
+ * GET /api/v2/dashboard
+ * 월별 실시간 통계 조회 (detection_results View 기반)
+ */
+app.get('/api/v2/dashboard', async (c) => {
+  try {
+    const month = c.req.query('month')
+    const now = new Date()
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const targetMonth = month || currentMonth
+    
+    // detection_results 기반 실시간 통계 조회
+    const monthlyStats = await dbV2.getMonthlyStatsV2(targetMonth)
+    const stats = monthlyStats[0]
+    
+    if (!stats) {
+      return c.json({
+        success: true,
+        source: 'detection_results_v2',
+        month: targetMonth,
+        sessions_count: 0,
+        top_contents: [],
+        top_illegal_sites: [],
+        total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 }
+      })
+    }
+    
+    // Top 콘텐츠 조회
+    const topContents = await dbV2.getMonthlyTopContentsV2(targetMonth, 10)
+    
+    // Top 불법 사이트 조회
+    const topIllegalSites = await dbV2.getMonthlyTopIllegalSitesV2(targetMonth, 10)
+    
+    return c.json({
+      success: true,
+      source: 'detection_results_v2',
+      month: targetMonth,
+      sessions_count: stats.sessions_count,
+      top_contents: topContents.map(tc => ({
+        title: tc.title,
+        illegal_count: tc.illegal_count,
+        legal_count: tc.legal_count,
+        pending_count: tc.pending_count,
+        total_count: tc.total_count
+      })),
+      top_illegal_sites: topIllegalSites.map(ts => ({
+        domain: ts.domain,
+        count: ts.illegal_count
+      })),
+      total_stats: {
+        total: stats.total,
+        illegal: stats.illegal,
+        legal: stats.legal,
+        pending: stats.pending
+      }
+    })
+  } catch (error) {
+    console.error('[Phase 2] v2/dashboard error:', error)
+    return c.json({ success: false, error: 'Failed to load v2 dashboard' }, 500)
+  }
+})
+
+/**
+ * GET /api/v2/dashboard/top-contents
+ * 특정 월의 Top 콘텐츠 목록
+ */
+app.get('/api/v2/dashboard/top-contents', async (c) => {
+  try {
+    const month = c.req.query('month')
+    const limit = parseInt(c.req.query('limit') || '10')
+    
+    const now = new Date()
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const targetMonth = month || currentMonth
+    
+    const topContents = await dbV2.getMonthlyTopContentsV2(targetMonth, limit)
+    
+    return c.json({
+      success: true,
+      source: 'detection_results_v2',
+      month: targetMonth,
+      count: topContents.length,
+      items: topContents.map(tc => ({
+        title: tc.title,
+        illegal_count: tc.illegal_count,
+        legal_count: tc.legal_count,
+        pending_count: tc.pending_count,
+        total_count: tc.total_count
+      }))
+    })
+  } catch (error) {
+    console.error('[Phase 2] v2/dashboard/top-contents error:', error)
+    return c.json({ success: false, error: 'Failed to load top contents' }, 500)
+  }
+})
+
+/**
+ * GET /api/v2/dashboard/top-sites
+ * 특정 월의 Top 불법 사이트 목록
+ */
+app.get('/api/v2/dashboard/top-sites', async (c) => {
+  try {
+    const month = c.req.query('month')
+    const limit = parseInt(c.req.query('limit') || '10')
+    
+    const now = new Date()
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const targetMonth = month || currentMonth
+    
+    const topSites = await dbV2.getMonthlyTopIllegalSitesV2(targetMonth, limit)
+    
+    return c.json({
+      success: true,
+      source: 'detection_results_v2',
+      month: targetMonth,
+      count: topSites.length,
+      items: topSites.map(ts => ({
+        domain: ts.domain,
+        illegal_count: ts.illegal_count
+      }))
+    })
+  } catch (error) {
+    console.error('[Phase 2] v2/dashboard/top-sites error:', error)
+    return c.json({ success: false, error: 'Failed to load top sites' }, 500)
+  }
+})
+
+/**
+ * GET /api/v2/sessions/:id/stats
+ * 특정 세션의 실시간 통계 (detection_results 기반)
+ */
+app.get('/api/v2/sessions/:id/stats', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const sessionStats = await dbV2.getSessionStatsV2(id)
+    
+    if (sessionStats.length === 0) {
+      return c.json({ success: false, error: 'Session not found' }, 404)
+    }
+    
+    const stats = sessionStats[0]
+    
+    return c.json({
+      success: true,
+      source: 'detection_results_v2',
+      session: {
+        id: stats.id,
+        created_at: stats.created_at,
+        completed_at: stats.completed_at,
+        status: stats.status,
+        titles_count: stats.titles_count,
+        keywords_count: stats.keywords_count,
+        total_searches: stats.total_searches,
+        file_final_results: stats.file_final_results,
+        results_summary: {
+          total: stats.results_total,
+          illegal: stats.results_illegal,
+          legal: stats.results_legal,
+          pending: stats.results_pending
+        }
+      }
+    })
+  } catch (error) {
+    console.error('[Phase 2] v2/sessions/:id/stats error:', error)
+    return c.json({ success: false, error: 'Failed to load session stats' }, 500)
+  }
+})
+
+/**
+ * GET /api/v2/sessions/:id/results
+ * 특정 세션의 탐지 결과 (detection_results 테이블에서 직접 조회)
+ */
+app.get('/api/v2/sessions/:id/results', async (c) => {
+  try {
+    const id = c.req.param('id')
+    const titleFilter = c.req.query('title')
+    const statusFilter = c.req.query('status') as 'illegal' | 'legal' | 'pending' | undefined
+    const domainFilter = c.req.query('domain')
+    const page = parseInt(c.req.query('page') || '1')
+    const limit = parseInt(c.req.query('limit') || '50')
+    
+    const { items, total } = await dbV2.getDetectionResultsBySession(id, {
+      status: statusFilter,
+      title: titleFilter,
+      domain: domainFilter,
+      page,
+      limit
+    })
+    
+    return c.json({
+      success: true,
+      source: 'detection_results_v2',
+      results: items.map(r => ({
+        id: r.id,
+        title: r.title,
+        domain: r.domain,
+        url: r.url,
+        search_query: r.search_query,
+        page: r.page,
+        rank: r.rank,
+        status: r.initial_status,
+        llm_judgment: r.llm_judgment,
+        llm_reason: r.llm_reason,
+        final_status: r.final_status,
+        reviewed_at: r.reviewed_at,
+        reviewed_by: r.reviewed_by
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    })
+  } catch (error) {
+    console.error('[Phase 2] v2/sessions/:id/results error:', error)
+    return c.json({ success: false, error: 'Failed to load session results' }, 500)
+  }
+})
+
+/**
+ * GET /api/v2/pending
+ * 승인 대기 도메인 목록 (detection_results 기반 실시간)
+ */
+app.get('/api/v2/pending', async (c) => {
+  try {
+    const pendingDomains = await dbV2.getPendingDomainsV2()
+    
+    return c.json({
+      success: true,
+      source: 'detection_results_v2',
+      count: pendingDomains.length,
+      items: pendingDomains.map(pd => ({
+        domain: pd.domain,
+        pending_count: pd.pending_count,
+        title_count: pd.title_count,
+        session_count: pd.session_count,
+        titles: pd.titles,
+        first_detected_at: pd.first_detected_at,
+        last_detected_at: pd.last_detected_at,
+        llm_judgment: pd.llm_judgment,
+        llm_reason: pd.llm_reason
+      }))
+    })
+  } catch (error) {
+    console.error('[Phase 2] v2/pending error:', error)
+    return c.json({ success: false, error: 'Failed to load pending domains' }, 500)
   }
 })
 

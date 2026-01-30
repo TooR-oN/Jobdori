@@ -106,6 +106,63 @@ export async function getSessions(): Promise<Session[]> {
   return rows as Session[]
 }
 
+// Phase 3: Pagination 지원 세션 목록 조회 (DTO 적용 - file_final_results 제외)
+export interface SessionListItem {
+  id: string
+  created_at: string
+  completed_at: string | null
+  status: 'running' | 'completed' | 'error'
+  titles_count: number
+  keywords_count: number
+  total_searches: number
+  results_total: number
+  results_illegal: number
+  results_legal: number
+  results_pending: number
+}
+
+export interface PaginatedResult<T> {
+  items: T[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+  }
+}
+
+export async function getSessionsPaginated(
+  page: number = 1,
+  limit: number = 20
+): Promise<PaginatedResult<SessionListItem>> {
+  const offset = (page - 1) * limit
+  
+  // 총 개수 조회
+  const countResult = await sql`SELECT COUNT(*) as total FROM sessions`
+  const total = parseInt(countResult[0].total)
+  
+  // DTO: file_final_results 제외하여 경량화
+  const rows = await sql`
+    SELECT 
+      id, created_at, completed_at, status,
+      titles_count, keywords_count, total_searches,
+      results_total, results_illegal, results_legal, results_pending
+    FROM sessions 
+    ORDER BY created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `
+  
+  return {
+    items: rows as SessionListItem[],
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    }
+  }
+}
+
 export async function getSessionById(id: string): Promise<Session | null> {
   const rows = await sql`
     SELECT * FROM sessions WHERE id = ${id}
@@ -189,6 +246,55 @@ export async function getSitesByType(type: 'illegal' | 'legal'): Promise<Site[]>
   return rows as Site[]
 }
 
+// Phase 3: Pagination 지원 사이트 목록 조회
+export async function getSitesByTypePaginated(
+  type: 'illegal' | 'legal',
+  page: number = 1,
+  limit: number = 50,
+  search?: string
+): Promise<PaginatedResult<Site>> {
+  const offset = (page - 1) * limit
+  
+  // 검색어가 있는 경우
+  if (search && search.trim()) {
+    const searchPattern = `%${search.toLowerCase()}%`
+    
+    const countResult = await sql`
+      SELECT COUNT(*) as total FROM sites 
+      WHERE type = ${type} AND LOWER(domain) LIKE ${searchPattern}
+    `
+    const total = parseInt(countResult[0].total)
+    
+    const rows = await sql`
+      SELECT * FROM sites 
+      WHERE type = ${type} AND LOWER(domain) LIKE ${searchPattern}
+      ORDER BY domain
+      LIMIT ${limit} OFFSET ${offset}
+    `
+    
+    return {
+      items: rows as Site[],
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    }
+  }
+  
+  // 검색어가 없는 경우
+  const countResult = await sql`SELECT COUNT(*) as total FROM sites WHERE type = ${type}`
+  const total = parseInt(countResult[0].total)
+  
+  const rows = await sql`
+    SELECT * FROM sites 
+    WHERE type = ${type}
+    ORDER BY domain
+    LIMIT ${limit} OFFSET ${offset}
+  `
+  
+  return {
+    items: rows as Site[],
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+  }
+}
+
 export async function addSite(domain: string, type: 'illegal' | 'legal'): Promise<Site> {
   const rows = await sql`
     INSERT INTO sites (domain, type)
@@ -265,6 +371,51 @@ export async function getPendingReviews(): Promise<PendingReview[]> {
     SELECT * FROM pending_reviews ORDER BY created_at DESC
   `
   return rows as PendingReview[]
+}
+
+// Phase 3: Pagination 지원 승인 대기 목록 조회
+export async function getPendingReviewsPaginated(
+  page: number = 1,
+  limit: number = 20,
+  judgment?: 'likely_illegal' | 'likely_legal' | 'uncertain'
+): Promise<PaginatedResult<PendingReview>> {
+  const offset = (page - 1) * limit
+  
+  // judgment 필터가 있는 경우
+  if (judgment) {
+    const countResult = await sql`
+      SELECT COUNT(*) as total FROM pending_reviews 
+      WHERE llm_judgment = ${judgment}
+    `
+    const total = parseInt(countResult[0].total)
+    
+    const rows = await sql`
+      SELECT * FROM pending_reviews 
+      WHERE llm_judgment = ${judgment}
+      ORDER BY created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `
+    
+    return {
+      items: rows as PendingReview[],
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    }
+  }
+  
+  // 필터 없는 경우
+  const countResult = await sql`SELECT COUNT(*) as total FROM pending_reviews`
+  const total = parseInt(countResult[0].total)
+  
+  const rows = await sql`
+    SELECT * FROM pending_reviews 
+    ORDER BY created_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `
+  
+  return {
+    items: rows as PendingReview[],
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+  }
 }
 
 export async function getPendingReviewById(id: number): Promise<PendingReview | null> {
@@ -714,5 +865,152 @@ export async function initializeDatabase(): Promise<void> {
     ON CONFLICT (reason_text) DO NOTHING
   `
 
-  console.log('✅ Database tables initialized')
+  // ============================================
+  // Schema v2: detection_results 테이블 및 View
+  // (데이터베이스 정규화 - 2026-01-30)
+  // ============================================
+
+  // detection_results 테이블 (모든 탐지 결과를 개별 Row로 저장)
+  await sql`
+    CREATE TABLE IF NOT EXISTS detection_results (
+      id SERIAL PRIMARY KEY,
+      session_id VARCHAR(50) NOT NULL,
+      title VARCHAR(500) NOT NULL,
+      search_query VARCHAR(500) NOT NULL,
+      url TEXT NOT NULL,
+      domain VARCHAR(255) NOT NULL,
+      page INTEGER NOT NULL,
+      rank INTEGER NOT NULL,
+      initial_status VARCHAR(20) NOT NULL,
+      llm_judgment VARCHAR(20),
+      llm_reason TEXT,
+      final_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      reviewed_at TIMESTAMP WITH TIME ZONE,
+      reviewed_by VARCHAR(100),
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      CONSTRAINT fk_detection_results_session 
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      CONSTRAINT uq_detection_results_session_url 
+        UNIQUE(session_id, url)
+    )
+  `
+
+  // detection_results 인덱스
+  await sql`CREATE INDEX IF NOT EXISTS idx_detection_results_session ON detection_results(session_id)`
+  await sql`CREATE INDEX IF NOT EXISTS idx_detection_results_status ON detection_results(final_status)`
+  await sql`CREATE INDEX IF NOT EXISTS idx_detection_results_domain ON detection_results(domain)`
+  await sql`CREATE INDEX IF NOT EXISTS idx_detection_results_title ON detection_results(title)`
+  await sql`CREATE INDEX IF NOT EXISTS idx_detection_results_created ON detection_results(created_at DESC)`
+  await sql`CREATE INDEX IF NOT EXISTS idx_detection_results_domain_status ON detection_results(LOWER(domain), final_status)`
+  
+  // sessions 테이블 DATE_TRUNC 인덱스 (월별 통계 View 최적화)
+  await sql`CREATE INDEX IF NOT EXISTS idx_sessions_created_month ON sessions(DATE_TRUNC('month', created_at))`
+
+  // 실시간 집계 View: 월별 통계
+  await sql`
+    CREATE OR REPLACE VIEW v_monthly_stats AS
+    SELECT 
+      DATE_TRUNC('month', s.created_at) as month,
+      COUNT(DISTINCT s.id) as sessions_count,
+      COUNT(dr.*) as total,
+      COUNT(*) FILTER (WHERE dr.final_status = 'illegal') as illegal,
+      COUNT(*) FILTER (WHERE dr.final_status = 'legal') as legal,
+      COUNT(*) FILTER (WHERE dr.final_status = 'pending') as pending
+    FROM sessions s
+    LEFT JOIN detection_results dr ON s.id = dr.session_id
+    WHERE s.status = 'completed'
+    GROUP BY DATE_TRUNC('month', s.created_at)
+  `
+
+  // 실시간 집계 View: 월별 작품별 통계
+  await sql`
+    CREATE OR REPLACE VIEW v_monthly_top_contents AS
+    SELECT 
+      DATE_TRUNC('month', s.created_at) as month,
+      dr.title,
+      COUNT(*) FILTER (WHERE dr.final_status = 'illegal') as illegal_count,
+      COUNT(*) FILTER (WHERE dr.final_status = 'legal') as legal_count,
+      COUNT(*) FILTER (WHERE dr.final_status = 'pending') as pending_count,
+      COUNT(*) as total_count
+    FROM detection_results dr
+    JOIN sessions s ON dr.session_id = s.id
+    WHERE s.status = 'completed'
+    GROUP BY DATE_TRUNC('month', s.created_at), dr.title
+  `
+
+  // 실시간 집계 View: 월별 불법 도메인 통계
+  await sql`
+    CREATE OR REPLACE VIEW v_monthly_top_illegal_sites AS
+    SELECT 
+      DATE_TRUNC('month', s.created_at) as month,
+      dr.domain,
+      COUNT(*) as illegal_count
+    FROM detection_results dr
+    JOIN sessions s ON dr.session_id = s.id
+    WHERE s.status = 'completed'
+      AND dr.final_status = 'illegal'
+    GROUP BY DATE_TRUNC('month', s.created_at), dr.domain
+  `
+
+  // 실시간 집계 View: 세션별 통계
+  await sql`
+    CREATE OR REPLACE VIEW v_session_stats AS
+    SELECT 
+      s.id,
+      s.created_at,
+      s.completed_at,
+      s.status,
+      s.titles_count,
+      s.keywords_count,
+      s.total_searches,
+      s.file_final_results,
+      COUNT(dr.*) as results_total,
+      COUNT(*) FILTER (WHERE dr.final_status = 'illegal') as results_illegal,
+      COUNT(*) FILTER (WHERE dr.final_status = 'legal') as results_legal,
+      COUNT(*) FILTER (WHERE dr.final_status = 'pending') as results_pending
+    FROM sessions s
+    LEFT JOIN detection_results dr ON s.id = dr.session_id
+    GROUP BY s.id
+  `
+
+  // 실시간 집계 View: 승인 대기 도메인
+  await sql`
+    CREATE OR REPLACE VIEW v_pending_domains AS
+    SELECT 
+      LOWER(dr.domain) as domain,
+      COUNT(*) as pending_count,
+      COUNT(DISTINCT dr.title) as title_count,
+      COUNT(DISTINCT dr.session_id) as session_count,
+      ARRAY_AGG(DISTINCT dr.title) as titles,
+      MIN(dr.created_at) as first_detected_at,
+      MAX(dr.created_at) as last_detected_at,
+      MAX(dr.llm_judgment) as llm_judgment,
+      MAX(dr.llm_reason) as llm_reason
+    FROM detection_results dr
+    WHERE dr.final_status = 'pending'
+    GROUP BY LOWER(dr.domain)
+  `
+
+  // updated_at 자동 갱신 트리거 함수
+  await sql`
+    CREATE OR REPLACE FUNCTION fn_update_timestamp()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      NEW.updated_at = NOW();
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `
+
+  // detection_results 테이블에 트리거 적용
+  await sql`DROP TRIGGER IF EXISTS trg_detection_results_updated_at ON detection_results`
+  await sql`
+    CREATE TRIGGER trg_detection_results_updated_at
+      BEFORE UPDATE ON detection_results
+      FOR EACH ROW
+      EXECUTE FUNCTION fn_update_timestamp()
+  `
+
+  console.log('✅ Database tables initialized (including Schema v2)')
 }
