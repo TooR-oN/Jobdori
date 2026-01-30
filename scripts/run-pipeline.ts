@@ -19,6 +19,8 @@ import {
   getTimestamp,
   getCurrentISOTime,
 } from './utils.js';
+// Phase 2: db-v2 듀얼 라이트를 위한 import
+import * as dbV2 from '../src/lib/db-v2.js';
 
 /**
  * DB에서 사이트 목록 로드
@@ -499,6 +501,35 @@ async function runPipeline() {
     );
     
     console.log(`✅ Blob 업로드 완료: ${blob.url}`);
+
+    // ==========================================
+    // Step 6.5: [Phase 2] detection_results 듀얼 라이트
+    // ==========================================
+    console.log('\n📌 [Phase 2] detection_results 듀얼 라이트...');
+    
+    try {
+      // detection_results 테이블에 FinalResult 데이터 저장
+      const detectionResultInputs = finalResults.map(r => ({
+        session_id: timestamp,
+        title: r.title,
+        search_query: r.search_query,
+        url: r.url,
+        domain: r.domain,
+        page: r.page,
+        rank: r.rank,
+        initial_status: r.status as 'illegal' | 'legal' | 'unknown',
+        llm_judgment: r.llm_judgment as 'likely_illegal' | 'likely_legal' | 'uncertain' | null,
+        llm_reason: r.llm_reason,
+        final_status: r.final_status as 'illegal' | 'legal' | 'pending',
+        reviewed_at: r.reviewed_at
+      }));
+      
+      const insertedCount = await dbV2.bulkCreateDetectionResults(detectionResultInputs);
+      console.log(`✅ [Phase 2] detection_results에 ${insertedCount}개 결과 저장 완료`);
+    } catch (error) {
+      // 듀얼 라이트 실패해도 기존 로직은 계속 진행 (비파괴적)
+      console.error(`⚠️ [Phase 2] detection_results 저장 실패 (기존 로직 계속 진행):`, error);
+    }
 
     // ==========================================
     // Step 7: DB 업데이트
