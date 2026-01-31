@@ -57,7 +57,7 @@ export function TopContentsChart({ data, isLoading }: TopContentsChartProps) {
             variant="secondary" 
             className="bg-red-50 text-red-600 hover:bg-red-100 font-semibold px-3"
           >
-            {item.illegal_count.toLocaleString()}개
+            {(item.illegal_count || item.count || 0).toLocaleString()}개
           </Badge>
         </div>
       ))}
