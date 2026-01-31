@@ -248,10 +248,10 @@ async function verifySignedToken(token: string): Promise<boolean> {
 // Hono App Setup
 // ============================================
 
-// NOTE: basePath 제거 - Next.js App Router가 이미 /api/* 경로를 처리함
-// 이전: new Hono().basePath('/api') → /api/api/auth/login (중복)
-// 현재: new Hono() → /api/auth/login (정상)
-const app = new Hono()
+// NOTE: basePath('/api') 복원 - Hono 공식 문서 권장 설정
+// https://hono.dev/docs/getting-started/nextjs
+// Next.js App Router + Hono 통합 시 basePath('/api') 필요
+const app = new Hono().basePath('/api')
 
 app.use('*', cors())
 
