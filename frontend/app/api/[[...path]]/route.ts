@@ -3,6 +3,11 @@
 // Hono 앱을 Next.js Route Handler로 래핑
 // ============================================
 
+// Vercel에서 Dynamic API Routes가 404를 반환하는 문제 해결
+// https://community.vercel.com/t/all-next-js-15-app-router-dynamic-api-routes-return-404-on-vercel/28544
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
