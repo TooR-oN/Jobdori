@@ -3,7 +3,7 @@
   "framework": "nextjs",
   "outputDirectory": ".next",
   "functions": {
-    "../api/index.ts": {
+    "api/index.ts": {
       "maxDuration": 30
     }
   },
