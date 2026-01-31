@@ -6,6 +6,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
+import { handle } from 'hono/vercel'
 import { neon } from '@neondatabase/serverless'
 import * as XLSX from 'xlsx'
 
@@ -2222,4 +2223,10 @@ app.get('/api/report-tracking/:sessionId/export', async (c) => {
 
 // NOTE: / route HTML removed - Now served by Next.js frontend
 
-export default app
+// Export for Vercel Serverless
+export default handle(app)
+export const GET = handle(app)
+export const POST = handle(app)
+export const PUT = handle(app)
+export const DELETE = handle(app)
+export const PATCH = handle(app)
