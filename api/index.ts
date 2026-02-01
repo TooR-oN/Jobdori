@@ -1612,8 +1612,9 @@ app.get('/api/dashboard', async (c) => {
       }
     }
     
-    // detection_results 기반 실시간 집계 (CTE 사용)
-    const monthPattern = targetMonth + '%'
+    // 모든 통계를 report_tracking 기반으로 통일 (CTE 사용)
+    const startDate = targetMonth + '-01'
+    const endDate = targetMonth + '-31'
     
     const statsResult = await query`
       WITH session_data AS (
@@ -1621,77 +1622,64 @@ app.get('/api/dashboard', async (c) => {
           COUNT(*) as sessions_count,
           MAX(completed_at) as last_updated
         FROM sessions 
-        WHERE id LIKE ${monthPattern} AND status = 'completed'
+        WHERE SUBSTRING(id, 1, 7) = ${targetMonth} AND status = 'completed'
       ),
-      stats_data AS (
+      report_data AS (
         SELECT 
-          COUNT(*) as total,
-          COUNT(*) FILTER (WHERE final_status = 'illegal') as illegal,
-          COUNT(*) FILTER (WHERE final_status = 'legal') as legal,
-          COUNT(*) FILTER (WHERE final_status = 'pending') as pending
-        FROM detection_results
-        WHERE session_id LIKE ${monthPattern}
+          COUNT(*) as discovered,
+          COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+          COUNT(*) FILTER (WHERE report_status = '차단') as blocked
+        FROM report_tracking
+        WHERE created_at >= ${startDate}::date
+          AND created_at < (${endDate}::date + INTERVAL '1 day')
       ),
       top_contents AS (
         SELECT title as name, COUNT(*) as count
-        FROM detection_results
-        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+        FROM report_tracking
+        WHERE title IS NOT NULL AND title != ''
+          AND created_at >= ${startDate}::date
+          AND created_at < (${endDate}::date + INTERVAL '1 day')
         GROUP BY title
         ORDER BY count DESC
-        LIMIT 10
+        LIMIT 5
       ),
       top_domains AS (
         SELECT domain, COUNT(*) as count
-        FROM detection_results
-        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+        FROM report_tracking
+        WHERE created_at >= ${startDate}::date
+          AND created_at < (${endDate}::date + INTERVAL '1 day')
         GROUP BY domain
         ORDER BY count DESC
-        LIMIT 10
+        LIMIT 5
       )
       SELECT 
         (SELECT sessions_count FROM session_data) as sessions_count,
         (SELECT last_updated FROM session_data) as last_updated,
-        (SELECT total FROM stats_data) as total,
-        (SELECT illegal FROM stats_data) as illegal,
-        (SELECT legal FROM stats_data) as legal,
-        (SELECT pending FROM stats_data) as pending,
+        (SELECT discovered FROM report_data) as discovered,
+        (SELECT reported FROM report_data) as reported,
+        (SELECT blocked FROM report_data) as blocked,
         (SELECT COALESCE(json_agg(json_build_object('name', name, 'count', count)), '[]'::json) FROM top_contents) as top_contents,
         (SELECT COALESCE(json_agg(json_build_object('domain', domain, 'count', count)), '[]'::json) FROM top_domains) as top_domains
     `
     
     const data = statsResult[0]
     const sessionsCount = parseInt(data?.sessions_count) || 0
+    const discovered = parseInt(data?.discovered) || 0
+    const reported = parseInt(data?.reported) || 0
+    const blocked = parseInt(data?.blocked) || 0
+    const blockRate = reported > 0 ? Math.round((blocked / reported) * 100 * 10) / 10 : 0
     
-    if (sessionsCount === 0) {
+    if (sessionsCount === 0 && discovered === 0) {
       const emptyResult = {
         success: true,
         month: targetMonth,
         sessions_count: 0,
         top_contents: [],
         top_illegal_sites: [],
-        total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 },
         report_stats: { discovered: 0, reported: 0, blocked: 0, blockRate: 0 }
       }
       return c.json(emptyResult)
     }
-    
-    // 월별 신고/차단 통계 조회 (report_tracking 기반)
-    const startDate = targetMonth + '-01'
-    const endDate = targetMonth + '-31'
-    const reportStats = await query`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
-        COUNT(*) FILTER (WHERE report_status = '차단') as blocked
-      FROM report_tracking
-      WHERE created_at >= ${startDate}::date
-        AND created_at < (${endDate}::date + INTERVAL '1 day')
-    `
-    
-    const discovered = parseInt(reportStats[0]?.total) || 0
-    const reported = parseInt(reportStats[0]?.reported) || 0
-    const blocked = parseInt(reportStats[0]?.blocked) || 0
-    const blockRate = reported > 0 ? Math.round((blocked / reported) * 100 * 10) / 10 : 0
     
     const result = {
       success: true,
@@ -1699,12 +1687,6 @@ app.get('/api/dashboard', async (c) => {
       sessions_count: sessionsCount,
       top_contents: data?.top_contents || [],
       top_illegal_sites: data?.top_domains || [],
-      total_stats: {
-        total: parseInt(data?.total) || 0,
-        illegal: parseInt(data?.illegal) || 0,
-        legal: parseInt(data?.legal) || 0,
-        pending: parseInt(data?.pending) || 0
-      },
       report_stats: {
         discovered,
         reported,
@@ -1722,19 +1704,22 @@ app.get('/api/dashboard', async (c) => {
   }
 })
 
-// 전체보기 API - 해당 월의 모든 작품별 통계 (detection_results 기반)
+// 전체보기 API - 해당 월의 모든 작품별 통계 (report_tracking 기반으로 통일)
 app.get('/api/dashboard/all-titles', async (c) => {
   try {
     const month = c.req.query('month')
     const now = new Date()
     const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const monthPattern = targetMonth + '%'
+    const startDate = targetMonth + '-01'
+    const endDate = targetMonth + '-31'
     
-    // detection_results에서 직접 집계
+    // report_tracking에서 직접 집계 (작품별 통계와 동일한 소스)
     const titles = await query`
       SELECT title as name, COUNT(*) as count
-      FROM detection_results
-      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      FROM report_tracking
+      WHERE title IS NOT NULL AND title != ''
+        AND created_at >= ${startDate}::date
+        AND created_at < (${endDate}::date + INTERVAL '1 day')
       GROUP BY title
       ORDER BY count DESC
     `
