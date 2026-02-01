@@ -1612,7 +1612,8 @@ app.get('/api/dashboard', async (c) => {
       }
     }
     
-    // 모든 통계를 report_tracking 기반으로 통일 (CTE 사용)
+    // 발견/Top5는 detection_results, 신고/차단은 report_tracking에서 조회
+    const monthPattern = targetMonth + '%'
     const startDate = targetMonth + '-01'
     const endDate = targetMonth + '-31'
     
@@ -1622,34 +1623,36 @@ app.get('/api/dashboard', async (c) => {
           COUNT(*) as sessions_count,
           MAX(completed_at) as last_updated
         FROM sessions 
-        WHERE SUBSTRING(id, 1, 7) = ${targetMonth} AND status = 'completed'
+        WHERE id LIKE ${monthPattern} AND status = 'completed'
       ),
+      -- 발견: detection_results에서 불법으로 분류된 URL 수
+      detection_data AS (
+        SELECT COUNT(*) as discovered
+        FROM detection_results
+        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      ),
+      -- 신고/차단: report_tracking에서 조회
       report_data AS (
         SELECT 
-          COUNT(*) as discovered,
           COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
           COUNT(*) FILTER (WHERE report_status = '차단') as blocked
         FROM report_tracking
-        WHERE title IS NOT NULL AND title != ''
-          AND created_at >= ${startDate}::date
-          AND created_at < (${endDate}::date + INTERVAL '1 day')
+        WHERE session_id LIKE ${monthPattern}
       ),
+      -- Top 5 작품: detection_results 기반
       top_contents AS (
         SELECT title as name, COUNT(*) as count
-        FROM report_tracking
-        WHERE title IS NOT NULL AND title != ''
-          AND created_at >= ${startDate}::date
-          AND created_at < (${endDate}::date + INTERVAL '1 day')
+        FROM detection_results
+        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
         GROUP BY title
         ORDER BY count DESC
         LIMIT 5
       ),
+      -- Top 5 도메인: detection_results 기반
       top_domains AS (
         SELECT domain, COUNT(*) as count
-        FROM report_tracking
-        WHERE title IS NOT NULL AND title != ''
-          AND created_at >= ${startDate}::date
-          AND created_at < (${endDate}::date + INTERVAL '1 day')
+        FROM detection_results
+        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
         GROUP BY domain
         ORDER BY count DESC
         LIMIT 5
@@ -1657,7 +1660,7 @@ app.get('/api/dashboard', async (c) => {
       SELECT 
         (SELECT sessions_count FROM session_data) as sessions_count,
         (SELECT last_updated FROM session_data) as last_updated,
-        (SELECT discovered FROM report_data) as discovered,
+        (SELECT discovered FROM detection_data) as discovered,
         (SELECT reported FROM report_data) as reported,
         (SELECT blocked FROM report_data) as blocked,
         (SELECT COALESCE(json_agg(json_build_object('name', name, 'count', count)), '[]'::json) FROM top_contents) as top_contents,
@@ -1706,22 +1709,19 @@ app.get('/api/dashboard', async (c) => {
   }
 })
 
-// 전체보기 API - 해당 월의 모든 작품별 통계 (report_tracking 기반으로 통일)
+// 전체보기 API - 해당 월의 모든 작품별 통계 (detection_results 기반)
 app.get('/api/dashboard/all-titles', async (c) => {
   try {
     const month = c.req.query('month')
     const now = new Date()
     const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    const startDate = targetMonth + '-01'
-    const endDate = targetMonth + '-31'
+    const monthPattern = targetMonth + '%'
     
-    // report_tracking에서 직접 집계 (작품별 통계와 동일한 소스)
+    // detection_results에서 직접 집계 (세션별 불법 합계와 동일한 소스)
     const titles = await query`
       SELECT title as name, COUNT(*) as count
-      FROM report_tracking
-      WHERE title IS NOT NULL AND title != ''
-        AND created_at >= ${startDate}::date
-        AND created_at < (${endDate}::date + INTERVAL '1 day')
+      FROM detection_results
+      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
       GROUP BY title
       ORDER BY count DESC
     `
@@ -1848,60 +1848,91 @@ app.get('/api/titles/list', async (c) => {
 // ============================================
 
 // 작품별 통계 조회 API
+// 발견: detection_results (final_status='illegal')
+// 신고/차단: report_tracking
 app.get('/api/stats/by-title', async (c) => {
   try {
     await ensureDbMigration()
     
-    // 기간 필터 파라미터
-    const startDate = c.req.query('start_date') // YYYY-MM-DD
-    const endDate = c.req.query('end_date')     // YYYY-MM-DD
+    // 기간 필터 파라미터 (YYYY-MM-DD)
+    const startDate = c.req.query('start_date')
+    const endDate = c.req.query('end_date')
     
-    // report_tracking에서 작품별 통계 집계
     let stats
     if (startDate && endDate) {
-      // 기간 필터 적용
+      // 기간 필터: session_id에서 날짜 추출하여 필터링
+      // session_id 형식: 2026-01-15T01-27-11
       stats = await query`
+        WITH detection_stats AS (
+          SELECT title, COUNT(*) as discovered
+          FROM detection_results
+          WHERE final_status = 'illegal'
+            AND SUBSTRING(session_id, 1, 10) >= ${startDate}
+            AND SUBSTRING(session_id, 1, 10) <= ${endDate}
+          GROUP BY title
+        ),
+        report_stats AS (
+          SELECT 
+            title,
+            COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+            COUNT(*) FILTER (WHERE report_status = '차단') as blocked
+          FROM report_tracking
+          WHERE title IS NOT NULL AND title != ''
+            AND SUBSTRING(session_id, 1, 10) >= ${startDate}
+            AND SUBSTRING(session_id, 1, 10) <= ${endDate}
+          GROUP BY title
+        )
         SELECT 
-          title,
-          COUNT(*) as total,
-          COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
-          COUNT(*) FILTER (WHERE report_status = '차단') as blocked,
-          COUNT(*) FILTER (WHERE report_status = '미신고') as unreported
-        FROM report_tracking
-        WHERE title IS NOT NULL AND title != ''
-          AND created_at >= ${startDate}::date
-          AND created_at < (${endDate}::date + INTERVAL '1 day')
-        GROUP BY title
-        ORDER BY total DESC
+          d.title,
+          d.discovered,
+          COALESCE(r.reported, 0) as reported,
+          COALESCE(r.blocked, 0) as blocked
+        FROM detection_stats d
+        LEFT JOIN report_stats r ON d.title = r.title
+        ORDER BY d.discovered DESC
       `
     } else {
       // 전체 기간
       stats = await query`
+        WITH detection_stats AS (
+          SELECT title, COUNT(*) as discovered
+          FROM detection_results
+          WHERE final_status = 'illegal'
+          GROUP BY title
+        ),
+        report_stats AS (
+          SELECT 
+            title,
+            COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+            COUNT(*) FILTER (WHERE report_status = '차단') as blocked
+          FROM report_tracking
+          WHERE title IS NOT NULL AND title != ''
+          GROUP BY title
+        )
         SELECT 
-          title,
-          COUNT(*) as total,
-          COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
-          COUNT(*) FILTER (WHERE report_status = '차단') as blocked,
-          COUNT(*) FILTER (WHERE report_status = '미신고') as unreported
-        FROM report_tracking
-        WHERE title IS NOT NULL AND title != ''
-        GROUP BY title
-        ORDER BY total DESC
+          d.title,
+          d.discovered,
+          COALESCE(r.reported, 0) as reported,
+          COALESCE(r.blocked, 0) as blocked
+        FROM detection_stats d
+        LEFT JOIN report_stats r ON d.title = r.title
+        ORDER BY d.discovered DESC
       `
     }
     
     // 차단율 계산 및 결과 정리
     const result = stats.map((s: any) => {
+      const discovered = parseInt(s.discovered) || 0
       const reported = parseInt(s.reported) || 0
       const blocked = parseInt(s.blocked) || 0
       const blockRate = reported > 0 ? Math.round((blocked / reported) * 100 * 10) / 10 : 0
       
       return {
         title: s.title,
-        discovered: parseInt(s.total) || 0,  // 발견
-        reported: reported,                   // 신고
-        blocked: blocked,                     // 차단
-        blockRate: blockRate                  // 차단율
+        discovered,  // 발견 (detection_results)
+        reported,    // 신고 (report_tracking)
+        blocked,     // 차단 (report_tracking)
+        blockRate    // 차단율
       }
     })
     
