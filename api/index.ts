@@ -1630,7 +1630,8 @@ app.get('/api/dashboard', async (c) => {
           COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
           COUNT(*) FILTER (WHERE report_status = '차단') as blocked
         FROM report_tracking
-        WHERE created_at >= ${startDate}::date
+        WHERE title IS NOT NULL AND title != ''
+          AND created_at >= ${startDate}::date
           AND created_at < (${endDate}::date + INTERVAL '1 day')
       ),
       top_contents AS (
@@ -1646,7 +1647,8 @@ app.get('/api/dashboard', async (c) => {
       top_domains AS (
         SELECT domain, COUNT(*) as count
         FROM report_tracking
-        WHERE created_at >= ${startDate}::date
+        WHERE title IS NOT NULL AND title != ''
+          AND created_at >= ${startDate}::date
           AND created_at < (${endDate}::date + INTERVAL '1 day')
         GROUP BY domain
         ORDER BY count DESC
