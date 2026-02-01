@@ -93,15 +93,17 @@ export interface ReviewResponse {
 
 // Sites
 export interface Site {
+  id: number
   domain: string
-  added_at?: string
+  type: 'illegal' | 'legal'
+  created_at: string
 }
 
 export interface SitesResponse {
   success: boolean
   type: 'illegal' | 'legal'
   count: number
-  sites: string[]
+  sites: Site[]
   pagination?: Pagination
 }
 

@@ -58,7 +58,7 @@ function IllegalSitesSection() {
 
   const sites = data?.sites || []
   const filteredSites = searchQuery 
-    ? sites.filter(site => site.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? sites.filter(site => site.domain.toLowerCase().includes(searchQuery.toLowerCase()))
     : sites
 
   const handleAdd = async () => {
@@ -140,23 +140,23 @@ function IllegalSitesSection() {
           </div>
         ) : (
           <ul className="divide-y divide-gray-100">
-            {filteredSites.map((domain, index) => (
+            {filteredSites.map((site) => (
               <li 
-                key={index} 
+                key={site.id} 
                 className="flex items-center justify-between px-3 py-2 hover:bg-red-50 group"
               >
                 <a
-                  href={`https://${domain}`}
+                  href={`https://${site.domain}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-sm text-gray-700 hover:text-red-600 truncate flex-1"
-                  title={domain}
+                  title={site.domain}
                 >
                   <Globe className="h-4 w-4 text-red-400 flex-shrink-0" />
-                  <span className="truncate">{domain}</span>
+                  <span className="truncate">{site.domain}</span>
                 </a>
                 <button
-                  onClick={() => handleRemove(domain)}
+                  onClick={() => handleRemove(site.domain)}
                   className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-1"
                   title="삭제"
                 >
@@ -185,7 +185,7 @@ function LegalSitesSection() {
 
   const sites = data?.sites || []
   const filteredSites = searchQuery 
-    ? sites.filter(site => site.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? sites.filter(site => site.domain.toLowerCase().includes(searchQuery.toLowerCase()))
     : sites
 
   const handleAdd = async () => {
@@ -266,23 +266,23 @@ function LegalSitesSection() {
           </div>
         ) : (
           <ul className="divide-y divide-gray-100">
-            {filteredSites.map((domain, index) => (
+            {filteredSites.map((site) => (
               <li 
-                key={index} 
+                key={site.id} 
                 className="flex items-center justify-between px-3 py-2 hover:bg-green-50 group"
               >
                 <a
-                  href={`https://${domain}`}
+                  href={`https://${site.domain}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 text-sm text-gray-700 hover:text-green-600 truncate flex-1"
-                  title={domain}
+                  title={site.domain}
                 >
                   <Globe className="h-4 w-4 text-green-400 flex-shrink-0" />
-                  <span className="truncate">{domain}</span>
+                  <span className="truncate">{site.domain}</span>
                 </a>
                 <button
-                  onClick={() => handleRemove(domain)}
+                  onClick={() => handleRemove(site.domain)}
                   className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-1"
                   title="삭제"
                 >

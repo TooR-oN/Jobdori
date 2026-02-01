@@ -12,10 +12,22 @@ import { Button } from '@/components/ui/button'
 import { PieChart, Calendar, RefreshCw } from 'lucide-react'
 import { useTitleStats } from '@/hooks/use-api'
 
+// 기본 날짜 계산 (최근 30일)
+function getDefaultDates() {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(start.getDate() - 30)
+  return {
+    startDate: start.toISOString().split('T')[0],
+    endDate: end.toISOString().split('T')[0]
+  }
+}
+
 export function TitleStatsTab() {
+  const defaultDates = getDefaultDates()
   const [selectedTitle, setSelectedTitle] = useState<string>('')
-  const [startDate, setStartDate] = useState<string>('')
-  const [endDate, setEndDate] = useState<string>('')
+  const [startDate, setStartDate] = useState<string>(defaultDates.startDate)
+  const [endDate, setEndDate] = useState<string>(defaultDates.endDate)
 
   const { data, isLoading, refetch } = useTitleStats(startDate, endDate)
 
@@ -24,8 +36,9 @@ export function TitleStatsTab() {
   }
 
   const handleReset = () => {
-    setStartDate('')
-    setEndDate('')
+    const defaults = getDefaultDates()
+    setStartDate(defaults.startDate)
+    setEndDate(defaults.endDate)
     setSelectedTitle('')
   }
 

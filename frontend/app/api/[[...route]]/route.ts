@@ -1139,7 +1139,9 @@ app.get('/dashboard/months', async (c) => {
     await ensureDbMigration()
     const stats = await query`SELECT DISTINCT month FROM monthly_stats ORDER BY month DESC`
     const months = stats.map((s: any) => s.month)
-    const currentMonth = new Date().toISOString().slice(0, 7)
+    
+    // 데이터가 있는 최신 월을 current_month로 설정 (시스템 날짜가 아닌 실제 데이터 기준)
+    const currentMonth = months.length > 0 ? months[0] : new Date().toISOString().slice(0, 7)
     
     return c.json({
       success: true,
