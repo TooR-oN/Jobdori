@@ -2,10 +2,27 @@
 // Neon PostgreSQL Database Utilities
 // ============================================
 
-import { neon } from '@neondatabase/serverless'
+import { neon, NeonQueryFunction } from '@neondatabase/serverless'
 
-// DB 연결 (환경변수에서 CONNECTION STRING 가져옴)
-const sql = neon(process.env.DATABASE_URL || '')
+// DB 연결 - Lazy Initialization (첫 쿼리 시점에 초기화)
+let _sql: NeonQueryFunction<false, false> | null = null
+
+function getSql(): NeonQueryFunction<false, false> {
+  if (!_sql) {
+    const dbUrl = process.env.DATABASE_URL
+    if (!dbUrl) {
+      throw new Error('DATABASE_URL environment variable is not set')
+    }
+    _sql = neon(dbUrl)
+    console.log('✅ Database connection initialized')
+  }
+  return _sql
+}
+
+// sql 템플릿 태그 함수
+const sql = (strings: TemplateStringsArray, ...values: any[]) => {
+  return getSql()(strings, ...values)
+}
 
 // ============================================
 // 타입 정의
@@ -64,6 +81,24 @@ export interface PendingReview {
   created_at: string
 }
 
+// 탐지 결과 타입 (detection_results 테이블)
+export interface DetectionResult {
+  id: number
+  session_id: string
+  title: string
+  search_query: string
+  url: string
+  domain: string
+  page: number
+  rank: number
+  initial_status: 'illegal' | 'legal' | 'unknown'
+  llm_judgment: 'likely_illegal' | 'likely_legal' | 'uncertain' | null
+  llm_reason: string | null
+  final_status: 'illegal' | 'legal' | 'pending'
+  reviewed_at: string | null
+  created_at: string
+}
+
 // 신고결과 추적 관련 타입
 export interface ReportTracking {
   id: number
@@ -92,6 +127,43 @@ export interface ReportReason {
   reason_text: string
   usage_count: number
   created_at: string
+}
+
+// ============================================
+// 대시보드 캐싱 (5분 TTL)
+// ============================================
+
+interface CacheEntry<T> {
+  data: T
+  expiresAt: number
+}
+
+const dashboardCache = new Map<string, CacheEntry<MonthlyStats>>()
+const CACHE_TTL = 5 * 60 * 1000 // 5분
+
+export function getCachedDashboard(month: string): MonthlyStats | null {
+  const entry = dashboardCache.get(month)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    dashboardCache.delete(month)
+    return null
+  }
+  return entry.data
+}
+
+export function setCachedDashboard(month: string, data: MonthlyStats): void {
+  dashboardCache.set(month, {
+    data,
+    expiresAt: Date.now() + CACHE_TTL
+  })
+}
+
+export function invalidateDashboardCache(month?: string): void {
+  if (month) {
+    dashboardCache.delete(month)
+  } else {
+    dashboardCache.clear()
+  }
 }
 
 // ============================================
@@ -140,22 +212,95 @@ export async function updateSession(id: string, updates: Partial<Session>): Prom
 }
 
 // ============================================
-// Monthly Stats
+// Monthly Stats (detection_results 기반 - 실시간 집계)
 // ============================================
 
 export async function getMonthlyStats(): Promise<MonthlyStats[]> {
-  const rows = await sql`
-    SELECT * FROM monthly_stats 
+  // 완료된 세션의 월 목록 조회
+  const monthsResult = await sql`
+    SELECT DISTINCT SUBSTRING(id, 1, 7) as month 
+    FROM sessions 
+    WHERE status = 'completed' 
     ORDER BY month DESC
   `
-  return rows as MonthlyStats[]
+  
+  const stats: MonthlyStats[] = []
+  for (const row of monthsResult) {
+    const monthStats = await getMonthlyStatsByMonth(row.month)
+    if (monthStats) {
+      stats.push(monthStats)
+    }
+  }
+  return stats
 }
 
 export async function getMonthlyStatsByMonth(month: string): Promise<MonthlyStats | null> {
-  const rows = await sql`
-    SELECT * FROM monthly_stats WHERE month = ${month}
+  // 단일 CTE 쿼리로 모든 데이터 조회 (5개 쿼리 → 1개 쿼리)
+  const monthPattern = month + '%'
+  
+  const result = await sql`
+    WITH session_data AS (
+      SELECT 
+        COUNT(*) as sessions_count,
+        MAX(completed_at) as last_updated
+      FROM sessions 
+      WHERE id LIKE ${monthPattern} AND status = 'completed'
+    ),
+    stats_data AS (
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE final_status = 'illegal') as illegal,
+        COUNT(*) FILTER (WHERE final_status = 'legal') as legal,
+        COUNT(*) FILTER (WHERE final_status = 'pending') as pending
+      FROM detection_results
+      WHERE session_id LIKE ${monthPattern}
+    ),
+    top_contents AS (
+      SELECT title as name, COUNT(*) as count
+      FROM detection_results
+      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      GROUP BY title
+      ORDER BY count DESC
+      LIMIT 10
+    ),
+    top_domains AS (
+      SELECT domain, COUNT(*) as count
+      FROM detection_results
+      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      GROUP BY domain
+      ORDER BY count DESC
+      LIMIT 10
+    )
+    SELECT 
+      (SELECT sessions_count FROM session_data) as sessions_count,
+      (SELECT last_updated FROM session_data) as last_updated,
+      (SELECT total FROM stats_data) as total,
+      (SELECT illegal FROM stats_data) as illegal,
+      (SELECT legal FROM stats_data) as legal,
+      (SELECT pending FROM stats_data) as pending,
+      (SELECT COALESCE(json_agg(json_build_object('name', name, 'count', count)), '[]'::json) FROM top_contents) as top_contents,
+      (SELECT COALESCE(json_agg(json_build_object('domain', domain, 'count', count)), '[]'::json) FROM top_domains) as top_domains
   `
-  return rows[0] as MonthlyStats || null
+  
+  const data = result[0]
+  const sessionsCount = parseInt(data?.sessions_count) || 0
+  
+  if (sessionsCount === 0) {
+    return null
+  }
+  
+  return {
+    id: 0,
+    month,
+    sessions_count: sessionsCount,
+    total: parseInt(data?.total) || 0,
+    illegal: parseInt(data?.illegal) || 0,
+    legal: parseInt(data?.legal) || 0,
+    pending: parseInt(data?.pending) || 0,
+    top_contents: data?.top_contents || [],
+    top_illegal_sites: data?.top_domains || [],
+    last_updated: data?.last_updated || new Date().toISOString()
+  }
 }
 
 export async function upsertMonthlyStats(stats: Partial<MonthlyStats>): Promise<MonthlyStats> {

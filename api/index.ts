@@ -34,6 +34,43 @@ async function query(strings: TemplateStringsArray, ...values: any[]): Promise<a
   return result as any[]
 }
 
+// ============================================
+// 대시보드 캐싱 (5분 TTL)
+// ============================================
+
+interface CacheEntry {
+  data: any
+  expiresAt: number
+}
+
+const dashboardCache = new Map<string, CacheEntry>()
+const CACHE_TTL = 5 * 60 * 1000 // 5분
+
+function getCachedDashboard(month: string): any | null {
+  const entry = dashboardCache.get(month)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    dashboardCache.delete(month)
+    return null
+  }
+  return entry.data
+}
+
+function setCachedDashboard(month: string, data: any): void {
+  dashboardCache.set(month, {
+    data,
+    expiresAt: Date.now() + CACHE_TTL
+  })
+}
+
+function invalidateDashboardCache(month?: string): void {
+  if (month) {
+    dashboardCache.delete(month)
+  } else {
+    dashboardCache.clear()
+  }
+}
+
 // DB 마이그레이션 - page1_illegal_count 컬럼 추가
 let dbMigrationDone = false
 async function ensureDbMigration() {
@@ -337,6 +374,17 @@ async function removeSite(domain: string, type: 'illegal' | 'legal'): Promise<bo
   return true
 }
 
+// detection_results의 final_status 업데이트 (도메인 기반)
+async function updateDetectionResultsByDomain(domain: string, newStatus: 'illegal' | 'legal'): Promise<number> {
+  const result = await query`
+    UPDATE detection_results 
+    SET final_status = ${newStatus}, reviewed_at = NOW()
+    WHERE LOWER(domain) = ${domain.toLowerCase()} AND final_status = 'pending'
+    RETURNING id
+  `
+  return result.length
+}
+
 async function getCurrentTitles(): Promise<any[]> {
   return query`SELECT * FROM titles WHERE is_current = true ORDER BY created_at DESC`
 }
@@ -365,13 +413,96 @@ async function restoreTitle(name: string): Promise<boolean> {
   return true
 }
 
+// ============================================
+// Monthly Stats (detection_results 기반 - 실시간 집계)
+// ============================================
+
 async function getMonthlyStats(): Promise<any[]> {
-  return query`SELECT * FROM monthly_stats ORDER BY month DESC`
+  // 완료된 세션의 월 목록 조회
+  const monthsResult = await query`
+    SELECT DISTINCT SUBSTRING(id, 1, 7) as month 
+    FROM sessions 
+    WHERE status = 'completed' 
+    ORDER BY month DESC
+  `
+  
+  const stats: any[] = []
+  for (const row of monthsResult) {
+    const monthStats = await getMonthlyStatsByMonth(row.month)
+    if (monthStats) {
+      stats.push(monthStats)
+    }
+  }
+  return stats
 }
 
 async function getMonthlyStatsByMonth(month: string): Promise<any | null> {
-  const rows = await query`SELECT * FROM monthly_stats WHERE month = ${month}`
-  return rows[0] || null
+  // 단일 CTE 쿼리로 모든 데이터 조회 (5개 쿼리 → 1개 쿼리)
+  const monthPattern = month + '%'
+  
+  const result = await query`
+    WITH session_data AS (
+      SELECT 
+        COUNT(*) as sessions_count,
+        MAX(completed_at) as last_updated
+      FROM sessions 
+      WHERE id LIKE ${monthPattern} AND status = 'completed'
+    ),
+    stats_data AS (
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE final_status = 'illegal') as illegal,
+        COUNT(*) FILTER (WHERE final_status = 'legal') as legal,
+        COUNT(*) FILTER (WHERE final_status = 'pending') as pending
+      FROM detection_results
+      WHERE session_id LIKE ${monthPattern}
+    ),
+    top_contents AS (
+      SELECT title as name, COUNT(*) as count
+      FROM detection_results
+      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      GROUP BY title
+      ORDER BY count DESC
+      LIMIT 10
+    ),
+    top_domains AS (
+      SELECT domain, COUNT(*) as count
+      FROM detection_results
+      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      GROUP BY domain
+      ORDER BY count DESC
+      LIMIT 10
+    )
+    SELECT 
+      (SELECT sessions_count FROM session_data) as sessions_count,
+      (SELECT last_updated FROM session_data) as last_updated,
+      (SELECT total FROM stats_data) as total,
+      (SELECT illegal FROM stats_data) as illegal,
+      (SELECT legal FROM stats_data) as legal,
+      (SELECT pending FROM stats_data) as pending,
+      (SELECT COALESCE(json_agg(json_build_object('name', name, 'count', count)), '[]'::json) FROM top_contents) as top_contents,
+      (SELECT COALESCE(json_agg(json_build_object('domain', domain, 'count', count)), '[]'::json) FROM top_domains) as top_domains
+  `
+  
+  const data = result[0]
+  const sessionsCount = parseInt(data?.sessions_count) || 0
+  
+  if (sessionsCount === 0) {
+    return null
+  }
+  
+  return {
+    id: 0,
+    month,
+    sessions_count: sessionsCount,
+    total: parseInt(data?.total) || 0,
+    illegal: parseInt(data?.illegal) || 0,
+    legal: parseInt(data?.legal) || 0,
+    pending: parseInt(data?.pending) || 0,
+    top_contents: data?.top_contents || [],
+    top_illegal_sites: data?.top_domains || [],
+    last_updated: data?.last_updated || new Date().toISOString()
+  }
 }
 
 // ============================================
@@ -1001,8 +1132,13 @@ app.post('/api/review', async (c) => {
     const item = await getPendingReviewById(parseInt(id))
     if (!item) return c.json({ success: false, error: 'Item not found' }, 404)
     
+    let updatedDetectionCount = 0
+    
     if (action === 'approve') {
       await addSite(item.domain, 'illegal')
+      
+      // detection_results 업데이트 (통계에 즉시 반영)
+      updatedDetectionCount = await updateDetectionResultsByDomain(item.domain, 'illegal')
       
       // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록 (title 포함)
       if (item.session_id && item.urls && Array.isArray(item.urls)) {
@@ -1022,10 +1158,17 @@ app.post('/api/review', async (c) => {
       await deletePendingReview(parseInt(id))
     } else if (action === 'reject') {
       await addSite(item.domain, 'legal')
+      
+      // detection_results 업데이트 (통계에 즉시 반영)
+      updatedDetectionCount = await updateDetectionResultsByDomain(item.domain, 'legal')
+      
       await deletePendingReview(parseInt(id))
     }
     
-    return c.json({ success: true, action })
+    // 캐시 무효화 (모든 월의 캐시를 비움)
+    invalidateDashboardCache()
+    
+    return c.json({ success: true, action, updated_detection_results: updatedDetectionCount })
   } catch (error) {
     console.error('Review processing error:', error)
     return c.json({ success: false, error: 'Failed to process review' }, 500)
@@ -1046,6 +1189,7 @@ app.post('/api/review/bulk', async (c) => {
     let processed = 0
     let failed = 0
     let totalUrlsRegistered = 0
+    let totalDetectionUpdated = 0
     
     for (const id of ids) {
       try {
@@ -1057,6 +1201,9 @@ app.post('/api/review/bulk', async (c) => {
         
         if (action === 'approve') {
           await addSite(item.domain, 'illegal')
+          
+          // detection_results 업데이트 (통계에 즉시 반영)
+          totalDetectionUpdated += await updateDetectionResultsByDomain(item.domain, 'illegal')
           
           // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록 (title 포함)
           if (item.session_id && item.urls && Array.isArray(item.urls)) {
@@ -1073,6 +1220,9 @@ app.post('/api/review/bulk', async (c) => {
           }
         } else {
           await addSite(item.domain, 'legal')
+          
+          // detection_results 업데이트 (통계에 즉시 반영)
+          totalDetectionUpdated += await updateDetectionResultsByDomain(item.domain, 'legal')
         }
         await deletePendingReview(parseInt(id))
         processed++
@@ -1082,8 +1232,11 @@ app.post('/api/review/bulk', async (c) => {
       }
     }
     
-    console.log(`✅ Bulk review completed: ${processed} processed, ${failed} failed, ${totalUrlsRegistered} URLs registered`)
-    return c.json({ success: true, processed, failed, action, urls_registered: totalUrlsRegistered })
+    // 캐시 무효화 (모든 월의 캐시를 비움)
+    invalidateDashboardCache()
+    
+    console.log(`✅ Bulk review completed: ${processed} processed, ${failed} failed, ${totalUrlsRegistered} URLs registered, ${totalDetectionUpdated} detection results updated`)
+    return c.json({ success: true, processed, failed, action, urls_registered: totalUrlsRegistered, detection_updated: totalDetectionUpdated })
   } catch (error) {
     console.error('Bulk review processing error:', error)
     return c.json({ success: false, error: 'Failed to process bulk review' }, 500)
@@ -1447,72 +1600,80 @@ app.get('/api/dashboard/months', async (c) => {
 app.get('/api/dashboard', async (c) => {
   try {
     const month = c.req.query('month')
+    const nocache = c.req.query('nocache') === 'true'
     const now = new Date()
     const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     
-    // 해당 월의 모든 세션 가져오기
-    const sessions = await query`
-      SELECT id, file_final_results, results_total, results_illegal, results_legal, results_pending
-      FROM sessions 
-      WHERE id LIKE ${targetMonth + '%'} AND status = 'completed' AND file_final_results IS NOT NULL
-      ORDER BY created_at DESC
+    // 캐시 확인 (nocache가 아닌 경우)
+    if (!nocache) {
+      const cached = getCachedDashboard(targetMonth)
+      if (cached) {
+        return c.json({ ...cached, cached: true })
+      }
+    }
+    
+    // detection_results 기반 실시간 집계 (CTE 사용)
+    const monthPattern = targetMonth + '%'
+    
+    const statsResult = await query`
+      WITH session_data AS (
+        SELECT 
+          COUNT(*) as sessions_count,
+          MAX(completed_at) as last_updated
+        FROM sessions 
+        WHERE id LIKE ${monthPattern} AND status = 'completed'
+      ),
+      stats_data AS (
+        SELECT 
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE final_status = 'illegal') as illegal,
+          COUNT(*) FILTER (WHERE final_status = 'legal') as legal,
+          COUNT(*) FILTER (WHERE final_status = 'pending') as pending
+        FROM detection_results
+        WHERE session_id LIKE ${monthPattern}
+      ),
+      top_contents AS (
+        SELECT title as name, COUNT(*) as count
+        FROM detection_results
+        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+        GROUP BY title
+        ORDER BY count DESC
+        LIMIT 10
+      ),
+      top_domains AS (
+        SELECT domain, COUNT(*) as count
+        FROM detection_results
+        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+        GROUP BY domain
+        ORDER BY count DESC
+        LIMIT 10
+      )
+      SELECT 
+        (SELECT sessions_count FROM session_data) as sessions_count,
+        (SELECT last_updated FROM session_data) as last_updated,
+        (SELECT total FROM stats_data) as total,
+        (SELECT illegal FROM stats_data) as illegal,
+        (SELECT legal FROM stats_data) as legal,
+        (SELECT pending FROM stats_data) as pending,
+        (SELECT COALESCE(json_agg(json_build_object('name', name, 'count', count)), '[]'::json) FROM top_contents) as top_contents,
+        (SELECT COALESCE(json_agg(json_build_object('domain', domain, 'count', count)), '[]'::json) FROM top_domains) as top_domains
     `
     
-    if (sessions.length === 0) {
-      return c.json({
+    const data = statsResult[0]
+    const sessionsCount = parseInt(data?.sessions_count) || 0
+    
+    if (sessionsCount === 0) {
+      const emptyResult = {
         success: true,
         month: targetMonth,
         sessions_count: 0,
         top_contents: [],
         top_illegal_sites: [],
-        total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 }
-      })
-    }
-    
-    // 월별 총계 계산
-    let totalStats = { total: 0, illegal: 0, legal: 0, pending: 0 }
-    for (const s of sessions) {
-      totalStats.total += s.results_total || 0
-      totalStats.illegal += s.results_illegal || 0
-      totalStats.legal += s.results_legal || 0
-      totalStats.pending += s.results_pending || 0
-    }
-    
-    // 모든 세션의 결과를 가져와서 누적 계산
-    const titleCounts = new Map<string, number>()
-    const domainCounts = new Map<string, number>()
-    
-    for (const session of sessions) {
-      if (!session.file_final_results) continue
-      try {
-        const response = await fetch(session.file_final_results)
-        if (!response.ok) continue
-        let results: FinalResult[] = await response.json()
-        
-        // 사이트 목록 기반으로 final_status 재계산
-        results = await recalculateFinalStatus(results)
-        
-        for (const r of results) {
-          if (r.final_status === 'illegal') {
-            titleCounts.set(r.title, (titleCounts.get(r.title) || 0) + 1)
-            domainCounts.set(r.domain, (domainCounts.get(r.domain) || 0) + 1)
-          }
-        }
-      } catch {
-        // Blob 로드 실패 시 무시
+        total_stats: { total: 0, illegal: 0, legal: 0, pending: 0 },
+        report_stats: { discovered: 0, reported: 0, blocked: 0, blockRate: 0 }
       }
+      return c.json(emptyResult)
     }
-    
-    // Top 10으로 정렬
-    const topContents = Array.from(titleCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([name, count]) => ({ name, count }))
-    
-    const topIllegalSites = Array.from(domainCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([domain, count]) => ({ domain, count }))
     
     // 월별 신고/차단 통계 조회 (report_tracking 기반)
     const startDate = targetMonth + '-01'
@@ -1532,70 +1693,51 @@ app.get('/api/dashboard', async (c) => {
     const blocked = parseInt(reportStats[0]?.blocked) || 0
     const blockRate = reported > 0 ? Math.round((blocked / reported) * 100 * 10) / 10 : 0
     
-    return c.json({
+    const result = {
       success: true,
       month: targetMonth,
-      sessions_count: sessions.length,
-      top_contents: topContents,
-      top_illegal_sites: topIllegalSites,
-      total_stats: totalStats,
+      sessions_count: sessionsCount,
+      top_contents: data?.top_contents || [],
+      top_illegal_sites: data?.top_domains || [],
+      total_stats: {
+        total: parseInt(data?.total) || 0,
+        illegal: parseInt(data?.illegal) || 0,
+        legal: parseInt(data?.legal) || 0,
+        pending: parseInt(data?.pending) || 0
+      },
       report_stats: {
         discovered,
         reported,
         blocked,
         blockRate
       }
-    })
+    }
+    
+    // 캐시 저장
+    setCachedDashboard(targetMonth, result)
+    
+    return c.json({ ...result, cached: false })
   } catch {
     return c.json({ success: false, error: 'Failed to load dashboard' }, 500)
   }
 })
 
-// 전체보기 API - 해당 월의 모든 작품별 통계
+// 전체보기 API - 해당 월의 모든 작품별 통계 (detection_results 기반)
 app.get('/api/dashboard/all-titles', async (c) => {
   try {
     const month = c.req.query('month')
     const now = new Date()
     const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const monthPattern = targetMonth + '%'
     
-    // 해당 월의 모든 세션 가져오기
-    const sessions = await query`
-      SELECT id, file_final_results
-      FROM sessions 
-      WHERE id LIKE ${targetMonth + '%'} AND status = 'completed' AND file_final_results IS NOT NULL
+    // detection_results에서 직접 집계
+    const titles = await query`
+      SELECT title as name, COUNT(*) as count
+      FROM detection_results
+      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      GROUP BY title
+      ORDER BY count DESC
     `
-    
-    if (sessions.length === 0) {
-      return c.json({ success: true, month: targetMonth, titles: [] })
-    }
-    
-    // 모든 세션의 결과를 가져와서 작품별 누적 계산
-    const titleCounts = new Map<string, number>()
-    
-    for (const session of sessions) {
-      if (!session.file_final_results) continue
-      try {
-        const response = await fetch(session.file_final_results)
-        if (!response.ok) continue
-        let results: FinalResult[] = await response.json()
-        
-        // 사이트 목록 기반으로 final_status 재계산
-        results = await recalculateFinalStatus(results)
-        
-        for (const r of results) {
-          if (r.final_status === 'illegal') {
-            titleCounts.set(r.title, (titleCounts.get(r.title) || 0) + 1)
-          }
-        }
-      } catch {
-        // Blob 로드 실패 시 무시
-      }
-    }
-    
-    // 정렬해서 반환
-    const titles = Array.from(titleCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([name, count]) => ({ name, count }))
     
     return c.json({ success: true, month: targetMonth, titles })
   } catch {
