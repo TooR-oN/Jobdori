@@ -1,7 +1,25 @@
+import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import XLSX from 'xlsx';
+import { neon } from '@neondatabase/serverless';
 import { Config, FinalResult, REPORT_COLUMNS } from './types/index.js';
+
+// ============================================
+// DB 연결
+// ============================================
+
+let dbInstance: ReturnType<typeof neon> | null = null;
+
+function getDb() {
+  if (!dbInstance) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is not set');
+    }
+    dbInstance = neon(process.env.DATABASE_URL);
+  }
+  return dbInstance;
+}
 
 // ============================================
 // 공용 유틸리티 함수
@@ -43,9 +61,31 @@ export function loadConfig(): Config {
 }
 
 /**
- * 작품 제목 로드 (titles.json 우선, 없으면 titles.xlsx 사용)
+ * 작품 제목 로드 - DB 우선, 폴백으로 파일 사용
+ * GitHub Actions에서 사용 - DB의 is_current=true 작품을 실시간으로 로드
  */
-export function loadTitles(filePath: string): string[] {
+export async function loadTitlesFromDb(): Promise<string[]> {
+  try {
+    const sql = getDb();
+    const rows = await sql`
+      SELECT name FROM titles 
+      WHERE is_current = true 
+      ORDER BY name
+    `;
+    const titles = rows.map((r: any) => r.name);
+    console.log(`📖 DB에서 작품 ${titles.length}개 로드됨`);
+    return titles;
+  } catch (error) {
+    console.warn('⚠️ DB 로드 실패, 파일로 폴백:', error);
+    // 폴백: 파일에서 로드
+    return loadTitlesFromFile('data/titles.xlsx');
+  }
+}
+
+/**
+ * 작품 제목 로드 (파일 기반 - 폴백용)
+ */
+export function loadTitlesFromFile(filePath: string): string[] {
   // titles.json 파일 경로
   const jsonPath = path.join(process.cwd(), 'data', 'titles.json');
   
@@ -72,6 +112,13 @@ export function loadTitles(filePath: string): string[] {
   const titles = data.map(row => row.title).filter(Boolean);
   console.log(`📖 titles.xlsx에서 작품 ${titles.length}개 로드됨`);
   return titles;
+}
+
+/**
+ * 하위 호환성을 위한 기존 함수 (deprecated - loadTitlesFromDb 사용 권장)
+ */
+export function loadTitles(filePath: string): string[] {
+  return loadTitlesFromFile(filePath);
 }
 
 /**

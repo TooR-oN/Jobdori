@@ -5,7 +5,7 @@ import {
   sleep,
   extractDomain,
   loadConfig,
-  loadTitles,
+  loadTitlesFromDb,
   loadKeywords,
   saveJson,
   getTimestamp,
@@ -148,8 +148,8 @@ export async function runSearch(): Promise<SearchResult[]> {
   // 설정 로드
   const config = loadConfig();
 
-  // 작품 제목 로드
-  const titles = loadTitles(config.paths.titlesFile);
+  // 작품 제목 로드 (DB 기반 - 실시간 반영)
+  const titles = await loadTitlesFromDb();
   console.log(`📚 작품 수: ${titles.length}개`);
 
   // 키워드 로드 (빈 문자열도 포함 - 작품명만 검색)

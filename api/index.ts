@@ -393,11 +393,51 @@ async function getHistoryTitles(): Promise<any[]> {
   return query`SELECT * FROM titles WHERE is_current = false ORDER BY created_at DESC`
 }
 
+/**
+ * 작품명 정규화 - 특수문자 통일 (중복 방지용)
+ * 예: 곡선 따옴표 ' → 직선 따옴표 '
+ */
+function normalizeTitle(name: string): string {
+  return name
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")  // 곡선 작은따옴표 → '
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')  // 곡선 큰따옴표 → "
+    .replace(/\u2014/g, '-')  // em dash → -
+    .replace(/\u2013/g, '-')  // en dash → -
+    .replace(/\s+/g, ' ')     // 연속 공백 → 단일 공백
+    .trim()
+}
+
 async function addTitle(name: string, mantaUrl?: string): Promise<any> {
+  // 입력값 정규화
+  const normalizedName = normalizeTitle(name)
+  
+  // 기존 작품 중복 체크 (정규화된 이름으로 비교)
+  const existing = await query`
+    SELECT id, name, is_current FROM titles
+  `
+  
+  // 정규화된 이름으로 기존 작품 찾기
+  const duplicateEntry = existing.find((t: any) => 
+    normalizeTitle(t.name) === normalizedName
+  )
+  
+  if (duplicateEntry) {
+    // 기존 작품이 있으면 해당 작품의 is_current를 true로 업데이트
+    const rows = await query`
+      UPDATE titles 
+      SET is_current = true, 
+          manta_url = COALESCE(${mantaUrl || null}, manta_url)
+      WHERE id = ${duplicateEntry.id}
+      RETURNING *
+    `
+    console.log(`📌 기존 작품 복원: "${duplicateEntry.name}" (ID: ${duplicateEntry.id})`)
+    return { ...rows[0], restored: true, originalName: duplicateEntry.name }
+  }
+  
+  // 새 작품 추가
   const rows = await query`
     INSERT INTO titles (name, is_current, manta_url)
-    VALUES (${name}, true, ${mantaUrl || null})
-    ON CONFLICT (name) DO UPDATE SET is_current = true, manta_url = COALESCE(${mantaUrl || null}, titles.manta_url)
+    VALUES (${normalizedName}, true, ${mantaUrl || null})
     RETURNING *
   `
   return rows[0]
@@ -1374,8 +1414,20 @@ app.post('/api/titles', async (c) => {
     const { title, manta_url } = await c.req.json()
     if (!title) return c.json({ success: false, error: 'Missing title' }, 400)
     const result = await addTitle(title, manta_url)
+    
+    // 중복 감지 시 메시지 포함
+    if (result.restored) {
+      return c.json({ 
+        success: true, 
+        title: result,
+        message: `기존 작품 "${result.originalName}"이(가) 다시 활성화되었습니다.`,
+        restored: true
+      })
+    }
+    
     return c.json({ success: true, title: result })
-  } catch {
+  } catch (error) {
+    console.error('작품 추가 오류:', error)
     return c.json({ success: false, error: 'Failed to add title' }, 500)
   }
 })
