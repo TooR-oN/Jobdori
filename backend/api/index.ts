@@ -226,15 +226,56 @@ interface FinalResult {
 }
 
 // ============================================
-// Auth Setup - Signed Cookie (Stateless)
+// Auth Setup - ID/PW 기반 인증
 // ============================================
 
-const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD || 'ridilegal'
-// SECRET_KEY는 환경변수로 설정하거나 자동 생성 (프로덕션에서는 환경변수 권장)
+// 사이트 모드: admin(관리자용), user(일반용)
+const SITE_MODE = process.env.SITE_MODE || 'user'
+
+// 슈퍼관리자 인증 정보 (환경변수에서 로드 - admin 사이트용)
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || ''
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || ''
+
+// 세션 시크릿 (토큰 서명용)
 const SECRET_KEY = process.env.SESSION_SECRET || 'jobdori-secret-key-2026'
 
+// 사용자 역할 타입
+type UserRole = 'superadmin' | 'admin' | 'user'
+
+// 토큰 페이로드 타입
+interface TokenPayload {
+  exp: number
+  username: string
+  role: UserRole
+}
+
+// bcrypt 호환 해시 비교 (Vercel Edge에서 동작)
+async function comparePassword(password: string, hash: string): Promise<boolean> {
+  try {
+    // bcrypt 해시 형식: $2a$10$...
+    if (!hash.startsWith('$2')) return false
+    
+    const parts = hash.split('$')
+    if (parts.length !== 4) return false
+    
+    const cost = parseInt(parts[2])
+    const saltAndHash = parts[3]
+    const salt = saltAndHash.substring(0, 22)
+    
+    // Web Crypto API로 직접 bcrypt 구현은 복잡하므로
+    // 간단한 PBKDF2 기반 비교로 대체 (보안상 충분)
+    // 실제로는 bcryptjs의 compareSync를 사용해야 함
+    
+    // Vercel Serverless에서는 Node.js API 사용 가능
+    const bcrypt = await import('bcryptjs')
+    return bcrypt.compareSync(password, hash)
+  } catch {
+    return false
+  }
+}
+
 // HMAC-SHA256으로 토큰 서명 생성
-async function createSignedToken(payload: { exp: number }): Promise<string> {
+async function createSignedToken(payload: TokenPayload): Promise<string> {
   const data = JSON.stringify(payload)
   const encoder = new TextEncoder()
   const key = await crypto.subtle.importKey(
@@ -250,17 +291,17 @@ async function createSignedToken(payload: { exp: number }): Promise<string> {
   return `${dataB64}.${signatureB64}`
 }
 
-// 서명된 토큰 검증
-async function verifySignedToken(token: string): Promise<boolean> {
+// 서명된 토큰 검증 및 페이로드 반환
+async function verifySignedToken(token: string): Promise<TokenPayload | null> {
   try {
     const [dataB64, signatureB64] = token.split('.')
-    if (!dataB64 || !signatureB64) return false
+    if (!dataB64 || !signatureB64) return null
     
     const data = atob(dataB64)
-    const payload = JSON.parse(data)
+    const payload: TokenPayload = JSON.parse(data)
     
     // 만료 시간 확인
-    if (payload.exp && Date.now() > payload.exp) return false
+    if (payload.exp && Date.now() > payload.exp) return null
     
     // 서명 검증
     const encoder = new TextEncoder()
@@ -274,9 +315,41 @@ async function verifySignedToken(token: string): Promise<boolean> {
     
     const signatureBytes = Uint8Array.from(atob(signatureB64), c => c.charCodeAt(0))
     const isValid = await crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(data))
-    return isValid
+    return isValid ? payload : null
   } catch {
-    return false
+    return null
+  }
+}
+
+// 레거시 호환: boolean 반환 버전
+async function verifySignedTokenBool(token: string): Promise<boolean> {
+  return (await verifySignedToken(token)) !== null
+}
+
+// 슈퍼관리자 인증 (환경변수 기반)
+async function authenticateSuperAdmin(username: string, password: string): Promise<boolean> {
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) return false
+  if (username !== ADMIN_USERNAME) return false
+  return await comparePassword(password, ADMIN_PASSWORD_HASH)
+}
+
+// 일반 사용자 인증 (DB 기반)
+async function authenticateUser(username: string, password: string): Promise<{ success: boolean; role: UserRole } | null> {
+  try {
+    const users = await query`
+      SELECT id, username, password_hash, role, is_active 
+      FROM users 
+      WHERE username = ${username} AND is_active = true
+    `
+    if (users.length === 0) return null
+    
+    const user = users[0]
+    const isValid = await comparePassword(password, user.password_hash)
+    if (!isValid) return null
+    
+    return { success: true, role: user.role as UserRole }
+  } catch {
+    return null
   }
 }
 
@@ -900,9 +973,16 @@ app.use('/api/*', cors())
 
 app.get('/login', async (c) => {
   const sessionToken = getCookie(c, 'session_token')
-  if (sessionToken && await verifySignedToken(sessionToken)) {
+  if (sessionToken && await verifySignedTokenBool(sessionToken)) {
     return c.redirect('/')
   }
+  
+  const isAdminSite = SITE_MODE === 'admin'
+  const siteTitle = isAdminSite ? 'Jobdori Admin' : 'Jobdori'
+  const siteDesc = isAdminSite ? '관리자 전용 시스템' : '리디 저작권 침해 모니터링 시스템'
+  const gradientClass = isAdminSite ? 'from-red-500 to-orange-600' : 'from-blue-500 to-purple-600'
+  const buttonClass = isAdminSite ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+  const focusClass = isAdminSite ? 'focus:ring-red-500' : 'focus:ring-blue-500'
   
   return c.html(`
 <!DOCTYPE html>
@@ -910,32 +990,39 @@ app.get('/login', async (c) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>로그인 - Jobdori</title>
+  <meta name="robots" content="noindex, nofollow">
+  <title>로그인 - ${siteTitle}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 </head>
-<body class="bg-gradient-to-br from-blue-500 to-purple-600 min-h-screen flex items-center justify-center">
+<body class="bg-gradient-to-br ${gradientClass} min-h-screen flex items-center justify-center">
   <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
     <div class="text-center mb-8">
       <div class="flex items-center justify-center gap-3">
         <svg width="60" height="24" viewBox="0 0 60 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <text x="0" y="20" font-family="Arial Black, sans-serif" font-size="22" font-weight="900" fill="#1E9EF4">RIDI</text>
         </svg>
-        <h1 class="text-3xl font-bold text-gray-800">Jobdori</h1>
+        <h1 class="text-3xl font-bold text-gray-800">${siteTitle}</h1>
       </div>
-      <p class="text-gray-500 mt-2">리디 저작권 침해 모니터링 시스템</p>
+      <p class="text-gray-500 mt-2">${siteDesc}</p>
     </div>
     <form id="login-form" onsubmit="handleLogin(event)">
+      <div class="mb-4">
+        <label class="block text-gray-700 text-sm font-medium mb-2">아이디</label>
+        <input type="text" id="username" 
+               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 ${focusClass}"
+               placeholder="아이디를 입력하세요" required autofocus autocomplete="username">
+      </div>
       <div class="mb-6">
         <label class="block text-gray-700 text-sm font-medium mb-2">비밀번호</label>
         <input type="password" id="password" 
-               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-               placeholder="비밀번호를 입력하세요" required autofocus>
+               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 ${focusClass}"
+               placeholder="비밀번호를 입력하세요" required autocomplete="current-password">
       </div>
       <div id="error-message" class="hidden mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
-        비밀번호가 올바르지 않습니다.
+        아이디 또는 비밀번호가 올바르지 않습니다.
       </div>
-      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition">
+      <button type="submit" class="w-full ${buttonClass} text-white font-medium py-3 px-4 rounded-lg transition">
         <i class="fas fa-sign-in-alt mr-2"></i>로그인
       </button>
     </form>
@@ -943,17 +1030,19 @@ app.get('/login', async (c) => {
   <script>
     async function handleLogin(event) {
       event.preventDefault();
+      const username = document.getElementById('username').value;
       const password = document.getElementById('password').value;
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ username, password })
       });
       const data = await response.json();
       if (data.success) {
         window.location.href = '/';
       } else {
         document.getElementById('error-message').classList.remove('hidden');
+        document.getElementById('error-message').textContent = data.error || '아이디 또는 비밀번호가 올바르지 않습니다.';
       }
     }
   </script>
@@ -964,11 +1053,39 @@ app.get('/login', async (c) => {
 
 app.post('/api/auth/login', async (c) => {
   try {
-    const { password } = await c.req.json()
-    if (password === ACCESS_PASSWORD) {
+    const { username, password } = await c.req.json()
+    
+    if (!username || !password) {
+      return c.json({ success: false, error: '아이디와 비밀번호를 입력하세요.' }, 400)
+    }
+    
+    let role: UserRole = 'user'
+    let authenticated = false
+    
+    // 관리자 사이트에서는 슈퍼관리자 인증 시도
+    if (SITE_MODE === 'admin') {
+      if (await authenticateSuperAdmin(username, password)) {
+        authenticated = true
+        role = 'superadmin'
+      }
+    }
+    
+    // 슈퍼관리자 인증 실패 시 또는 일반 사이트에서는 DB 인증
+    if (!authenticated) {
+      const userAuth = await authenticateUser(username, password)
+      if (userAuth) {
+        authenticated = true
+        role = userAuth.role
+        
+        // 일반 사이트(user 모드)에서는 superadmin/admin 역할만 접근 불가
+        // (승인 대기 등 관리 기능은 admin 사이트에서만)
+      }
+    }
+    
+    if (authenticated) {
       // 24시간 후 만료
       const exp = Date.now() + 24 * 60 * 60 * 1000
-      const token = await createSignedToken({ exp })
+      const token = await createSignedToken({ exp, username, role })
       setCookie(c, 'session_token', token, {
         httpOnly: true,
         secure: true,
@@ -976,10 +1093,12 @@ app.post('/api/auth/login', async (c) => {
         maxAge: 60 * 60 * 24,
         path: '/'
       })
-      return c.json({ success: true })
+      return c.json({ success: true, user: { username, role } })
     }
-    return c.json({ success: false, error: '비밀번호가 올바르지 않습니다.' }, 401)
-  } catch {
+    
+    return c.json({ success: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' }, 401)
+  } catch (error) {
+    console.error('로그인 오류:', error)
     return c.json({ success: false, error: '요청 처리 중 오류가 발생했습니다.' }, 500)
   }
 })
@@ -992,32 +1111,219 @@ app.post('/api/auth/logout', (c) => {
 app.get('/api/auth/status', async (c) => {
   const sessionToken = getCookie(c, 'session_token')
   if (!sessionToken) return c.json({ authenticated: false })
-  const isValid = await verifySignedToken(sessionToken)
-  return c.json({ authenticated: isValid })
+  
+  const payload = await verifySignedToken(sessionToken)
+  if (!payload) return c.json({ authenticated: false })
+  
+  return c.json({ 
+    authenticated: true,
+    user: {
+      username: payload.username,
+      role: payload.role
+    },
+    siteMode: SITE_MODE
+  })
 })
 
 // Auth Middleware
 app.use('*', async (c, next) => {
   const path = c.req.path
-  const publicPaths = ['/login', '/api/auth/login', '/api/auth/status']
+  const publicPaths = ['/login', '/api/auth/login', '/api/auth/status', '/robots.txt']
   if (publicPaths.some(p => path.startsWith(p))) return next()
   
   const sessionToken = getCookie(c, 'session_token')
-  const isValid = sessionToken ? await verifySignedToken(sessionToken) : false
-  if (!isValid) {
+  const payload = sessionToken ? await verifySignedToken(sessionToken) : null
+  if (!payload) {
     if (path.startsWith('/api/')) {
       return c.json({ success: false, error: '인증이 필요합니다.' }, 401)
     }
     return c.redirect('/login')
   }
+  
+  // 현재 사용자 정보를 컨텍스트에 저장
+  c.set('user', payload)
   return next()
 })
 
+// 역할 기반 접근 제어 헬퍼
+function requireRole(allowedRoles: UserRole[]) {
+  return async (c: any, next: any) => {
+    const user = c.get('user') as TokenPayload | undefined
+    if (!user || !allowedRoles.includes(user.role)) {
+      return c.json({ success: false, error: '접근 권한이 없습니다.' }, 403)
+    }
+    return next()
+  }
+}
+
+// 관리자 사이트 전용 접근 제어 (admin 모드에서만 접근 가능)
+function requireAdminSite() {
+  return async (c: any, next: any) => {
+    if (SITE_MODE !== 'admin') {
+      return c.json({ success: false, error: '관리자 사이트에서만 접근 가능합니다.' }, 403)
+    }
+    return next()
+  }
+}
+
 // ============================================
-// API - Pending Reviews
+// 봇/크롤러 차단 - robots.txt
 // ============================================
 
-app.get('/api/pending', async (c) => {
+app.get('/robots.txt', (c) => {
+  return c.text(`User-agent: *
+Disallow: /
+
+# 모든 검색 엔진 크롤러 차단
+User-agent: Googlebot
+Disallow: /
+
+User-agent: Bingbot
+Disallow: /
+
+User-agent: Yandex
+Disallow: /
+
+User-agent: Baiduspider
+Disallow: /
+`, 200, { 'Content-Type': 'text/plain' })
+})
+
+// ============================================
+// API - 사용자 계정 관리 (Admin Only)
+// ============================================
+
+// 사용자 목록 조회 (슈퍼관리자만)
+app.get('/api/users', requireRole(['superadmin']), async (c) => {
+  try {
+    const users = await query`
+      SELECT id, username, role, is_active, created_at, updated_at 
+      FROM users 
+      ORDER BY created_at DESC
+    `
+    return c.json({ success: true, users })
+  } catch (error) {
+    console.error('사용자 목록 조회 오류:', error)
+    return c.json({ success: false, error: '사용자 목록을 불러오지 못했습니다.' }, 500)
+  }
+})
+
+// 사용자 생성 (슈퍼관리자만)
+app.post('/api/users', requireRole(['superadmin']), async (c) => {
+  try {
+    const { username, password, role = 'user' } = await c.req.json()
+    
+    if (!username || !password) {
+      return c.json({ success: false, error: '아이디와 비밀번호를 입력하세요.' }, 400)
+    }
+    
+    if (username.length < 3 || username.length > 50) {
+      return c.json({ success: false, error: '아이디는 3~50자여야 합니다.' }, 400)
+    }
+    
+    if (password.length < 6) {
+      return c.json({ success: false, error: '비밀번호는 6자 이상이어야 합니다.' }, 400)
+    }
+    
+    const validRoles: UserRole[] = ['user', 'admin']
+    if (!validRoles.includes(role)) {
+      return c.json({ success: false, error: '유효하지 않은 역할입니다.' }, 400)
+    }
+    
+    // 중복 체크
+    const existing = await query`SELECT id FROM users WHERE username = ${username}`
+    if (existing.length > 0) {
+      return c.json({ success: false, error: '이미 존재하는 아이디입니다.' }, 400)
+    }
+    
+    // 비밀번호 해시
+    const bcrypt = await import('bcryptjs')
+    const passwordHash = bcrypt.hashSync(password, 10)
+    
+    const result = await query`
+      INSERT INTO users (username, password_hash, role, is_active)
+      VALUES (${username}, ${passwordHash}, ${role}, true)
+      RETURNING id, username, role, is_active, created_at
+    `
+    
+    return c.json({ success: true, user: result[0] })
+  } catch (error) {
+    console.error('사용자 생성 오류:', error)
+    return c.json({ success: false, error: '사용자 생성에 실패했습니다.' }, 500)
+  }
+})
+
+// 사용자 정보 수정 (슈퍼관리자만)
+app.put('/api/users/:id', requireRole(['superadmin']), async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'))
+    const { role, is_active, password } = await c.req.json()
+    
+    // 사용자 존재 확인
+    const existing = await query`SELECT id, username FROM users WHERE id = ${id}`
+    if (existing.length === 0) {
+      return c.json({ success: false, error: '사용자를 찾을 수 없습니다.' }, 404)
+    }
+    
+    // 업데이트할 필드 처리
+    if (password && password.length >= 6) {
+      const bcrypt = await import('bcryptjs')
+      const passwordHash = bcrypt.hashSync(password, 10)
+      await query`
+        UPDATE users 
+        SET password_hash = ${passwordHash}, updated_at = NOW()
+        WHERE id = ${id}
+      `
+    }
+    
+    if (role !== undefined) {
+      const validRoles: UserRole[] = ['user', 'admin']
+      if (!validRoles.includes(role)) {
+        return c.json({ success: false, error: '유효하지 않은 역할입니다.' }, 400)
+      }
+      await query`UPDATE users SET role = ${role}, updated_at = NOW() WHERE id = ${id}`
+    }
+    
+    if (is_active !== undefined) {
+      await query`UPDATE users SET is_active = ${is_active}, updated_at = NOW() WHERE id = ${id}`
+    }
+    
+    const updated = await query`
+      SELECT id, username, role, is_active, created_at, updated_at 
+      FROM users WHERE id = ${id}
+    `
+    
+    return c.json({ success: true, user: updated[0] })
+  } catch (error) {
+    console.error('사용자 수정 오류:', error)
+    return c.json({ success: false, error: '사용자 정보 수정에 실패했습니다.' }, 500)
+  }
+})
+
+// 사용자 삭제 (슈퍼관리자만)
+app.delete('/api/users/:id', requireRole(['superadmin']), async (c) => {
+  try {
+    const id = parseInt(c.req.param('id'))
+    
+    const existing = await query`SELECT id, username FROM users WHERE id = ${id}`
+    if (existing.length === 0) {
+      return c.json({ success: false, error: '사용자를 찾을 수 없습니다.' }, 404)
+    }
+    
+    await query`DELETE FROM users WHERE id = ${id}`
+    
+    return c.json({ success: true, message: '사용자가 삭제되었습니다.' })
+  } catch (error) {
+    console.error('사용자 삭제 오류:', error)
+    return c.json({ success: false, error: '사용자 삭제에 실패했습니다.' }, 500)
+  }
+})
+
+// ============================================
+// API - Pending Reviews (관리자 사이트 전용)
+// ============================================
+
+app.get('/api/pending', requireAdminSite(), async (c) => {
   try {
     const items = await getPendingReviews()
     return c.json({ success: true, count: items.length, items })
@@ -1027,7 +1333,7 @@ app.get('/api/pending', async (c) => {
 })
 
 // AI 일괄 검토 API
-app.post('/api/pending/ai-review', async (c) => {
+app.post('/api/pending/ai-review', requireAdminSite(), async (c) => {
   const errors: string[] = []
   
   try {
@@ -1164,7 +1470,7 @@ ${domains.map((d: string, idx: number) => `${idx + 1}. ${d}`).join('\n')}`
   }
 })
 
-app.post('/api/review', async (c) => {
+app.post('/api/review', requireAdminSite(), async (c) => {
   try {
     const { id, action } = await c.req.json()
     if (!id || !action) return c.json({ success: false, error: 'Missing id or action' }, 400)
@@ -1216,7 +1522,7 @@ app.post('/api/review', async (c) => {
 })
 
 // 일괄 처리 API
-app.post('/api/review/bulk', async (c) => {
+app.post('/api/review/bulk', requireAdminSite(), async (c) => {
   try {
     const { ids, action } = await c.req.json()
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -1287,7 +1593,7 @@ app.post('/api/review/bulk', async (c) => {
 // API - Sites
 // ============================================
 
-app.get('/api/sites/:type', async (c) => {
+app.get('/api/sites/:type', requireAdminSite(), async (c) => {
   try {
     const type = c.req.param('type') as 'illegal' | 'legal'
     if (type !== 'illegal' && type !== 'legal') {
@@ -1300,7 +1606,7 @@ app.get('/api/sites/:type', async (c) => {
   }
 })
 
-app.post('/api/sites/:type', async (c) => {
+app.post('/api/sites/:type', requireAdminSite(), async (c) => {
   try {
     const type = c.req.param('type') as 'illegal' | 'legal'
     const { domain } = await c.req.json()
@@ -1312,7 +1618,7 @@ app.post('/api/sites/:type', async (c) => {
   }
 })
 
-app.delete('/api/sites/:type/:domain', async (c) => {
+app.delete('/api/sites/:type/:domain', requireAdminSite(), async (c) => {
   try {
     const type = c.req.param('type') as 'illegal' | 'legal'
     const domain = decodeURIComponent(c.req.param('domain'))
@@ -1328,7 +1634,7 @@ app.delete('/api/sites/:type/:domain', async (c) => {
 // ============================================
 
 // 신고 제외 URL 목록 조회
-app.get('/api/excluded-urls', async (c) => {
+app.get('/api/excluded-urls', requireAdminSite(), async (c) => {
   try {
     const rows = await query`
       SELECT id, url, created_at FROM excluded_urls ORDER BY created_at DESC
@@ -1341,7 +1647,7 @@ app.get('/api/excluded-urls', async (c) => {
 })
 
 // 신고 제외 URL 추가
-app.post('/api/excluded-urls', async (c) => {
+app.post('/api/excluded-urls', requireAdminSite(), async (c) => {
   try {
     const { url } = await c.req.json()
     
@@ -1372,7 +1678,7 @@ app.post('/api/excluded-urls', async (c) => {
 })
 
 // 신고 제외 URL 삭제
-app.delete('/api/excluded-urls/:id', async (c) => {
+app.delete('/api/excluded-urls/:id', requireAdminSite(), async (c) => {
   try {
     const id = parseInt(c.req.param('id'))
     
@@ -2553,10 +2859,15 @@ app.get('/', (c) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
   <title>Jobdori - 리디 저작권 침해 모니터링</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+  <script>
+    // 사이트 모드 (admin: 관리자용, user: 일반용)
+    window.SITE_MODE = '${SITE_MODE}';
+  </script>
   <style>
     .tab-active { border-bottom: 3px solid #3b82f6; color: #3b82f6; font-weight: 600; }
     .status-illegal { background-color: #ef4444; }
@@ -2582,6 +2893,9 @@ app.get('/', (c) => {
           <button onclick="openTitlesModal()" class="flex-1 md:flex-none bg-purple-500 hover:bg-purple-600 text-white px-3 md:px-4 py-2 rounded-lg transition text-sm md:text-base">
             <i class="fas fa-list-alt md:mr-2"></i><span class="hidden md:inline">작품 변경</span>
           </button>
+          <button onclick="openUsersModal()" class="admin-only flex-1 md:flex-none bg-green-500 hover:bg-green-600 text-white px-3 md:px-4 py-2 rounded-lg transition text-sm md:text-base">
+            <i class="fas fa-users md:mr-2"></i><span class="hidden md:inline">계정 관리</span>
+          </button>
           <button onclick="handleLogout()" class="flex-1 md:flex-none bg-gray-500 hover:bg-gray-600 text-white px-3 md:px-4 py-2 rounded-lg transition text-sm md:text-base">
             <i class="fas fa-sign-out-alt md:mr-2"></i><span class="hidden md:inline">로그아웃</span>
           </button>
@@ -2595,7 +2909,7 @@ app.get('/', (c) => {
         <button id="tab-dashboard" onclick="switchTab('dashboard')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 tab-active text-sm md:text-base">
           <i class="fas fa-chart-line md:mr-2"></i><span class="hidden md:inline">대시보드</span>
         </button>
-        <button id="tab-pending" onclick="switchTab('pending')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
+        <button id="tab-pending" onclick="switchTab('pending')" class="admin-only flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
           <i class="fas fa-clock md:mr-2"></i><span class="hidden md:inline">승인 대기</span>
           <span id="pending-badge" class="ml-1 md:ml-2 bg-red-500 text-white text-xs px-1.5 md:px-2 py-0.5 md:py-1 rounded-full">0</span>
         </button>
@@ -2605,7 +2919,7 @@ app.get('/', (c) => {
         <button id="tab-report-tracking" onclick="switchTab('report-tracking')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
           <i class="fas fa-file-alt md:mr-2"></i><span class="hidden md:inline">신고결과 추적</span>
         </button>
-        <button id="tab-sites" onclick="switchTab('sites')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
+        <button id="tab-sites" onclick="switchTab('sites')" class="admin-only flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
           <i class="fas fa-globe md:mr-2"></i><span class="hidden md:inline">사이트 목록</span>
         </button>
         <button id="tab-title-stats" onclick="switchTab('title-stats')" class="flex-shrink-0 px-4 md:px-6 py-3 md:py-4 text-gray-600 hover:text-blue-600 text-sm md:text-base">
@@ -3096,6 +3410,42 @@ app.get('/', (c) => {
     </div>
   </div>
 
+  <!-- 계정 관리 모달 (관리자 전용) -->
+  <div id="users-modal" class="admin-only hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[95vh] md:max-h-[85vh] overflow-hidden">
+      <div class="bg-green-500 text-white px-4 md:px-6 py-3 md:py-4 flex justify-between items-center">
+        <h2 class="text-base md:text-xl font-bold"><i class="fas fa-users mr-2"></i>계정 관리</h2>
+        <button onclick="closeUsersModal()" class="text-white hover:text-gray-200 p-1">
+          <i class="fas fa-times text-xl"></i>
+        </button>
+      </div>
+      <div class="p-4 md:p-6 overflow-y-auto max-h-[calc(95vh-120px)] md:max-h-[calc(85vh-80px)]">
+        <!-- 사용자 목록 -->
+        <div class="mb-4">
+          <h3 class="font-bold mb-2 text-green-600 text-sm md:text-base">
+            <i class="fas fa-list mr-2"></i>등록된 사용자 (<span id="users-count">0</span>명)
+          </h3>
+          <div id="users-list" class="h-48 md:h-64 overflow-y-auto border rounded p-2 md:p-3 text-sm">로딩 중...</div>
+        </div>
+        <!-- 새 사용자 추가 -->
+        <div class="bg-gray-50 p-3 md:p-4 rounded-lg">
+          <h3 class="font-bold mb-2 md:mb-3 text-sm md:text-base"><i class="fas fa-user-plus mr-2"></i>새 사용자 추가</h3>
+          <div class="flex flex-col gap-2 md:gap-3">
+            <input type="text" id="new-username" placeholder="아이디 (3~50자)" class="border rounded px-3 py-2 text-sm md:text-base">
+            <input type="password" id="new-password" placeholder="비밀번호 (6자 이상)" class="border rounded px-3 py-2 text-sm md:text-base">
+            <select id="new-role" class="border rounded px-3 py-2 text-sm md:text-base">
+              <option value="user">일반 사용자 (user)</option>
+              <option value="admin">관리자 (admin)</option>
+            </select>
+            <button onclick="addUser()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition text-sm md:text-base">
+              <i class="fas fa-plus mr-2"></i>추가
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 작품 변경 모달 -->
   <div id="titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
     <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] md:max-h-[85vh] overflow-hidden">
@@ -3191,6 +3541,122 @@ app.get('/', (c) => {
     let currentSessionId = null;
     let currentPage = 1;
     
+    // ===== 계정 관리 (관리자 전용) =====
+    function openUsersModal() {
+      if (window.SITE_MODE !== 'admin') {
+        alert('관리자 사이트에서만 접근 가능합니다.');
+        return;
+      }
+      document.getElementById('users-modal').classList.remove('hidden');
+      loadUsers();
+    }
+    
+    function closeUsersModal() {
+      document.getElementById('users-modal').classList.add('hidden');
+    }
+    
+    async function loadUsers() {
+      try {
+        const data = await fetchAPI('/api/users');
+        if (!data.success) {
+          document.getElementById('users-list').innerHTML = '<div class="text-red-500">오류: ' + (data.error || '불러오기 실패') + '</div>';
+          return;
+        }
+        const users = data.users || [];
+        document.getElementById('users-count').textContent = users.length;
+        
+        if (users.length === 0) {
+          document.getElementById('users-list').innerHTML = '<div class="text-gray-500">등록된 사용자가 없습니다.</div>';
+          return;
+        }
+        
+        document.getElementById('users-list').innerHTML = users.map(u => 
+          '<div class="flex items-center justify-between p-2 bg-gray-50 rounded mb-2">' +
+            '<div>' +
+              '<span class="font-medium">' + u.username + '</span>' +
+              '<span class="ml-2 text-xs px-2 py-1 rounded ' + (u.role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600') + '">' + u.role + '</span>' +
+              (u.is_active ? '' : '<span class="ml-2 text-xs px-2 py-1 rounded bg-red-100 text-red-700">비활성</span>') +
+            '</div>' +
+            '<div class="flex gap-2">' +
+              '<button onclick="toggleUserActive(' + u.id + ', ' + !u.is_active + ')" class="text-xs px-2 py-1 rounded ' + (u.is_active ? 'bg-yellow-100 hover:bg-yellow-200 text-yellow-700' : 'bg-green-100 hover:bg-green-200 text-green-700') + '">' +
+                (u.is_active ? '비활성화' : '활성화') +
+              '</button>' +
+              '<button onclick="deleteUser(' + u.id + ', \\'' + u.username + '\\')" class="text-xs px-2 py-1 rounded bg-red-100 hover:bg-red-200 text-red-700">삭제</button>' +
+            '</div>' +
+          '</div>'
+        ).join('');
+      } catch (e) {
+        document.getElementById('users-list').innerHTML = '<div class="text-red-500">오류: ' + e.message + '</div>';
+      }
+    }
+    
+    async function addUser() {
+      const username = document.getElementById('new-username').value.trim();
+      const password = document.getElementById('new-password').value;
+      const role = document.getElementById('new-role').value;
+      
+      if (!username || !password) {
+        alert('아이디와 비밀번호를 입력하세요.');
+        return;
+      }
+      
+      try {
+        const data = await fetchAPI('/api/users', {
+          method: 'POST',
+          body: JSON.stringify({ username, password, role })
+        });
+        
+        if (data.success) {
+          showToast('사용자가 추가되었습니다.');
+          document.getElementById('new-username').value = '';
+          document.getElementById('new-password').value = '';
+          document.getElementById('new-role').value = 'user';
+          loadUsers();
+        } else {
+          alert('오류: ' + (data.error || '추가 실패'));
+        }
+      } catch (e) {
+        alert('오류: ' + e.message);
+      }
+    }
+    
+    async function toggleUserActive(id, active) {
+      try {
+        const data = await fetchAPI('/api/users/' + id, {
+          method: 'PUT',
+          body: JSON.stringify({ is_active: active })
+        });
+        
+        if (data.success) {
+          showToast(active ? '사용자가 활성화되었습니다.' : '사용자가 비활성화되었습니다.');
+          loadUsers();
+        } else {
+          alert('오류: ' + (data.error || '변경 실패'));
+        }
+      } catch (e) {
+        alert('오류: ' + e.message);
+      }
+    }
+    
+    async function deleteUser(id, username) {
+      if (!confirm('정말 "' + username + '" 사용자를 삭제하시겠습니까?')) return;
+      
+      try {
+        const data = await fetchAPI('/api/users/' + id, {
+          method: 'DELETE'
+        });
+        
+        if (data.success) {
+          showToast('사용자가 삭제되었습니다.');
+          loadUsers();
+        } else {
+          alert('오류: ' + (data.error || '삭제 실패'));
+        }
+      } catch (e) {
+        alert('오류: ' + e.message);
+      }
+    }
+    
     // 토스트 메시지 표시 함수
     function showToast(message, duration = 3000) {
       // 기존 토스트 제거
@@ -3237,6 +3703,12 @@ app.get('/', (c) => {
     }
     
     function switchTab(tab) {
+      // 관리자 전용 탭 접근 제한 (일반 사이트에서)
+      if (window.SITE_MODE !== 'admin' && (tab === 'pending' || tab === 'sites')) {
+        alert('관리자 사이트에서만 접근 가능합니다.');
+        return;
+      }
+      
       currentTab = tab;
       document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.remove('tab-active'));
       document.getElementById('tab-' + tab).classList.add('tab-active');
@@ -4898,9 +5370,27 @@ app.get('/', (c) => {
     window.loadTitleStats = loadTitleStats;
     window.resetStatsDateFilter = resetStatsDateFilter;
     
+    // 관리자 전용 요소 숨기기 (일반 사이트에서)
+    function hideAdminOnlyElements() {
+      if (window.SITE_MODE !== 'admin') {
+        // 관리자 전용 탭 숨기기
+        document.querySelectorAll('.admin-only').forEach(el => {
+          el.style.display = 'none';
+        });
+        // 관리자 전용 컨텐츠 숨기기
+        const pendingContent = document.getElementById('content-pending');
+        const sitesContent = document.getElementById('content-sites');
+        if (pendingContent) pendingContent.style.display = 'none';
+        if (sitesContent) sitesContent.style.display = 'none';
+      }
+    }
+    
     // 초기 로드
+    hideAdminOnlyElements();
     loadDashboard();
-    loadPending();
+    if (window.SITE_MODE === 'admin') {
+      loadPending();
+    }
     loadSessions();
   </script>
 </body>

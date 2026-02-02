@@ -20,7 +20,7 @@ module.exports = {
       name: 'webtoon-monitor',
       script: 'npx',
       args: 'tsx src/server.ts',
-      cwd: '/home/user/webapp',
+      cwd: '/home/user/webapp/backend',
       env: {
         NODE_ENV: 'development',
         PORT: 3000,
