@@ -2565,7 +2565,7 @@ app.get('/', (c) => {
       <div class="bg-white rounded-lg shadow-md p-4 md:p-6">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 md:mb-6">
           <h2 class="text-lg md:text-xl font-bold">월간 모니터링 현황</h2>
-          <select id="month-select" onchange="loadDashboard()" class="border rounded-lg px-3 py-2 text-sm md:text-base">
+          <select id="month-select" onchange="loadDashboardData()" class="border rounded-lg px-3 py-2 text-sm md:text-base">
             <option value="">로딩 중...</option>
           </select>
         </div>
@@ -3167,15 +3167,26 @@ app.get('/', (c) => {
       else if (tab === 'report-tracking') loadReportTrackingSessions();
     }
     
-    async function loadDashboard() {
+    // 월 목록 로드 여부 플래그
+    let monthsLoaded = false;
+    
+    // 월 목록만 로드 (페이지 로드 시 1회)
+    async function loadMonths() {
+      if (monthsLoaded) return;
       const monthsData = await fetchAPI('/api/dashboard/months');
       if (monthsData.success) {
         const select = document.getElementById('month-select');
+        // 가장 최근 데이터가 있는 월을 기본 선택 (months[0]이 최신)
+        const latestMonth = monthsData.months[0] || monthsData.current_month;
         select.innerHTML = monthsData.months.map(m => 
-          '<option value="' + m + '"' + (m === monthsData.current_month ? ' selected' : '') + '>' + m + '</option>'
+          '<option value="' + m + '"' + (m === latestMonth ? ' selected' : '') + '>' + m + '</option>'
         ).join('') || '<option value="">데이터 없음</option>';
+        monthsLoaded = true;
       }
-      
+    }
+    
+    // 대시보드 데이터만 로드 (월 변경 시 호출)
+    async function loadDashboardData() {
       const month = document.getElementById('month-select').value;
       const data = await fetchAPI('/api/dashboard' + (month ? '?month=' + month : ''));
       
@@ -3200,6 +3211,12 @@ app.get('/', (c) => {
       
       // Manta 순위 로드
       loadMantaRankings();
+    }
+    
+    // 초기 대시보드 로드 (월 목록 + 데이터)
+    async function loadDashboard() {
+      await loadMonths();
+      await loadDashboardData();
     }
     
     async function openAllTitlesModal() {
