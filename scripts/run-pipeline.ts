@@ -181,6 +181,77 @@ function createFinalResults(results: LLMJudgedResult[]): FinalResult[] {
 }
 
 // ============================================
+// detection_results 테이블에 결과 저장
+// ============================================
+
+async function saveDetectionResultsToDb(sessionId: string, finalResults: FinalResult[]) {
+  const sql = getDb();
+
+  console.log(`📋 Saving ${finalResults.length} results to detection_results...`);
+
+  // 배열 준비
+  const sessionIds: string[] = [];
+  const titles: string[] = [];
+  const urls: string[] = [];
+  const domains: string[] = [];
+  const searchQueries: string[] = [];
+  const pages: number[] = [];
+  const ranks: number[] = [];
+  const initialStatuses: string[] = [];
+  const llmJudgments: (string | null)[] = [];
+  const llmReasons: (string | null)[] = [];
+  const finalStatuses: string[] = [];
+  const reviewedAts: (string | null)[] = [];
+
+  for (const r of finalResults) {
+    sessionIds.push(sessionId);
+    titles.push(r.title);
+    urls.push(r.url);
+    domains.push(r.domain);
+    searchQueries.push(r.search_query);
+    pages.push(r.page);
+    ranks.push(r.rank);
+    initialStatuses.push(r.status);
+    llmJudgments.push(r.llm_judgment || null);
+    llmReasons.push(r.llm_reason || null);
+    finalStatuses.push(r.final_status);
+    reviewedAts.push(r.reviewed_at || null);
+  }
+
+  // UNNEST를 사용한 배치 INSERT
+  try {
+    await sql`
+      INSERT INTO detection_results (
+        session_id, title, url, domain, 
+        search_query, page, rank,
+        initial_status, llm_judgment, llm_reason, final_status,
+        reviewed_at
+      )
+      SELECT * FROM UNNEST(
+        ${sessionIds}::text[],
+        ${titles}::text[],
+        ${urls}::text[],
+        ${domains}::text[],
+        ${searchQueries}::text[],
+        ${pages}::int[],
+        ${ranks}::int[],
+        ${initialStatuses}::text[],
+        ${llmJudgments}::text[],
+        ${llmReasons}::text[],
+        ${finalStatuses}::text[],
+        ${reviewedAts}::timestamptz[]
+      )
+      ON CONFLICT (session_id, url) DO NOTHING
+    `;
+    console.log(`✅ detection_results: ${finalResults.length} inserted`);
+    return finalResults.length;
+  } catch (error) {
+    console.error('❌ detection_results INSERT failed:', error);
+    return 0;
+  }
+}
+
+// ============================================
 // 승인 대기 항목 DB 저장
 // ============================================
 
@@ -504,6 +575,10 @@ async function runPipeline() {
     // Step 7: DB 업데이트
     // ==========================================
     console.log('\n📌 DB 업데이트...');
+    
+    // detection_results 테이블에 모든 결과 저장 (대시보드 통계용)
+    const detectionResultsCount = await saveDetectionResultsToDb(timestamp, finalResults);
+    console.log(`✅ detection_results ${detectionResultsCount}개 저장`);
     
     // 승인 대기 항목 저장
     const pendingCount = await savePendingReviewsToDb(llmJudgedResults, timestamp);
