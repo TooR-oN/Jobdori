@@ -229,18 +229,15 @@ interface FinalResult {
 // Auth Setup - ID/PW 기반 인증
 // ============================================
 
-// 사이트 모드: admin(관리자용), user(일반용)
-const SITE_MODE = process.env.SITE_MODE || 'user'
-
-// 슈퍼관리자 인증 정보 (환경변수에서 로드 - admin 사이트용)
+// 환경변수 관리자 인증 (비상용 백도어 - DB 장애 시 사용)
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || ''
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || ''
 
 // 세션 시크릿 (토큰 서명용)
 const SECRET_KEY = process.env.SESSION_SECRET || 'jobdori-secret-key-2026'
 
-// 사용자 역할 타입
-type UserRole = 'superadmin' | 'admin' | 'user'
+// 사용자 역할 타입 (admin: 관리자, user: 일반 사용자)
+type UserRole = 'admin' | 'user'
 
 // 토큰 페이로드 타입
 interface TokenPayload {
@@ -326,7 +323,7 @@ async function verifySignedTokenBool(token: string): Promise<boolean> {
   return (await verifySignedToken(token)) !== null
 }
 
-// 슈퍼관리자 인증 (환경변수 기반)
+// 환경변수 관리자 인증 (비상용 백도어 - DB 장애 시 사용)
 async function authenticateSuperAdmin(username: string, password: string): Promise<boolean> {
   if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) return false
   if (username !== ADMIN_USERNAME) return false
@@ -977,13 +974,6 @@ app.get('/login', async (c) => {
     return c.redirect('/')
   }
   
-  const isAdminSite = SITE_MODE === 'admin'
-  const siteTitle = isAdminSite ? 'Jobdori Admin' : 'Jobdori'
-  const siteDesc = isAdminSite ? '관리자 전용 시스템' : '리디 저작권 침해 모니터링 시스템'
-  const gradientClass = isAdminSite ? 'from-red-500 to-orange-600' : 'from-blue-500 to-purple-600'
-  const buttonClass = isAdminSite ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
-  const focusClass = isAdminSite ? 'focus:ring-red-500' : 'focus:ring-blue-500'
-  
   return c.html(`
 <!DOCTYPE html>
 <html lang="ko">
@@ -991,38 +981,38 @@ app.get('/login', async (c) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>로그인 - ${siteTitle}</title>
+  <title>로그인 - Jobdori</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 </head>
-<body class="bg-gradient-to-br ${gradientClass} min-h-screen flex items-center justify-center">
+<body class="bg-gradient-to-br from-blue-500 to-purple-600 min-h-screen flex items-center justify-center">
   <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
     <div class="text-center mb-8">
       <div class="flex items-center justify-center gap-3">
         <svg width="60" height="24" viewBox="0 0 60 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <text x="0" y="20" font-family="Arial Black, sans-serif" font-size="22" font-weight="900" fill="#1E9EF4">RIDI</text>
         </svg>
-        <h1 class="text-3xl font-bold text-gray-800">${siteTitle}</h1>
+        <h1 class="text-3xl font-bold text-gray-800">Jobdori</h1>
       </div>
-      <p class="text-gray-500 mt-2">${siteDesc}</p>
+      <p class="text-gray-500 mt-2">리디 저작권 침해 모니터링 시스템</p>
     </div>
     <form id="login-form" onsubmit="handleLogin(event)">
       <div class="mb-4">
         <label class="block text-gray-700 text-sm font-medium mb-2">아이디</label>
         <input type="text" id="username" 
-               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 ${focusClass}"
+               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                placeholder="아이디를 입력하세요" required autofocus autocomplete="username">
       </div>
       <div class="mb-6">
         <label class="block text-gray-700 text-sm font-medium mb-2">비밀번호</label>
         <input type="password" id="password" 
-               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 ${focusClass}"
+               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                placeholder="비밀번호를 입력하세요" required autocomplete="current-password">
       </div>
       <div id="error-message" class="hidden mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
         아이디 또는 비밀번호가 올바르지 않습니다.
       </div>
-      <button type="submit" class="w-full ${buttonClass} text-white font-medium py-3 px-4 rounded-lg transition">
+      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition">
         <i class="fas fa-sign-in-alt mr-2"></i>로그인
       </button>
     </form>
@@ -1062,24 +1052,17 @@ app.post('/api/auth/login', async (c) => {
     let role: UserRole = 'user'
     let authenticated = false
     
-    // 관리자 사이트에서는 슈퍼관리자 인증 시도
-    if (SITE_MODE === 'admin') {
-      if (await authenticateSuperAdmin(username, password)) {
-        authenticated = true
-        role = 'superadmin'
-      }
+    // 1. DB 사용자 인증 시도 (우선)
+    const userAuth = await authenticateUser(username, password)
+    if (userAuth) {
+      authenticated = true
+      role = userAuth.role
     }
     
-    // 슈퍼관리자 인증 실패 시 또는 일반 사이트에서는 DB 인증
-    if (!authenticated) {
-      const userAuth = await authenticateUser(username, password)
-      if (userAuth) {
-        authenticated = true
-        role = userAuth.role
-        
-        // 일반 사이트(user 모드)에서는 superadmin/admin 역할만 접근 불가
-        // (승인 대기 등 관리 기능은 admin 사이트에서만)
-      }
+    // 2. DB 인증 실패 시 환경변수 관리자 인증 시도 (비상용 백도어)
+    if (!authenticated && await authenticateSuperAdmin(username, password)) {
+      authenticated = true
+      role = 'admin'
     }
     
     if (authenticated) {
@@ -1120,8 +1103,7 @@ app.get('/api/auth/status', async (c) => {
     user: {
       username: payload.username,
       role: payload.role
-    },
-    siteMode: SITE_MODE
+    }
   })
 })
 
@@ -1156,11 +1138,12 @@ function requireRole(allowedRoles: UserRole[]) {
   }
 }
 
-// 관리자 사이트 전용 접근 제어 (admin 모드에서만 접근 가능)
-function requireAdminSite() {
+// 관리자 역할 필수 접근 제어 (admin 역할만 접근 가능)
+function requireAdmin() {
   return async (c: any, next: any) => {
-    if (SITE_MODE !== 'admin') {
-      return c.json({ success: false, error: '관리자 사이트에서만 접근 가능합니다.' }, 403)
+    const user = c.get('user') as TokenPayload | undefined
+    if (!user || user.role !== 'admin') {
+      return c.json({ success: false, error: '관리자 권한이 필요합니다.' }, 403)
     }
     return next()
   }
@@ -1194,7 +1177,7 @@ Disallow: /
 // ============================================
 
 // 사용자 목록 조회 (슈퍼관리자만)
-app.get('/api/users', requireRole(['superadmin']), async (c) => {
+app.get('/api/users', requireRole(['admin']), async (c) => {
   try {
     const users = await query`
       SELECT id, username, role, is_active, created_at, updated_at 
@@ -1209,7 +1192,7 @@ app.get('/api/users', requireRole(['superadmin']), async (c) => {
 })
 
 // 사용자 생성 (슈퍼관리자만)
-app.post('/api/users', requireRole(['superadmin']), async (c) => {
+app.post('/api/users', requireRole(['admin']), async (c) => {
   try {
     const { username, password, role = 'user' } = await c.req.json()
     
@@ -1254,7 +1237,7 @@ app.post('/api/users', requireRole(['superadmin']), async (c) => {
 })
 
 // 사용자 정보 수정 (슈퍼관리자만)
-app.put('/api/users/:id', requireRole(['superadmin']), async (c) => {
+app.put('/api/users/:id', requireRole(['admin']), async (c) => {
   try {
     const id = parseInt(c.req.param('id'))
     const { role, is_active, password } = await c.req.json()
@@ -1301,7 +1284,7 @@ app.put('/api/users/:id', requireRole(['superadmin']), async (c) => {
 })
 
 // 사용자 삭제 (슈퍼관리자만)
-app.delete('/api/users/:id', requireRole(['superadmin']), async (c) => {
+app.delete('/api/users/:id', requireRole(['admin']), async (c) => {
   try {
     const id = parseInt(c.req.param('id'))
     
@@ -1323,7 +1306,7 @@ app.delete('/api/users/:id', requireRole(['superadmin']), async (c) => {
 // API - Pending Reviews (관리자 사이트 전용)
 // ============================================
 
-app.get('/api/pending', requireAdminSite(), async (c) => {
+app.get('/api/pending', requireAdmin(), async (c) => {
   try {
     const items = await getPendingReviews()
     return c.json({ success: true, count: items.length, items })
@@ -1333,7 +1316,7 @@ app.get('/api/pending', requireAdminSite(), async (c) => {
 })
 
 // AI 일괄 검토 API
-app.post('/api/pending/ai-review', requireAdminSite(), async (c) => {
+app.post('/api/pending/ai-review', requireAdmin(), async (c) => {
   const errors: string[] = []
   
   try {
@@ -1470,7 +1453,7 @@ ${domains.map((d: string, idx: number) => `${idx + 1}. ${d}`).join('\n')}`
   }
 })
 
-app.post('/api/review', requireAdminSite(), async (c) => {
+app.post('/api/review', requireAdmin(), async (c) => {
   try {
     const { id, action } = await c.req.json()
     if (!id || !action) return c.json({ success: false, error: 'Missing id or action' }, 400)
@@ -1522,7 +1505,7 @@ app.post('/api/review', requireAdminSite(), async (c) => {
 })
 
 // 일괄 처리 API
-app.post('/api/review/bulk', requireAdminSite(), async (c) => {
+app.post('/api/review/bulk', requireAdmin(), async (c) => {
   try {
     const { ids, action } = await c.req.json()
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -1593,7 +1576,7 @@ app.post('/api/review/bulk', requireAdminSite(), async (c) => {
 // API - Sites
 // ============================================
 
-app.get('/api/sites/:type', requireAdminSite(), async (c) => {
+app.get('/api/sites/:type', requireAdmin(), async (c) => {
   try {
     const type = c.req.param('type') as 'illegal' | 'legal'
     if (type !== 'illegal' && type !== 'legal') {
@@ -1606,7 +1589,7 @@ app.get('/api/sites/:type', requireAdminSite(), async (c) => {
   }
 })
 
-app.post('/api/sites/:type', requireAdminSite(), async (c) => {
+app.post('/api/sites/:type', requireAdmin(), async (c) => {
   try {
     const type = c.req.param('type') as 'illegal' | 'legal'
     const { domain } = await c.req.json()
@@ -1618,7 +1601,7 @@ app.post('/api/sites/:type', requireAdminSite(), async (c) => {
   }
 })
 
-app.delete('/api/sites/:type/:domain', requireAdminSite(), async (c) => {
+app.delete('/api/sites/:type/:domain', requireAdmin(), async (c) => {
   try {
     const type = c.req.param('type') as 'illegal' | 'legal'
     const domain = decodeURIComponent(c.req.param('domain'))
@@ -1634,7 +1617,7 @@ app.delete('/api/sites/:type/:domain', requireAdminSite(), async (c) => {
 // ============================================
 
 // 신고 제외 URL 목록 조회
-app.get('/api/excluded-urls', requireAdminSite(), async (c) => {
+app.get('/api/excluded-urls', requireAdmin(), async (c) => {
   try {
     const rows = await query`
       SELECT id, url, created_at FROM excluded_urls ORDER BY created_at DESC
@@ -1647,7 +1630,7 @@ app.get('/api/excluded-urls', requireAdminSite(), async (c) => {
 })
 
 // 신고 제외 URL 추가
-app.post('/api/excluded-urls', requireAdminSite(), async (c) => {
+app.post('/api/excluded-urls', requireAdmin(), async (c) => {
   try {
     const { url } = await c.req.json()
     
@@ -1678,7 +1661,7 @@ app.post('/api/excluded-urls', requireAdminSite(), async (c) => {
 })
 
 // 신고 제외 URL 삭제
-app.delete('/api/excluded-urls/:id', requireAdminSite(), async (c) => {
+app.delete('/api/excluded-urls/:id', requireAdmin(), async (c) => {
   try {
     const id = parseInt(c.req.param('id'))
     
@@ -2865,8 +2848,8 @@ app.get('/', (c) => {
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
   <script>
-    // 사이트 모드 (admin: 관리자용, user: 일반용)
-    window.SITE_MODE = '${SITE_MODE}';
+    // 현재 로그인한 사용자 정보 (페이지 로드 시 API로 가져옴)
+    window.currentUser = null;
   </script>
   <style>
     .tab-active { border-bottom: 3px solid #3b82f6; color: #3b82f6; font-weight: 600; }
@@ -3543,8 +3526,8 @@ app.get('/', (c) => {
     
     // ===== 계정 관리 (관리자 전용) =====
     function openUsersModal() {
-      if (window.SITE_MODE !== 'admin') {
-        alert('관리자 사이트에서만 접근 가능합니다.');
+      if (!window.currentUser || window.currentUser.role !== 'admin') {
+        alert('관리자 권한이 필요합니다.');
         return;
       }
       document.getElementById('users-modal').classList.remove('hidden');
@@ -3703,9 +3686,9 @@ app.get('/', (c) => {
     }
     
     function switchTab(tab) {
-      // 관리자 전용 탭 접근 제한 (일반 사이트에서)
-      if (window.SITE_MODE !== 'admin' && (tab === 'pending' || tab === 'sites')) {
-        alert('관리자 사이트에서만 접근 가능합니다.');
+      // 관리자 전용 탭 접근 제한 (user 역할인 경우)
+      if ((!window.currentUser || window.currentUser.role !== 'admin') && (tab === 'pending' || tab === 'sites')) {
+        alert('관리자 권한이 필요합니다.');
         return;
       }
       
@@ -5370,14 +5353,32 @@ app.get('/', (c) => {
     window.loadTitleStats = loadTitleStats;
     window.resetStatsDateFilter = resetStatsDateFilter;
     
-    // 관리자 전용 요소 숨기기 (일반 사이트에서)
-    function hideAdminOnlyElements() {
-      if (window.SITE_MODE !== 'admin') {
-        // 관리자 전용 탭 숨기기
-        document.querySelectorAll('.admin-only').forEach(el => {
-          el.style.display = 'none';
-        });
-        // 관리자 전용 컨텐츠 숨기기
+    // 현재 사용자 정보 로드 및 UI 업데이트
+    async function loadCurrentUser() {
+      try {
+        const data = await fetchAPI('/api/auth/status');
+        if (data.authenticated && data.user) {
+          window.currentUser = data.user;
+          updateUIByRole();
+        } else {
+          window.location.href = '/login';
+        }
+      } catch (e) {
+        console.error('사용자 정보 로드 실패:', e);
+      }
+    }
+    
+    // 역할에 따라 UI 업데이트
+    function updateUIByRole() {
+      const isAdmin = window.currentUser && window.currentUser.role === 'admin';
+      
+      // 관리자 전용 요소 표시/숨기기
+      document.querySelectorAll('.admin-only').forEach(el => {
+        el.style.display = isAdmin ? '' : 'none';
+      });
+      
+      // 관리자 전용 컨텐츠 숨기기 (user인 경우)
+      if (!isAdmin) {
         const pendingContent = document.getElementById('content-pending');
         const sitesContent = document.getElementById('content-sites');
         if (pendingContent) pendingContent.style.display = 'none';
@@ -5386,12 +5387,13 @@ app.get('/', (c) => {
     }
     
     // 초기 로드
-    hideAdminOnlyElements();
-    loadDashboard();
-    if (window.SITE_MODE === 'admin') {
-      loadPending();
-    }
-    loadSessions();
+    loadCurrentUser().then(() => {
+      loadDashboard();
+      if (window.currentUser && window.currentUser.role === 'admin') {
+        loadPending();
+      }
+      loadSessions();
+    });
   </script>
 </body>
 </html>
