@@ -143,3 +143,11 @@ export interface ReviewAction {
   reviewed_at: string;
   session_id?: string;
 }
+
+/**
+ * 비공식 타이틀을 포함한 작품 검색 설정
+ */
+export interface TitleSearchConfig {
+  official: string;        // 공식 타이틀 (결과에 사용)
+  searchTerms: string[];   // 검색할 모든 타이틀 (공식 + 비공식)
+}

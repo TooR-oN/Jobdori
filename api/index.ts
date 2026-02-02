@@ -386,11 +386,11 @@ async function updateDetectionResultsByDomain(domain: string, newStatus: 'illega
 }
 
 async function getCurrentTitles(): Promise<any[]> {
-  return query`SELECT * FROM titles WHERE is_current = true ORDER BY created_at DESC`
+  return query`SELECT id, name, is_current, created_at, manta_url, unofficial_titles FROM titles WHERE is_current = true ORDER BY created_at DESC`
 }
 
 async function getHistoryTitles(): Promise<any[]> {
-  return query`SELECT * FROM titles WHERE is_current = false ORDER BY created_at DESC`
+  return query`SELECT id, name, is_current, created_at, manta_url, unofficial_titles FROM titles WHERE is_current = false ORDER BY created_at DESC`
 }
 
 /**
@@ -1401,8 +1401,16 @@ app.get('/api/titles', async (c) => {
     const history = await getHistoryTitles()
     return c.json({
       success: true,
-      current: current.map((t: any) => ({ name: t.name, manta_url: t.manta_url })),
-      history: history.map((t: any) => ({ name: t.name, manta_url: t.manta_url }))
+      current: current.map((t: any) => ({ 
+        name: t.name, 
+        manta_url: t.manta_url,
+        unofficial_titles: t.unofficial_titles || []
+      })),
+      history: history.map((t: any) => ({ 
+        name: t.name, 
+        manta_url: t.manta_url,
+        unofficial_titles: t.unofficial_titles || []
+      }))
     })
   } catch {
     return c.json({ success: false, error: 'Failed to load titles' }, 500)
@@ -1449,6 +1457,52 @@ app.post('/api/titles/restore', async (c) => {
     return c.json({ success: true, title })
   } catch {
     return c.json({ success: false, error: 'Failed to restore title' }, 500)
+  }
+})
+
+// 비공식 타이틀 업데이트 API
+app.put('/api/titles/:title/unofficial', async (c) => {
+  try {
+    const title = decodeURIComponent(c.req.param('title'))
+    const { unofficial_titles } = await c.req.json()
+    
+    if (!Array.isArray(unofficial_titles)) {
+      return c.json({ success: false, error: 'unofficial_titles must be an array' }, 400)
+    }
+    
+    // 빈 문자열 제거 및 정규화
+    const cleanedTitles = unofficial_titles
+      .filter((t: string) => t && t.trim())
+      .map((t: string) => normalizeTitle(t.trim()))
+    
+    // 최대 5개로 제한 (API 호출 비용 관리)
+    if (cleanedTitles.length > 5) {
+      return c.json({ 
+        success: false, 
+        error: '비공식 타이틀은 최대 5개까지만 등록할 수 있습니다.' 
+      }, 400)
+    }
+    
+    const rows = await query`
+      UPDATE titles 
+      SET unofficial_titles = ${cleanedTitles}
+      WHERE name = ${title}
+      RETURNING *
+    `
+    
+    if (rows.length === 0) {
+      return c.json({ success: false, error: 'Title not found' }, 404)
+    }
+    
+    console.log(`📝 비공식 타이틀 업데이트: "${title}" -> [${cleanedTitles.join(', ')}]`)
+    return c.json({ 
+      success: true, 
+      title: rows[0],
+      message: `${cleanedTitles.length}개의 비공식 타이틀이 등록되었습니다.`
+    })
+  } catch (error) {
+    console.error('비공식 타이틀 업데이트 오류:', error)
+    return c.json({ success: false, error: 'Failed to update unofficial titles' }, 500)
   }
 })
 
@@ -3087,6 +3141,36 @@ app.get('/', (c) => {
     </div>
   </div>
 
+  <!-- 비공식 타이틀 편집 모달 -->
+  <div id="unofficial-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div class="bg-yellow-500 text-white px-4 md:px-6 py-3 md:py-4 flex justify-between items-center">
+        <h2 class="text-base md:text-lg font-bold"><i class="fas fa-language mr-2"></i>비공식 타이틀</h2>
+        <button onclick="closeUnofficialModal()" class="text-white hover:text-gray-200 p-1">
+          <i class="fas fa-times text-xl"></i>
+        </button>
+      </div>
+      <div class="p-4 md:p-6">
+        <p class="text-sm text-gray-600 mb-2">
+          <strong id="unofficial-modal-title" class="text-purple-600"></strong>
+        </p>
+        <p class="text-xs text-gray-500 mb-3">
+          비공식/번역 타이틀을 한 줄에 하나씩 입력하세요. (최대 5개)<br>
+          예: 한국어 제목, 일본어 제목, 팬 번역명 등
+        </p>
+        <textarea id="unofficial-titles-input" 
+                  class="w-full border rounded-lg px-3 py-2 text-sm h-32 focus:outline-none focus:ring-2 focus:ring-yellow-500" 
+                  placeholder="비공식 타이틀 (줄바꿈으로 구분)"></textarea>
+        <div class="flex justify-end gap-2 mt-4">
+          <button onclick="closeUnofficialModal()" class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-100">취소</button>
+          <button onclick="saveUnofficialTitles()" class="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm">
+            <i class="fas fa-save mr-1"></i>저장
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 전체보기 모달 (작품별 월별 통계) -->
   <div id="all-titles-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4">
     <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[95vh] md:max-h-[85vh] overflow-hidden">
@@ -4112,15 +4196,31 @@ app.get('/', (c) => {
         document.getElementById('titles-count').textContent = data.current.length;
         document.getElementById('history-titles-count').textContent = data.history.length;
         
-        document.getElementById('current-titles-list').innerHTML = data.current.map(t =>
-          '<div class="py-2 border-b hover:bg-purple-50">' +
+        document.getElementById('current-titles-list').innerHTML = data.current.map(t => {
+          const escapedName = t.name.replace(/'/g, "\\\\'");
+          const unofficialTitles = t.unofficial_titles || [];
+          const unofficialHtml = unofficialTitles.length > 0 
+            ? '<div class="flex flex-wrap gap-1 mt-1">' + 
+                unofficialTitles.map(ut => 
+                  '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-800">' +
+                    '<i class="fas fa-language mr-1"></i>' + ut +
+                  '</span>'
+                ).join('') +
+              '</div>'
+            : '';
+          
+          return '<div class="py-2 border-b hover:bg-purple-50">' +
             '<div class="flex justify-between items-center">' +
               '<span class="truncate font-medium">' + t.name + '</span>' +
-              '<button onclick="removeTitle(\\'' + t.name.replace(/'/g, "\\\\'") + '\\')" class="text-red-500 hover:text-red-700 ml-2 flex-shrink-0"><i class="fas fa-times"></i></button>' +
+              '<div class="flex items-center gap-1 flex-shrink-0">' +
+                '<button onclick="openUnofficialModal(\\'' + escapedName + '\\', ' + JSON.stringify(unofficialTitles).replace(/"/g, '&quot;') + ')" class="text-yellow-600 hover:text-yellow-800 ml-2" title="비공식 타이틀 편집"><i class="fas fa-language"></i></button>' +
+                '<button onclick="removeTitle(\\'' + escapedName + '\\')" class="text-red-500 hover:text-red-700 ml-1"><i class="fas fa-times"></i></button>' +
+              '</div>' +
             '</div>' +
+            unofficialHtml +
             (t.manta_url ? '<div class="flex items-center mt-1"><a href="' + t.manta_url + '" target="_blank" class="text-xs text-blue-500 hover:underline truncate max-w-[200px]">' + t.manta_url + '</a><button onclick="copyMantaUrl(\\'' + t.manta_url + '\\')" class="text-gray-400 hover:text-blue-500 ml-1" title="복사"><i class="fas fa-copy text-xs"></i></button></div>' : '') +
-          '</div>'
-        ).join('') || '<div class="text-gray-500 text-center py-4">목록 없음</div>';
+          '</div>';
+        }).join('') || '<div class="text-gray-500 text-center py-4">목록 없음</div>';
         
         document.getElementById('history-titles-list').innerHTML = data.history.map(t =>
           '<div class="py-2 border-b hover:bg-gray-100">' +
@@ -4167,6 +4267,40 @@ app.get('/', (c) => {
         body: JSON.stringify({ title })
       });
       loadTitles();
+    }
+    
+    // 비공식 타이틀 모달 관련
+    let currentEditingTitle = null;
+    
+    function openUnofficialModal(title, currentUnofficials) {
+      currentEditingTitle = title;
+      document.getElementById('unofficial-modal-title').textContent = title;
+      document.getElementById('unofficial-titles-input').value = (currentUnofficials || []).join('\\n');
+      document.getElementById('unofficial-modal').classList.remove('hidden');
+    }
+    
+    function closeUnofficialModal() {
+      document.getElementById('unofficial-modal').classList.add('hidden');
+      currentEditingTitle = null;
+    }
+    
+    async function saveUnofficialTitles() {
+      if (!currentEditingTitle) return;
+      
+      const input = document.getElementById('unofficial-titles-input').value;
+      const titles = input.split('\\n').map(t => t.trim()).filter(t => t);
+      
+      const res = await fetchAPI('/api/titles/' + encodeURIComponent(currentEditingTitle) + '/unofficial', {
+        method: 'PUT',
+        body: JSON.stringify({ unofficial_titles: titles })
+      });
+      
+      if (res.success) {
+        closeUnofficialModal();
+        loadTitles();
+      } else {
+        alert(res.error || '저장 실패');
+      }
     }
     
     // ============================================
@@ -4747,6 +4881,9 @@ app.get('/', (c) => {
     window.addNewTitle = addNewTitle;
     window.removeTitle = removeTitle;
     window.restoreTitle = restoreTitle;
+    window.openUnofficialModal = openUnofficialModal;
+    window.closeUnofficialModal = closeUnofficialModal;
+    window.saveUnofficialTitles = saveUnofficialTitles;
     window.reviewItem = reviewItem;
     window.bulkReview = bulkReview;
     window.toggleSelectAll = toggleSelectAll;

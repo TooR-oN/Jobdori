@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import XLSX from 'xlsx';
 import { neon } from '@neondatabase/serverless';
-import { Config, FinalResult, REPORT_COLUMNS } from './types/index.js';
+import { Config, FinalResult, REPORT_COLUMNS, TitleSearchConfig } from './types/index.js';
 
 // ============================================
 // DB 연결
@@ -63,29 +63,47 @@ export function loadConfig(): Config {
 /**
  * 작품 제목 로드 - DB 우선, 폴백으로 파일 사용
  * GitHub Actions에서 사용 - DB의 is_current=true 작품을 실시간으로 로드
+ * 비공식 타이틀(별칭)도 함께 로드하여 검색 범위 확장
  */
-export async function loadTitlesFromDb(): Promise<string[]> {
+export async function loadTitlesFromDb(): Promise<TitleSearchConfig[]> {
   try {
     const sql = getDb();
     const rows = await sql`
-      SELECT name FROM titles 
+      SELECT name, unofficial_titles 
+      FROM titles 
       WHERE is_current = true 
       ORDER BY name
     `;
-    const titles = rows.map((r: any) => r.name);
+    
+    const titles: TitleSearchConfig[] = rows.map((r: any) => ({
+      official: r.name,
+      searchTerms: [
+        r.name,
+        ...(r.unofficial_titles || [])
+      ].filter(Boolean)  // 빈 값 제거
+    }));
+    
+    // 통계 출력
+    const totalSearchTerms = titles.reduce((sum, t) => sum + t.searchTerms.length, 0);
+    const titlesWithAliases = titles.filter(t => t.searchTerms.length > 1).length;
+    
     console.log(`📖 DB에서 작품 ${titles.length}개 로드됨`);
+    console.log(`   - 비공식 타이틀 보유: ${titlesWithAliases}개 작품`);
+    console.log(`   - 총 검색어 수: ${totalSearchTerms}개`);
+    
     return titles;
   } catch (error) {
     console.warn('⚠️ DB 로드 실패, 파일로 폴백:', error);
-    // 폴백: 파일에서 로드
+    // 폴백: 파일에서 로드 (비공식 타이틀 없이)
     return loadTitlesFromFile('data/titles.xlsx');
   }
 }
 
 /**
  * 작품 제목 로드 (파일 기반 - 폴백용)
+ * 비공식 타이틀 없이 공식 타이틀만 반환
  */
-export function loadTitlesFromFile(filePath: string): string[] {
+export function loadTitlesFromFile(filePath: string): TitleSearchConfig[] {
   // titles.json 파일 경로
   const jsonPath = path.join(process.cwd(), 'data', 'titles.json');
   
@@ -95,8 +113,12 @@ export function loadTitlesFromFile(filePath: string): string[] {
       const content = fs.readFileSync(jsonPath, 'utf-8');
       const data = JSON.parse(content);
       if (data.current && Array.isArray(data.current) && data.current.length > 0) {
-        console.log(`📖 titles.json에서 작품 ${data.current.length}개 로드됨`);
-        return data.current;
+        console.log(`📖 titles.json에서 작품 ${data.current.length}개 로드됨 (파일 폴백)`);
+        // TitleSearchConfig 형식으로 변환 (비공식 타이틀 없이)
+        return data.current.map((name: string) => ({
+          official: name,
+          searchTerms: [name]
+        }));
       }
     } catch (error) {
       console.warn('titles.json 로드 실패, titles.xlsx로 폴백:', error);
@@ -110,14 +132,18 @@ export function loadTitlesFromFile(filePath: string): string[] {
   const worksheet = workbook.Sheets[sheetName];
   const data = XLSX.utils.sheet_to_json<{ title: string }>(worksheet);
   const titles = data.map(row => row.title).filter(Boolean);
-  console.log(`📖 titles.xlsx에서 작품 ${titles.length}개 로드됨`);
-  return titles;
+  console.log(`📖 titles.xlsx에서 작품 ${titles.length}개 로드됨 (파일 폴백)`);
+  // TitleSearchConfig 형식으로 변환 (비공식 타이틀 없이)
+  return titles.map(name => ({
+    official: name,
+    searchTerms: [name]
+  }));
 }
 
 /**
  * 하위 호환성을 위한 기존 함수 (deprecated - loadTitlesFromDb 사용 권장)
  */
-export function loadTitles(filePath: string): string[] {
+export function loadTitles(filePath: string): TitleSearchConfig[] {
   return loadTitlesFromFile(filePath);
 }
 

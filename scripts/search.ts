@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { SearchResult, Config } from './types/index.js';
+import { SearchResult, Config, TitleSearchConfig } from './types/index.js';
 import {
   getRandomDelay,
   sleep,
@@ -148,9 +148,17 @@ export async function runSearch(): Promise<SearchResult[]> {
   // 설정 로드
   const config = loadConfig();
 
-  // 작품 제목 로드 (DB 기반 - 실시간 반영)
-  const titles = await loadTitlesFromDb();
-  console.log(`📚 작품 수: ${titles.length}개`);
+  // 작품 제목 로드 (DB 기반 - 실시간 반영, 비공식 타이틀 포함)
+  const titleConfigs: TitleSearchConfig[] = await loadTitlesFromDb();
+  console.log(`📚 작품 수: ${titleConfigs.length}개`);
+  
+  // 비공식 타이틀 통계 출력
+  const titlesWithAliases = titleConfigs.filter(t => t.searchTerms.length > 1).length;
+  const totalSearchTerms = titleConfigs.reduce((sum, t) => sum + t.searchTerms.length, 0);
+  if (titlesWithAliases > 0) {
+    console.log(`🔖 비공식 타이틀 보유 작품: ${titlesWithAliases}개`);
+    console.log(`🔍 총 검색어 수: ${totalSearchTerms}개 (공식 + 비공식)`);
+  }
 
   // 키워드 로드 (빈 문자열도 포함 - 작품명만 검색)
   const rawKeywords = loadKeywords(config.paths.keywordsFile);
@@ -159,43 +167,61 @@ export async function runSearch(): Promise<SearchResult[]> {
   const keywordDisplay = keywords.map(k => k || '[작품명만]').join(', ');
   console.log(`🏷️  키워드: ${keywordDisplay}`);
 
-  const totalSearches = titles.length * keywords.length;
+  const totalSearches = totalSearchTerms * keywords.length;
   console.log(`🔢 총 검색 횟수: ${totalSearches}회`);
   console.log(`📊 예상 API 호출: ${totalSearches * config.search.maxPages}회\n`);
 
   const allResults: SearchResult[] = [];
+  const seenUrls = new Set<string>(); // URL 중복 제거용
   let searchCount = 0;
 
-  for (const title of titles) {
-    console.log(`\n📖 작품: ${title}`);
+  for (const titleConfig of titleConfigs) {
+    const officialTitle = titleConfig.official;
+    const hasAliases = titleConfig.searchTerms.length > 1;
+    
+    console.log(`\n📖 작품: ${officialTitle}${hasAliases ? ` (+ ${titleConfig.searchTerms.length - 1}개 비공식 타이틀)` : ''}`);
 
-    for (const keyword of keywords) {
-      searchCount++;
-      // 키워드가 빈 문자열이면 작품명만 검색
-      const query = keyword ? `${title} ${keyword}` : title;
+    // 모든 검색어 (공식 + 비공식) 순회
+    for (const searchTerm of titleConfig.searchTerms) {
+      const isAlias = searchTerm !== officialTitle;
+      
+      for (const keyword of keywords) {
+        searchCount++;
+        // 키워드가 빈 문자열이면 작품명만 검색
+        const query = keyword ? `${searchTerm} ${keyword}` : searchTerm;
 
-      console.log(`\n[${searchCount}/${totalSearches}]`);
+        console.log(`\n[${searchCount}/${totalSearches}]${isAlias ? ` (비공식: ${searchTerm})` : ''}`);
 
-      // 검색 실행
-      const results = await executeSearch(query, title, config);
-      allResults.push(...results);
+        // 검색 실행 (결과의 title은 항상 공식 타이틀로 통일)
+        const results = await executeSearch(query, officialTitle, config);
+        
+        // URL 중복 제거 후 추가
+        let addedCount = 0;
+        for (const result of results) {
+          if (!seenUrls.has(result.url)) {
+            seenUrls.add(result.url);
+            allResults.push(result);
+            addedCount++;
+          }
+        }
 
-      console.log(`    ✅ 수집 완료: ${results.length}개 결과`);
+        console.log(`    ✅ 수집 완료: ${results.length}개 결과 (신규: ${addedCount}개, 중복 제외: ${results.length - addedCount}개)`);
 
-      // 다음 검색 전 딜레이 (마지막 검색 제외)
-      if (searchCount < totalSearches) {
-        const delay = getRandomDelay(
-          config.search.delayBetweenSearches.min,
-          config.search.delayBetweenSearches.max
-        );
-        console.log(`    ⏳ 검색 간 딜레이: ${(delay / 1000).toFixed(1)}초`);
-        await sleep(delay);
+        // 다음 검색 전 딜레이 (마지막 검색 제외)
+        if (searchCount < totalSearches) {
+          const delay = getRandomDelay(
+            config.search.delayBetweenSearches.min,
+            config.search.delayBetweenSearches.max
+          );
+          console.log(`    ⏳ 검색 간 딜레이: ${(delay / 1000).toFixed(1)}초`);
+          await sleep(delay);
+        }
       }
     }
   }
 
   console.log(`\n\n✅ 검색 완료!`);
-  console.log(`📊 총 수집 결과: ${allResults.length}개`);
+  console.log(`📊 총 수집 결과: ${allResults.length}개 (중복 URL 제거됨)`);
 
   return allResults;
 }
