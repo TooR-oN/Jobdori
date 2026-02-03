@@ -208,13 +208,33 @@ export const reportTrackingApi = {
     return res.data;
   },
   
-  getBySession: async (sessionId: string) => {
-    const res = await api.get(`/api/report-tracking/${sessionId}`);
+  getBySession: async (sessionId: string, params?: { status?: string; page?: number; limit?: number; search?: string }) => {
+    const res = await api.get(`/api/report-tracking/${sessionId}`, { params });
+    return res.data;
+  },
+  
+  getStats: async (sessionId: string) => {
+    const res = await api.get(`/api/report-tracking/${sessionId}/stats`);
+    return res.data;
+  },
+  
+  getReasons: async () => {
+    const res = await api.get('/api/report-tracking/reasons');
     return res.data;
   },
   
   updateStatus: async (id: number, status: string) => {
     const res = await api.put(`/api/report-tracking/${id}/status`, { status });
+    return res.data;
+  },
+  
+  updateReason: async (id: number, reasonId: number | null) => {
+    const res = await api.put(`/api/report-tracking/${id}/reason`, { reason_id: reasonId });
+    return res.data;
+  },
+  
+  updateReportId: async (id: number, reportId: string) => {
+    const res = await api.put(`/api/report-tracking/${id}/report-id`, { report_id: reportId });
     return res.data;
   },
 };
