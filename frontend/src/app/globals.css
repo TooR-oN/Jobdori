@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 탭 활성화 스타일 */
+.tab-active {
+  border-bottom: 3px solid #3b82f6;
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+/* 상태 배지 스타일 */
+.status-illegal {
+  background-color: #ef4444;
+}
+
+.status-legal {
+  background-color: #22c55e;
+}
+
+.status-pending {
+  background-color: #f59e0b;
+}
