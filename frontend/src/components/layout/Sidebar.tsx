@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { useState } from 'react';
 import {
   ChartBarIcon,
   BookOpenIcon,
@@ -13,6 +14,9 @@ import {
   GlobeAltIcon,
   UsersIcon,
   ArrowRightOnRectangleIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  NoSymbolIcon,
 } from '@heroicons/react/24/outline';
 
 interface MenuItem {
@@ -20,16 +24,26 @@ interface MenuItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  children?: MenuItem[];
 }
 
 const mainMenuItems: MenuItem[] = [
   { name: '대시보드', href: '/', icon: ChartBarIcon },
-  { name: '모니터링 작품', href: '/titles', icon: BookOpenIcon },
+  { name: '모니터링 작품 관리', href: '/titles', icon: BookOpenIcon },
   { name: '승인 대기', href: '/pending', icon: ClockIcon, adminOnly: true },
   { name: '모니터링 회차', href: '/sessions', icon: ListBulletIcon },
   { name: '신고결과 추적', href: '/report-tracking', icon: DocumentTextIcon },
-  { name: '작품별 통계', href: '/stats', icon: ChartPieIcon },
+  { 
+    name: '작품별 통계', 
+    href: '/stats', 
+    icon: ChartPieIcon,
+    children: [
+      { name: '신고/차단 통계', href: '/stats', icon: ChartPieIcon },
+      { name: 'Manta 순위 변화', href: '/stats/manta-rankings', icon: ChartBarIcon },
+    ]
+  },
   { name: '사이트 목록', href: '/sites', icon: GlobeAltIcon, adminOnly: true },
+  { name: '제외 URL 관리', href: '/excluded-urls', icon: NoSymbolIcon, adminOnly: true },
 ];
 
 const adminMenuItems: MenuItem[] = [
@@ -39,6 +53,7 @@ const adminMenuItems: MenuItem[] = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout, isAdmin } = useAuth();
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(['/stats']);
 
   const handleLogout = async () => {
     if (confirm('로그아웃 하시겠습니까?')) {
@@ -46,21 +61,71 @@ export default function Sidebar() {
     }
   };
 
+  const toggleExpand = (href: string) => {
+    setExpandedMenus(prev => 
+      prev.includes(href) 
+        ? prev.filter(h => h !== href)
+        : [...prev, href]
+    );
+  };
+
   const isActive = (href: string) => {
     if (href === '/') {
       return pathname === '/';
     }
-    return pathname.startsWith(href);
+    return pathname === href || pathname.startsWith(href + '/');
   };
 
-  const renderMenuItem = (item: MenuItem) => {
+  const isParentActive = (item: MenuItem) => {
+    if (item.children) {
+      return item.children.some(child => isActive(child.href));
+    }
+    return isActive(item.href);
+  };
+
+  const renderMenuItem = (item: MenuItem, isChild = false) => {
     // admin 전용 메뉴는 admin 역할만 볼 수 있음
     if (item.adminOnly && !isAdmin) {
       return null;
     }
 
-    const active = isActive(item.href);
+    const hasChildren = item.children && item.children.length > 0;
+    const isExpanded = expandedMenus.includes(item.href);
+    const active = hasChildren ? isParentActive(item) : isActive(item.href);
     const Icon = item.icon;
+
+    if (hasChildren) {
+      return (
+        <div key={item.href}>
+          <button
+            onClick={() => toggleExpand(item.href)}
+            className={`
+              flex items-center justify-between w-full px-4 py-3 text-sm font-medium rounded-lg mx-2 transition-colors
+              ${active
+                ? 'bg-blue-50 text-blue-600'
+                : 'text-gray-700 hover:bg-gray-100'
+              }
+            `}
+            style={{ width: 'calc(100% - 16px)' }}
+          >
+            <div className="flex items-center gap-3">
+              <Icon className="w-5 h-5" />
+              <span>{item.name}</span>
+            </div>
+            {isExpanded ? (
+              <ChevronDownIcon className="w-4 h-4" />
+            ) : (
+              <ChevronRightIcon className="w-4 h-4" />
+            )}
+          </button>
+          {isExpanded && (
+            <div className="ml-4 mt-1 space-y-1">
+              {item.children?.map(child => renderMenuItem(child, true))}
+            </div>
+          )}
+        </div>
+      );
+    }
 
     return (
       <Link
@@ -68,6 +133,7 @@ export default function Sidebar() {
         href={item.href}
         className={`
           flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg mx-2 transition-colors
+          ${isChild ? 'py-2 text-xs' : ''}
           ${active
             ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600 -ml-0 pl-3'
             : 'text-gray-700 hover:bg-gray-100'
@@ -88,13 +154,13 @@ export default function Sidebar() {
           <span className="text-2xl font-bold text-[#1E9EF4]">RIDI</span>
         </div>
         <h1 className="text-xl font-bold text-gray-800 mt-1">Jobdori</h1>
-        <p className="text-xs text-gray-500 mt-0.5">저작권 침해 모니터링</p>
+        <p className="text-xs text-gray-500 mt-0.5">리디 저작권 침해 모니터링</p>
       </div>
 
       {/* 메인 메뉴 */}
       <nav className="flex-1 py-4 overflow-y-auto">
         <div className="space-y-1">
-          {mainMenuItems.map(renderMenuItem)}
+          {mainMenuItems.map(item => renderMenuItem(item))}
         </div>
 
         {/* 구분선 */}
@@ -102,7 +168,7 @@ export default function Sidebar() {
           <>
             <div className="my-4 mx-4 border-t border-gray-200" />
             <div className="space-y-1">
-              {adminMenuItems.map(renderMenuItem)}
+              {adminMenuItems.map(item => renderMenuItem(item))}
             </div>
           </>
         )}

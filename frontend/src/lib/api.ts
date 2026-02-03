@@ -29,17 +29,43 @@ api.interceptors.response.use(
 
 export const authApi = {
   login: async (username: string, password: string) => {
-    const res = await api.post('/api/auth/login', { username, password });
+    // 임시: 백엔드는 password만 확인, username은 프론트에서 처리
+    const res = await api.post('/api/auth/login', { password });
+    if (res.data.success) {
+      // 임시 사용자 정보 (백엔드 사용자 관리 구현 전까지)
+      const role = username === 'admin' ? 'admin' : 'user';
+      const user = { username, role };
+      // 로컬스토리지에 저장 (페이지 새로고침 시 복원용)
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('jobdori_user', JSON.stringify(user));
+      }
+      return { success: true, user };
+    }
     return res.data;
   },
   
   logout: async () => {
     const res = await api.post('/api/auth/logout');
+    // 임시: 로컬스토리지 정리
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('jobdori_user');
+    }
     return res.data;
   },
   
   status: async () => {
     const res = await api.get('/api/auth/status');
+    if (res.data.authenticated) {
+      // 임시: 로컬스토리지에서 사용자 정보 복원
+      const savedUser = typeof window !== 'undefined' 
+        ? localStorage.getItem('jobdori_user') 
+        : null;
+      if (savedUser) {
+        return { authenticated: true, user: JSON.parse(savedUser) };
+      }
+      // 기본값: admin으로 처리 (테스트용)
+      return { authenticated: true, user: { username: 'admin', role: 'admin' } };
+    }
     return res.data;
   },
 };
@@ -194,6 +220,38 @@ export const usersApi = {
 export const statsApi = {
   byTitle: async (startDate?: string, endDate?: string) => {
     const res = await api.get('/api/stats/by-title', { params: { start_date: startDate, end_date: endDate } });
+    return res.data;
+  },
+};
+
+// ============================================
+// Manta Rankings API
+// ============================================
+
+export const mantaRankingsApi = {
+  getList: async () => {
+    const res = await api.get('/api/manta-rankings');
+    return res.data;
+  },
+};
+
+// ============================================
+// Excluded URLs API (Admin only)
+// ============================================
+
+export const excludedUrlsApi = {
+  getList: async () => {
+    const res = await api.get('/api/excluded-urls');
+    return res.data;
+  },
+  
+  add: async (url: string) => {
+    const res = await api.post('/api/excluded-urls', { url });
+    return res.data;
+  },
+  
+  remove: async (id: number) => {
+    const res = await api.delete(`/api/excluded-urls/${id}`);
     return res.data;
   },
 };

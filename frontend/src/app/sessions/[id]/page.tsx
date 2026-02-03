@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { MainLayout } from '@/components/layout';
-import { sessionsApi } from '@/lib/api';
-import { ArrowLeftIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
+import { sessionsApi, titlesApi } from '@/lib/api';
+import { ArrowLeftIcon, ArrowDownTrayIcon, DocumentDuplicateIcon, CheckIcon } from '@heroicons/react/24/outline';
 
 interface Result {
   title: string;
@@ -17,6 +17,12 @@ interface Result {
   llm_judgment: string | null;
   llm_reason: string | null;
   final_status: 'illegal' | 'legal' | 'pending';
+}
+
+interface Title {
+  name: string;
+  manta_url: string | null;
+  unofficial_titles?: string[];
 }
 
 interface Pagination {
@@ -34,13 +40,30 @@ export default function SessionDetailPage() {
   const [results, setResults] = useState<Result[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [availableTitles, setAvailableTitles] = useState<string[]>([]);
+  const [titlesData, setTitlesData] = useState<Title[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
   
   // 필터
   const [titleFilter, setTitleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // 타이틀 데이터 로드 (Manta URL 포함)
+  useEffect(() => {
+    const loadTitles = async () => {
+      try {
+        const res = await titlesApi.getList();
+        if (res.success) {
+          setTitlesData(res.current || []);
+        }
+      } catch (err) {
+        console.error('Failed to load titles:', err);
+      }
+    };
+    loadTitles();
+  }, []);
 
   // 데이터 로드
   const loadResults = async () => {
@@ -77,6 +100,33 @@ export default function SessionDetailPage() {
     return true;
   });
 
+  // 선택한 작품의 Manta URL 가져오기
+  const getSelectedTitleMantaUrl = () => {
+    if (titleFilter === 'all') return null;
+    const title = titlesData.find(t => t.name === titleFilter);
+    return title?.manta_url || null;
+  };
+
+  // 불법 URL만 복사
+  const handleCopyIllegalUrls = async () => {
+    const illegalUrls = filteredResults
+      .filter(r => r.final_status === 'illegal')
+      .map(r => r.url);
+    
+    if (illegalUrls.length === 0) {
+      alert('복사할 불법 URL이 없습니다.');
+      return;
+    }
+    
+    try {
+      await navigator.clipboard.writeText(illegalUrls.join('\n'));
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      alert('클립보드 복사에 실패했습니다.');
+    }
+  };
+
   // 상태 배지
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -91,10 +141,27 @@ export default function SessionDetailPage() {
     }
   };
 
+  // 행 배경색
+  const getRowBgColor = (status: string) => {
+    switch (status) {
+      case 'illegal':
+        return 'bg-red-50 hover:bg-red-100';
+      case 'legal':
+        return 'bg-green-50 hover:bg-green-100';
+      case 'pending':
+        return 'bg-yellow-50 hover:bg-yellow-100';
+      default:
+        return 'hover:bg-gray-50';
+    }
+  };
+
   // 다운로드
   const handleDownload = () => {
     window.open(`/api/sessions/${sessionId}/download`, '_blank');
   };
+
+  // 불법 URL 개수
+  const illegalCount = filteredResults.filter(r => r.final_status === 'illegal').length;
 
   return (
     <MainLayout pageTitle={`모니터링 회차: ${sessionId}`}>
@@ -108,13 +175,36 @@ export default function SessionDetailPage() {
           <span>목록으로 돌아가기</span>
         </button>
         
-        <button
-          onClick={handleDownload}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-        >
-          <ArrowDownTrayIcon className="w-4 h-4" />
-          <span>Excel 다운로드</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopyIllegalUrls}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+              copySuccess 
+                ? 'bg-green-600 text-white' 
+                : 'bg-red-600 text-white hover:bg-red-700'
+            }`}
+          >
+            {copySuccess ? (
+              <>
+                <CheckIcon className="w-4 h-4" />
+                <span>복사됨!</span>
+              </>
+            ) : (
+              <>
+                <DocumentDuplicateIcon className="w-4 h-4" />
+                <span>불법 URL 복사 ({illegalCount})</span>
+              </>
+            )}
+          </button>
+          
+          <button
+            onClick={handleDownload}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          >
+            <ArrowDownTrayIcon className="w-4 h-4" />
+            <span>Excel 다운로드</span>
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -124,40 +214,62 @@ export default function SessionDetailPage() {
       )}
 
       {/* 필터 */}
-      <div className="mb-6 flex flex-col sm:flex-row gap-4">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">작품:</label>
-          <select
-            value={titleFilter}
-            onChange={(e) => setTitleFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">전체</option>
-            {availableTitles.map(title => (
-              <option key={title} value={title}>{title}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">상태:</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">전체</option>
-            <option value="illegal">불법</option>
-            <option value="legal">합법</option>
-            <option value="pending">대기</option>
-          </select>
-        </div>
-        
-        {pagination && (
-          <div className="sm:ml-auto text-sm text-gray-600">
-            총 {pagination.total.toLocaleString()}건
+      <div className="mb-6 bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-sm text-gray-600 mb-1">작품 선택</label>
+            <select
+              value={titleFilter}
+              onChange={(e) => setTitleFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">전체 작품</option>
+              {availableTitles.map(title => (
+                <option key={title} value={title}>{title}</option>
+              ))}
+            </select>
+            {/* 선택한 작품의 Manta URL 표시 */}
+            {titleFilter !== 'all' && getSelectedTitleMantaUrl() && (
+              <a
+                href={getSelectedTitleMantaUrl()!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:underline mt-1 block"
+              >
+                📖 Manta 공식 페이지 →
+              </a>
+            )}
           </div>
-        )}
+          
+          <div className="flex-1">
+            <label className="block text-sm text-gray-600 mb-1">상태 필터</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">전체 상태</option>
+              <option value="illegal">🔴 불법</option>
+              <option value="legal">🟢 합법</option>
+              <option value="pending">🟡 대기</option>
+            </select>
+          </div>
+          
+          <div className="flex items-end">
+            {pagination && (
+              <div className="text-sm text-gray-600 py-2">
+                총 <strong>{pagination.total.toLocaleString()}</strong>건
+                {statusFilter === 'all' && (
+                  <span className="ml-2">
+                    (🔴 {results.filter(r => r.final_status === 'illegal').length} / 
+                    🟢 {results.filter(r => r.final_status === 'legal').length} / 
+                    🟡 {results.filter(r => r.final_status === 'pending').length})
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 결과 테이블 */}
@@ -185,7 +297,7 @@ export default function SessionDetailPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredResults.map((result, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50 transition">
+                  <tr key={idx} className={`transition ${getRowBgColor(result.final_status)}`}>
                     <td className="px-4 py-3">
                       <span className="text-sm text-gray-800">{result.title}</span>
                     </td>

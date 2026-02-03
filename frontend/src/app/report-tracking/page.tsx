@@ -1,19 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { MainLayout } from '@/components/layout';
-import { reportTrackingApi } from '@/lib/api';
-import { ChevronDownIcon, ChevronUpIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { reportTrackingApi, titlesApi } from '@/lib/api';
+import { 
+  MagnifyingGlassIcon, 
+  DocumentDuplicateIcon, 
+  ArrowDownTrayIcon,
+  PlusIcon,
+  ArrowUpTrayIcon,
+  CheckIcon,
+} from '@heroicons/react/24/outline';
 
-interface TrackingSession {
+interface Session {
   id: string;
   created_at: string;
   status: string;
   tracking_stats: {
     total: number;
-    reported: number;
-    blocked: number;
-    pending: number;
+    [key: string]: number;
   };
 }
 
@@ -25,9 +30,9 @@ interface TrackingItem {
   title: string;
   report_status: string;
   report_id: string | null;
-  reason_id: number | null;
-  reason_text: string | null;
+  reason: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 interface Reason {
@@ -36,291 +41,510 @@ interface Reason {
   usage_count: number;
 }
 
-const STATUS_OPTIONS = [
-  { value: '미신고', label: '미신고', color: 'bg-gray-100 text-gray-700' },
-  { value: '신고완료', label: '신고완료', color: 'bg-blue-100 text-blue-700' },
-  { value: '차단', label: '차단', color: 'bg-green-100 text-green-700' },
-  { value: '미차단', label: '미차단', color: 'bg-red-100 text-red-700' },
-  { value: '확인필요', label: '확인필요', color: 'bg-yellow-100 text-yellow-700' },
-];
+interface Title {
+  name: string;
+  manta_url: string | null;
+}
+
+const STATUS_OPTIONS = ['미신고', '신고완료', '차단', '미차단', '확인필요', '색인없음', '거부', '대기 중'];
 
 export default function ReportTrackingPage() {
-  const [sessions, setSessions] = useState<TrackingSession[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  // 세션 관련
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  
+  // 데이터
   const [items, setItems] = useState<TrackingItem[]>([]);
   const [reasons, setReasons] = useState<Reason[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isItemsLoading, setIsItemsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [titles, setTitles] = useState<Title[]>([]);
   
   // 필터
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('전체 상태');
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pagination, setPagination] = useState<{ total: number; totalPages: number } | null>(null);
+  
+  // URL 추가
+  const [selectedTitle, setSelectedTitle] = useState('');
+  const [newUrl, setNewUrl] = useState('');
+  
+  // 파일 업로드
+  const [reportId, setReportId] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadHistory, setUploadHistory] = useState<any[]>([]);
+  
+  // 상태
+  const [isLoading, setIsLoading] = useState(true);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // 세션 목록 로드
   useEffect(() => {
-    const loadSessions = async () => {
+    const loadInitialData = async () => {
       setIsLoading(true);
       try {
-        const [sessionsRes, reasonsRes] = await Promise.all([
+        const [sessionsRes, reasonsRes, titlesRes] = await Promise.all([
           reportTrackingApi.getSessions(),
           reportTrackingApi.getReasons(),
+          titlesApi.getList(),
         ]);
         
         if (sessionsRes.success) {
           setSessions(sessionsRes.sessions || []);
-          // 첫 번째 세션 자동 선택
           if (sessionsRes.sessions?.length > 0) {
             setSelectedSessionId(sessionsRes.sessions[0].id);
           }
         }
-        
         if (reasonsRes.success) {
           setReasons(reasonsRes.reasons || []);
         }
+        if (titlesRes.success) {
+          setTitles(titlesRes.current || []);
+        }
       } catch (err) {
-        console.error('Failed to load sessions:', err);
-        setError('데이터를 불러오는데 실패했습니다.');
+        console.error('Failed to load initial data:', err);
       } finally {
         setIsLoading(false);
       }
     };
-    loadSessions();
+    loadInitialData();
   }, []);
 
-  // 선택된 세션의 아이템 로드
+  // 선택된 세션 데이터 로드
   useEffect(() => {
     if (!selectedSessionId) return;
     
-    const loadItems = async () => {
-      setIsItemsLoading(true);
+    const loadSessionData = async () => {
       try {
-        const res = await reportTrackingApi.getBySession(selectedSessionId, {
-          status: statusFilter || undefined,
-          page: currentPage,
-          limit: 50,
-          search: searchQuery || undefined,
-        });
-        
+        const res = await reportTrackingApi.getBySession(selectedSessionId);
         if (res.success) {
           setItems(res.items || []);
-          setPagination(res.pagination);
         }
+        
+        // 선택된 세션 정보 업데이트
+        const session = sessions.find(s => s.id === selectedSessionId);
+        setSelectedSession(session || null);
       } catch (err) {
-        console.error('Failed to load items:', err);
-      } finally {
-        setIsItemsLoading(false);
+        console.error('Failed to load session data:', err);
       }
     };
-    loadItems();
-  }, [selectedSessionId, statusFilter, currentPage, searchQuery]);
+    loadSessionData();
+  }, [selectedSessionId, sessions]);
 
-  // 상태 업데이트
-  const handleStatusChange = async (itemId: number, newStatus: string) => {
+  // 필터링된 아이템
+  const filteredItems = items.filter(item => {
+    if (statusFilter !== '전체 상태' && item.report_status !== statusFilter) return false;
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      return item.url.toLowerCase().includes(query) || item.domain.toLowerCase().includes(query);
+    }
+    return true;
+  });
+
+  // 날짜 포맷
+  const formatSessionDate = (sessionId: string) => {
+    // sessionId 형식: 2026-02-03T01-59-16
     try {
-      await reportTrackingApi.updateStatus(itemId, newStatus);
-      setItems(prev => prev.map(item => 
-        item.id === itemId ? { ...item, report_status: newStatus } : item
-      ));
-    } catch (err) {
-      console.error('Failed to update status:', err);
-      setError('상태 업데이트에 실패했습니다.');
+      const parts = sessionId.split('T');
+      const datePart = parts[0];
+      const date = new Date(datePart);
+      return date.toLocaleDateString('ko-KR', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+    } catch {
+      return sessionId;
     }
   };
 
-  // 날짜 포맷
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString('ko-KR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
+  // 상태 변경
+  const handleStatusChange = async (id: number, newStatus: string) => {
+    try {
+      await reportTrackingApi.updateStatus(id, newStatus);
+      setItems(prev => prev.map(item => 
+        item.id === id ? { ...item, report_status: newStatus } : item
+      ));
+    } catch (err) {
+      console.error('Failed to update status:', err);
+    }
   };
 
-  // 상태 배지
-  const getStatusBadge = (status: string) => {
-    const option = STATUS_OPTIONS.find(o => o.value === status);
-    const color = option?.color || 'bg-gray-100 text-gray-600';
-    return <span className={`px-2 py-1 text-xs font-medium rounded-full ${color}`}>{status}</span>;
+  // 신고ID 변경
+  const handleReportIdChange = async (id: number, newReportId: string) => {
+    try {
+      await reportTrackingApi.updateReportId(id, newReportId);
+      setItems(prev => prev.map(item => 
+        item.id === id ? { ...item, report_id: newReportId } : item
+      ));
+    } catch (err) {
+      console.error('Failed to update report ID:', err);
+    }
+  };
+
+  // 사유 변경
+  const handleReasonChange = async (id: number, reasonId: number | null) => {
+    try {
+      await reportTrackingApi.updateReason(id, reasonId);
+      const reasonText = reasonId ? reasons.find(r => r.id === reasonId)?.text : null;
+      setItems(prev => prev.map(item => 
+        item.id === id ? { ...item, reason: reasonText || null } : item
+      ));
+    } catch (err) {
+      console.error('Failed to update reason:', err);
+    }
+  };
+
+  // URL 복사
+  const handleCopyUrls = async () => {
+    const urls = filteredItems.map(item => item.url);
+    if (urls.length === 0) {
+      alert('복사할 URL이 없습니다.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(urls.join('\n'));
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch {
+      alert('클립보드 복사에 실패했습니다.');
+    }
+  };
+
+  // CSV 내보내기
+  const handleExportCsv = () => {
+    if (filteredItems.length === 0) {
+      alert('내보낼 데이터가 없습니다.');
+      return;
+    }
+    
+    const headers = ['URL', '도메인', '상태', '신고ID', '사유'];
+    const rows = filteredItems.map(item => [
+      item.url,
+      item.domain,
+      item.report_status,
+      item.report_id || '',
+      item.reason || '',
+    ]);
+    
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+    
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `report-tracking-${selectedSessionId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // URL 수동 추가
+  const handleAddUrl = async () => {
+    if (!selectedTitle || !newUrl) {
+      alert('작품과 URL을 모두 입력해주세요.');
+      return;
+    }
+    // TODO: 백엔드 API 구현 필요
+    alert('URL 추가 기능은 백엔드 API 구현 후 사용 가능합니다.');
+  };
+
+  // 파일 업로드
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // TODO: 백엔드 API 구현 필요
+    alert('파일 업로드 기능은 백엔드 API 구현 후 사용 가능합니다.');
+    
+    // 파일 input 초기화
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // 상태별 색상
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case '미신고': return 'bg-purple-100 text-purple-700';
+      case '신고완료': return 'bg-blue-100 text-blue-700';
+      case '차단': return 'bg-green-100 text-green-700';
+      case '미차단': return 'bg-red-100 text-red-700';
+      case '확인필요': return 'bg-yellow-100 text-yellow-700';
+      case '색인없음': return 'bg-gray-100 text-gray-600';
+      case '거부': return 'bg-orange-100 text-orange-700';
+      case '대기 중': return 'bg-cyan-100 text-cyan-700';
+      default: return 'bg-gray-100 text-gray-600';
+    }
   };
 
   return (
     <MainLayout pageTitle="신고결과 추적">
-      {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 underline">닫기</button>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* 왼쪽: 세션 목록 */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-            <div className="px-4 py-3 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-800">모니터링 회차</h3>
+        {/* 좌측 패널 */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* 모니터링 회차 선택 */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              📅 모니터링 회차
+            </h3>
+            <select
+              value={selectedSessionId}
+              onChange={(e) => setSelectedSessionId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {sessions.map(session => (
+                <option key={session.id} value={session.id}>
+                  {formatSessionDate(session.id)} ({session.tracking_stats?.total || 0}개)
+                </option>
+              ))}
+            </select>
+            
+            {/* 현황 요약 */}
+            {selectedSession && (
+              <div className="mt-4 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-gray-800">
+                      {selectedSession.tracking_stats?.total || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">전체</p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-green-600">
+                      {selectedSession.tracking_stats?.['차단'] || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">차단</p>
+                  </div>
+                  <div className="bg-purple-50 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-purple-600">
+                      {selectedSession.tracking_stats?.['미신고'] || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">미신고</p>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-red-600">
+                      {selectedSession.tracking_stats?.['거부'] || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">거부</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* URL 수동 추가 */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              ➕ URL 수동 추가
+            </h3>
+            <div className="space-y-3">
+              <select
+                value={selectedTitle}
+                onChange={(e) => setSelectedTitle(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">-- 작품 선택 --</option>
+                {titles.map(title => (
+                  <option key={title.name} value={title.name}>{title.name}</option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newUrl}
+                  onChange={(e) => setNewUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleAddUrl}
+                  className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                >
+                  <PlusIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-xs text-gray-500">작품을 선택하고 불법 URL을 추가합니다.</p>
             </div>
-            <div className="max-h-[600px] overflow-y-auto">
-              {isLoading ? (
-                <div className="p-4 text-center text-gray-400">로딩 중...</div>
-              ) : sessions.length === 0 ? (
-                <div className="p-4 text-center text-gray-400">신고 추적 데이터가 없습니다</div>
+          </div>
+
+          {/* 신고 결과 업로드 */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              📤 신고 결과 업로드
+            </h3>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={reportId}
+                onChange={(e) => setReportId(e.target.value)}
+                placeholder="신고 ID (예: 12345)"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-500 transition"
+              >
+                <ArrowUpTrayIcon className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                <p className="text-sm text-gray-600">HTML 파일을 여기에 드래그하거나</p>
+                <p className="text-sm text-blue-600 hover:underline">클릭하여 선택</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".html,.htm"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </div>
+              <p className="text-xs text-gray-500">구글 신고 결과 페이지를 업로드하면 차단된 URL을 자동 매칭합니다.</p>
+            </div>
+            
+            {/* 업로드 이력 */}
+            <div className="mt-4">
+              <h4 className="text-xs font-medium text-gray-600 mb-2">⏱️ 업로드 이력</h4>
+              {uploadHistory.length === 0 ? (
+                <p className="text-xs text-gray-400">이력 없음</p>
               ) : (
-                <ul className="divide-y divide-gray-100">
-                  {sessions.map((session) => (
-                    <li key={session.id}>
-                      <button
-                        onClick={() => {
-                          setSelectedSessionId(session.id);
-                          setCurrentPage(1);
-                        }}
-                        className={`w-full px-4 py-3 text-left hover:bg-gray-50 transition ${
-                          selectedSessionId === session.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                        }`}
-                      >
-                        <p className="text-sm font-medium text-gray-800">{session.id}</p>
-                        <p className="text-xs text-gray-500 mt-1">{formatDate(session.created_at)}</p>
-                        <div className="flex items-center gap-2 mt-2 text-xs">
-                          <span className="text-gray-600">총 {session.tracking_stats.total}</span>
-                          <span className="text-green-600">차단 {session.tracking_stats.blocked}</span>
-                          <span className="text-yellow-600">대기 {session.tracking_stats.pending}</span>
-                        </div>
-                      </button>
-                    </li>
+                <div className="space-y-1">
+                  {uploadHistory.map((item, idx) => (
+                    <div key={idx} className="text-xs text-gray-600">
+                      {item.date} - {item.count}건
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* 오른쪽: 상세 목록 */}
+        {/* 우측 패널 - URL 목록 */}
         <div className="lg:col-span-3">
-          {!selectedSessionId ? (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center text-gray-400">
-              왼쪽에서 회차를 선택하세요
-            </div>
-          ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-              {/* 필터 바 */}
-              <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row gap-3">
-                <div className="flex items-center gap-2">
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => {
-                      setStatusFilter(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">전체 상태</option>
-                    {STATUS_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div className="flex-1 relative">
-                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          {/* 필터 및 액션 */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+            <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+              <div className="flex gap-2 items-center flex-1">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option>전체 상태</option>
+                  {STATUS_OPTIONS.map(status => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+                <div className="relative flex-1 max-w-xs">
+                  <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
                     value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="URL 또는 도메인 검색..."
-                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="URL 검색..."
+                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                
-                {pagination && (
-                  <div className="text-sm text-gray-600 flex items-center">
-                    총 {pagination.total.toLocaleString()}건
-                  </div>
-                )}
               </div>
-
-              {/* 테이블 */}
-              <div className="overflow-x-auto">
-                {isItemsLoading ? (
-                  <div className="p-8 text-center text-gray-400">로딩 중...</div>
-                ) : items.length === 0 ? (
-                  <div className="p-8 text-center text-gray-400">데이터가 없습니다</div>
-                ) : (
-                  <table className="w-full">
-                    <thead className="bg-gray-50 border-b border-gray-100">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">작품</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">도메인</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">URL</th>
-                        <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">상태</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {items.map((item) => (
-                        <tr key={item.id} className="hover:bg-gray-50 transition">
-                          <td className="px-4 py-3">
-                            <span className="text-sm text-gray-800">{item.title || '-'}</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="text-sm font-mono text-gray-600">{item.domain}</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <a
-                              href={item.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-blue-600 hover:underline truncate block max-w-xs"
-                              title={item.url}
-                            >
-                              {item.url}
-                            </a>
-                          </td>
-                          <td className="px-4 py-3">
-                            <select
-                              value={item.report_status}
-                              onChange={(e) => handleStatusChange(item.id, e.target.value)}
-                              className="px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                              {STATUS_OPTIONS.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                              ))}
-                            </select>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCopyUrls}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition ${
+                    copySuccess
+                      ? 'bg-green-600 text-white'
+                      : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {copySuccess ? <CheckIcon className="w-4 h-4" /> : <DocumentDuplicateIcon className="w-4 h-4" />}
+                  <span>{copySuccess ? '복사됨!' : 'URL 복사'}</span>
+                </button>
+                <button
+                  onClick={handleExportCsv}
+                  className="flex items-center gap-2 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition"
+                >
+                  <ArrowDownTrayIcon className="w-4 h-4" />
+                  <span>CSV 내보내기</span>
+                </button>
               </div>
-
-              {/* 페이지네이션 */}
-              {pagination && pagination.totalPages > 1 && (
-                <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-center gap-2">
-                  <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    이전
-                  </button>
-                  <span className="text-sm text-gray-600">
-                    {currentPage} / {pagination.totalPages}
-                  </span>
-                  <button
-                    onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
-                    disabled={currentPage === pagination.totalPages}
-                    className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    다음
-                  </button>
-                </div>
-              )}
             </div>
-          )}
+          </div>
+
+          {/* URL 테이블 */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-64 text-gray-400">
+                <p>로딩 중...</p>
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="flex items-center justify-center h-64 text-gray-400">
+                <p>데이터가 없습니다</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">URL</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">도메인</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-28">상태</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24">신고ID</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-40">사유</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredItems.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-50 transition">
+                        <td className="px-4 py-3">
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:underline truncate block max-w-sm"
+                            title={item.url}
+                          >
+                            {item.url}
+                          </a>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-gray-600">{item.domain}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <select
+                            value={item.report_status}
+                            onChange={(e) => handleStatusChange(item.id, e.target.value)}
+                            className={`px-2 py-1 text-xs font-medium rounded-full border-0 focus:ring-2 focus:ring-blue-500 ${getStatusColor(item.report_status)}`}
+                          >
+                            {STATUS_OPTIONS.map(status => (
+                              <option key={status} value={status}>{status}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <input
+                            type="text"
+                            value={item.report_id || ''}
+                            onChange={(e) => handleReportIdChange(item.id, e.target.value)}
+                            placeholder="-"
+                            className="w-20 px-2 py-1 text-xs text-center border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <select
+                            value={reasons.find(r => r.text === item.reason)?.id || ''}
+                            onChange={(e) => handleReasonChange(item.id, e.target.value ? Number(e.target.value) : null)}
+                            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">사유 선택...</option>
+                            {reasons.map(reason => (
+                              <option key={reason.id} value={reason.id}>{reason.text}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </MainLayout>
