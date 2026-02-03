@@ -5,14 +5,10 @@ import { MainLayout } from '@/components/layout';
 import { sitesApi } from '@/lib/api';
 import { PlusIcon, TrashIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
-interface Site {
-  domain: string;
-  created_at?: string;
-}
-
 export default function SitesPage() {
-  const [illegalSites, setIllegalSites] = useState<Site[]>([]);
-  const [legalSites, setLegalSites] = useState<Site[]>([]);
+  // API는 문자열 배열을 반환함
+  const [illegalSites, setIllegalSites] = useState<string[]>([]);
+  const [legalSites, setLegalSites] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -38,6 +34,7 @@ export default function SitesPage() {
       ]);
       
       if (illegalRes.success) {
+        // API가 문자열 배열을 반환
         setIllegalSites(illegalRes.sites || []);
       }
       if (legalRes.success) {
@@ -107,12 +104,12 @@ export default function SitesPage() {
     }
   };
 
-  // 필터된 목록
-  const filteredIllegalSites = illegalSites.filter(s => 
-    s.domain.toLowerCase().includes(illegalSearch.toLowerCase())
+  // 필터된 목록 (문자열 배열)
+  const filteredIllegalSites = illegalSites.filter(domain => 
+    domain.toLowerCase().includes(illegalSearch.toLowerCase())
   );
-  const filteredLegalSites = legalSites.filter(s => 
-    s.domain.toLowerCase().includes(legalSearch.toLowerCase())
+  const filteredLegalSites = legalSites.filter(domain => 
+    domain.toLowerCase().includes(legalSearch.toLowerCase())
   );
 
   // 메시지 자동 숨김
@@ -124,7 +121,7 @@ export default function SitesPage() {
   }, [successMessage]);
 
   return (
-    <MainLayout pageTitle="사이트 목록" requireAdmin>
+    <MainLayout pageTitle="불법/합법 사이트" requireAdmin>
       {/* 알림 메시지 */}
       {successMessage && (
         <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
@@ -190,11 +187,11 @@ export default function SitesPage() {
               </div>
             ) : (
               <ul className="divide-y divide-gray-100">
-                {filteredIllegalSites.map((site) => (
-                  <li key={site.domain} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
-                    <span className="text-sm font-mono text-gray-800">{site.domain}</span>
+                {filteredIllegalSites.map((domain) => (
+                  <li key={domain} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+                    <span className="text-sm font-mono text-gray-800">{domain}</span>
                     <button
-                      onClick={() => handleRemove(site.domain, 'illegal')}
+                      onClick={() => handleRemove(domain, 'illegal')}
                       className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
                     >
                       <TrashIcon className="w-4 h-4" />
@@ -257,11 +254,11 @@ export default function SitesPage() {
               </div>
             ) : (
               <ul className="divide-y divide-gray-100">
-                {filteredLegalSites.map((site) => (
-                  <li key={site.domain} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
-                    <span className="text-sm font-mono text-gray-800">{site.domain}</span>
+                {filteredLegalSites.map((domain) => (
+                  <li key={domain} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+                    <span className="text-sm font-mono text-gray-800">{domain}</span>
                     <button
-                      onClick={() => handleRemove(site.domain, 'legal')}
+                      onClick={() => handleRemove(domain, 'legal')}
                       className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
                     >
                       <TrashIcon className="w-4 h-4" />

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout';
-import { dashboardApi } from '@/lib/api';
+import { dashboardApi, mantaRankingsApi } from '@/lib/api';
 
 interface DashboardData {
   success: boolean;
@@ -18,12 +18,25 @@ interface DashboardData {
   };
 }
 
+interface MantaRanking {
+  title: string;
+  mantaRank: number | null;
+  firstDomain: string;
+  searchQuery: string;
+  sessionId: string;
+  page1IllegalCount: number;
+}
+
 export default function DashboardPage() {
   const [months, setMonths] = useState<string[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Manta Rankings
+  const [mantaRankings, setMantaRankings] = useState<MantaRanking[]>([]);
+  const [isLoadingManta, setIsLoadingManta] = useState(true);
 
   // 월 목록 로드
   useEffect(() => {
@@ -69,6 +82,24 @@ export default function DashboardPage() {
     loadDashboard();
   }, [selectedMonth]);
 
+  // Manta Rankings 로드
+  useEffect(() => {
+    const loadMantaRankings = async () => {
+      setIsLoadingManta(true);
+      try {
+        const res = await mantaRankingsApi.getAll();
+        if (res.success && res.rankings) {
+          setMantaRankings(res.rankings);
+        }
+      } catch (err) {
+        console.error('Failed to load manta rankings:', err);
+      } finally {
+        setIsLoadingManta(false);
+      }
+    };
+    loadMantaRankings();
+  }, []);
+
   // 숫자 포맷팅
   const formatNumber = (num: number) => {
     return num.toLocaleString('ko-KR');
@@ -78,6 +109,15 @@ export default function DashboardPage() {
   const formatMonth = (month: string) => {
     const [year, m] = month.split('-');
     return `${year}년 ${parseInt(m)}월`;
+  };
+
+  // 순위 색상 (1위=초록, 2위이상=노랑, 10위이상=빨강, 없음=회색)
+  const getRankColor = (rank: number | null) => {
+    if (rank === null) return 'bg-gray-100 text-gray-500';
+    if (rank === 1) return 'bg-green-100 text-green-700';
+    if (rank <= 5) return 'bg-yellow-100 text-yellow-700';
+    if (rank <= 10) return 'bg-orange-100 text-orange-700';
+    return 'bg-red-100 text-red-700';
   };
 
   return (
@@ -173,7 +213,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 테이블 영역 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Top 5 작품 */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100">
           <div className="px-6 py-4 border-b border-gray-100">
@@ -268,6 +308,63 @@ export default function DashboardPage() {
               </table>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Manta 검색 순위 */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="px-6 py-4 border-b border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-800">Manta 검색 순위</h3>
+          <p className="text-sm text-gray-500">작품명 검색 시 Manta 공식 페이지의 Google 검색 순위 (최신 회차 기준)</p>
+        </div>
+        <div className="p-6">
+          {isLoadingManta ? (
+            <div className="flex items-center justify-center h-48 text-gray-400">
+              <p>로딩 중...</p>
+            </div>
+          ) : mantaRankings.length === 0 ? (
+            <div className="flex items-center justify-center h-48 text-gray-400">
+              <p>데이터가 없습니다</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-sm text-gray-500 border-b border-gray-100">
+                    <th className="pb-3 font-medium">작품명</th>
+                    <th className="pb-3 font-medium text-center">Manta 순위</th>
+                    <th className="pb-3 font-medium">1위 도메인</th>
+                    <th className="pb-3 font-medium text-center">1페이지 불법 건수</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mantaRankings.map((ranking) => (
+                    <tr key={ranking.title} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                      <td className="py-3 text-sm text-gray-800 font-medium">{ranking.title}</td>
+                      <td className="py-3 text-center">
+                        <span className={`
+                          inline-flex items-center justify-center min-w-[32px] px-2 py-1 rounded-full text-xs font-bold
+                          ${getRankColor(ranking.mantaRank)}
+                        `}>
+                          {ranking.mantaRank !== null ? `${ranking.mantaRank}위` : '-'}
+                        </span>
+                      </td>
+                      <td className="py-3 text-sm text-gray-600 font-mono">{ranking.firstDomain}</td>
+                      <td className="py-3 text-center">
+                        {ranking.page1IllegalCount > 0 ? (
+                          <span className="inline-flex items-center justify-center min-w-[24px] px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">
+                            {ranking.page1IllegalCount}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-sm">0</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </MainLayout>

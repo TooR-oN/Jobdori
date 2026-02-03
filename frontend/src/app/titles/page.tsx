@@ -7,7 +7,7 @@ import {
   PlusIcon, 
   TrashIcon, 
   ArrowPathIcon, 
-  PencilIcon,
+  LanguageIcon,
   XMarkIcon,
   CheckIcon,
 } from '@heroicons/react/24/outline';
@@ -373,9 +373,9 @@ export default function TitlesPage() {
                           <button
                             onClick={() => handleStartEditUnofficial(title)}
                             className="p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition"
-                            title="비공식 타이틀 편집"
+                            title="다국어/대체 타이틀 편집"
                           >
-                            <PencilIcon className="w-4 h-4" />
+                            <LanguageIcon className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleRemove(title.name)}

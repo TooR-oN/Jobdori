@@ -42,8 +42,16 @@ const mainMenuItems: MenuItem[] = [
       { name: 'Manta 순위 변화', href: '/stats/manta-rankings', icon: ChartBarIcon },
     ]
   },
-  { name: '사이트 목록', href: '/sites', icon: GlobeAltIcon, adminOnly: true },
-  { name: '제외 URL 관리', href: '/excluded-urls', icon: NoSymbolIcon, adminOnly: true },
+  { 
+    name: '사이트 목록', 
+    href: '/sites', 
+    icon: GlobeAltIcon, 
+    adminOnly: true,
+    children: [
+      { name: '불법/합법 사이트', href: '/sites', icon: GlobeAltIcon, adminOnly: true },
+      { name: '제외 URL 관리', href: '/sites/excluded-urls', icon: NoSymbolIcon, adminOnly: true },
+    ]
+  },
 ];
 
 const adminMenuItems: MenuItem[] = [
@@ -53,7 +61,7 @@ const adminMenuItems: MenuItem[] = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout, isAdmin } = useAuth();
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(['/stats']);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(['/stats', '/sites']);
 
   const handleLogout = async () => {
     if (confirm('로그아웃 하시겠습니까?')) {
@@ -69,6 +77,21 @@ export default function Sidebar() {
     );
   };
 
+  // 자식 메뉴 아이템의 활성 상태 체크 (정확한 매칭 우선)
+  const isChildActive = (href: string, parentHref?: string) => {
+    // 정확한 매칭
+    if (pathname === href) return true;
+    
+    // 부모와 같은 href인 경우 (예: /stats) 정확한 매칭만
+    if (parentHref && href === parentHref) {
+      return pathname === href;
+    }
+    
+    // 그 외의 경우 prefix 매칭 (예: /stats/manta-rankings)
+    return pathname.startsWith(href + '/');
+  };
+
+  // 일반 메뉴 아이템의 활성 상태 체크
   const isActive = (href: string) => {
     if (href === '/') {
       return pathname === '/';
@@ -76,14 +99,15 @@ export default function Sidebar() {
     return pathname === href || pathname.startsWith(href + '/');
   };
 
+  // 부모 메뉴가 활성화되었는지 (자식 중 하나라도 활성화되면)
   const isParentActive = (item: MenuItem) => {
     if (item.children) {
-      return item.children.some(child => isActive(child.href));
+      return item.children.some(child => isChildActive(child.href, item.href));
     }
     return isActive(item.href);
   };
 
-  const renderMenuItem = (item: MenuItem, isChild = false) => {
+  const renderMenuItem = (item: MenuItem, isChild = false, parentHref?: string) => {
     // admin 전용 메뉴는 admin 역할만 볼 수 있음
     if (item.adminOnly && !isAdmin) {
       return null;
@@ -91,7 +115,9 @@ export default function Sidebar() {
 
     const hasChildren = item.children && item.children.length > 0;
     const isExpanded = expandedMenus.includes(item.href);
-    const active = hasChildren ? isParentActive(item) : isActive(item.href);
+    const active = hasChildren 
+      ? isParentActive(item) 
+      : (isChild ? isChildActive(item.href, parentHref) : isActive(item.href));
     const Icon = item.icon;
 
     if (hasChildren) {
@@ -120,7 +146,7 @@ export default function Sidebar() {
           </button>
           {isExpanded && (
             <div className="ml-4 mt-1 space-y-1">
-              {item.children?.map(child => renderMenuItem(child, true))}
+              {item.children?.map(child => renderMenuItem(child, true, item.href))}
             </div>
           )}
         </div>

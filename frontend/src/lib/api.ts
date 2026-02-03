@@ -229,7 +229,7 @@ export const statsApi = {
 // ============================================
 
 export const mantaRankingsApi = {
-  getList: async () => {
+  getAll: async () => {
     const res = await api.get('/api/manta-rankings');
     return res.data;
   },
