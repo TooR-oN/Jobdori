@@ -125,6 +125,7 @@ export default function SessionsPage() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">회차 ID</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">실행일시</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">상태</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">작품 수</th>
@@ -132,12 +133,20 @@ export default function SessionsPage() {
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">불법</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">합법</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">대기</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-600">회차 ID</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {sessions.map((session) => (
                   <tr key={session.id} className="hover:bg-gray-50 transition">
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => router.push(`/sessions/${session.id}`)}
+                        className="text-sm font-mono text-blue-600 hover:text-blue-800 hover:underline transition"
+                        title="상세 보기"
+                      >
+                        {session.id}
+                      </button>
+                    </td>
                     <td className="px-4 py-3">
                       <span className="text-sm text-gray-600">{formatDate(session.created_at)}</span>
                     </td>
@@ -164,15 +173,6 @@ export default function SessionsPage() {
                       <span className="text-sm font-medium text-yellow-600">
                         {session.results_summary?.pending || 0}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => router.push(`/sessions/${session.id}`)}
-                        className="text-sm font-mono text-blue-600 hover:text-blue-800 hover:underline transition"
-                        title="상세 보기"
-                      >
-                        {session.id}
-                      </button>
                     </td>
                   </tr>
                 ))}

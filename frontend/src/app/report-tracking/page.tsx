@@ -302,7 +302,7 @@ export default function ReportTrackingPage() {
             {/* 현황 요약 */}
             {selectedSession && (
               <div className="mt-4 space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="bg-gray-50 rounded-lg p-2 text-center">
                     <p className="text-lg font-bold text-gray-800">
                       {selectedSession.tracking_stats?.total || 0}
@@ -326,6 +326,18 @@ export default function ReportTrackingPage() {
                       {selectedSession.tracking_stats?.['거부'] || 0}
                     </p>
                     <p className="text-xs text-gray-500">거부</p>
+                  </div>
+                  <div className="bg-cyan-50 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-cyan-600">
+                      {selectedSession.tracking_stats?.['대기 중'] || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">대기중</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg p-2 text-center">
+                    <p className="text-lg font-bold text-slate-600">
+                      {selectedSession.tracking_stats?.['색인없음'] || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">색인없음</p>
                   </div>
                 </div>
               </div>

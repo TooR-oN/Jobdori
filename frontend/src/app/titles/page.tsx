@@ -212,9 +212,9 @@ export default function TitlesPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-180px)]">
         {/* 현재 모니터링 작품 */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-0">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-gray-800">현재 모니터링 대상</h3>
@@ -258,7 +258,7 @@ export default function TitlesPage() {
           </div>
 
           {/* 현재 작품 목록 */}
-          <div className="p-6 max-h-[500px] overflow-y-auto">
+          <div className="p-6 flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center h-32 text-gray-400">
                 <p>로딩 중...</p>
@@ -395,13 +395,13 @@ export default function TitlesPage() {
         </div>
 
         {/* 이전 모니터링 작품 */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-0">
           <div className="px-6 py-4 border-b border-gray-100">
             <h3 className="text-lg font-semibold text-gray-800">이전 모니터링 대상</h3>
             <p className="text-sm text-gray-500">{historyTitles.length}개 작품 (모니터링 제외됨)</p>
           </div>
 
-          <div className="p-6 max-h-[500px] overflow-y-auto">
+          <div className="p-6 flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center h-32 text-gray-400">
                 <p>로딩 중...</p>

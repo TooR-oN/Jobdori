@@ -306,18 +306,20 @@ export default function PendingPage() {
                         <button
                           onClick={() => handleReview(item.id, 'approve')}
                           disabled={processingIds.has(item.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                          className="flex items-center gap-1 px-2 py-1.5 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50 text-sm font-medium border border-red-200"
                           title="불법 사이트로 등록"
                         >
-                          <CheckIcon className="w-5 h-5" />
+                          <CheckIcon className="w-4 h-4" />
+                          <span>불법</span>
                         </button>
                         <button
                           onClick={() => handleReview(item.id, 'reject')}
                           disabled={processingIds.has(item.id)}
-                          className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition disabled:opacity-50"
+                          className="flex items-center gap-1 px-2 py-1.5 text-green-600 hover:bg-green-50 rounded-lg transition disabled:opacity-50 text-sm font-medium border border-green-200"
                           title="합법 사이트로 처리"
                         >
-                          <XMarkIcon className="w-5 h-5" />
+                          <XMarkIcon className="w-4 h-4" />
+                          <span>합법</span>
                         </button>
                       </div>
                     </td>

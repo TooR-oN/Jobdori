@@ -196,9 +196,9 @@ export default function SitesPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-180px)]">
         {/* 불법 사이트 */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-0">
           <div className="px-4 py-3 border-b border-gray-100 bg-red-50">
             <h3 className="text-base font-semibold text-red-800">🚫 불법 사이트 ({illegalSites.length}개)</h3>
           </div>
@@ -224,7 +224,7 @@ export default function SitesPage() {
           </div>
 
           {/* 목록 */}
-          <div className="max-h-[400px] overflow-y-auto">
+          <div className="flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="p-8 text-center text-gray-400">로딩 중...</div>
             ) : filteredIllegalSites.length === 0 ? (
@@ -250,7 +250,7 @@ export default function SitesPage() {
         </div>
 
         {/* 합법 사이트 */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-0">
           <div className="px-4 py-3 border-b border-gray-100 bg-green-50">
             <h3 className="text-base font-semibold text-green-800">✅ 합법 사이트 ({legalSites.length}개)</h3>
           </div>
@@ -276,7 +276,7 @@ export default function SitesPage() {
           </div>
 
           {/* 목록 */}
-          <div className="max-h-[400px] overflow-y-auto">
+          <div className="flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="p-8 text-center text-gray-400">로딩 중...</div>
             ) : filteredLegalSites.length === 0 ? (
@@ -302,7 +302,7 @@ export default function SitesPage() {
         </div>
 
         {/* 신고 제외 URL */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-0">
           <div className="px-4 py-3 border-b border-gray-100 bg-orange-50">
             <h3 className="text-base font-semibold text-orange-800">🚫 신고 제외 URL ({excludedUrls.length}개)</h3>
           </div>
@@ -336,7 +336,7 @@ export default function SitesPage() {
           </div>
 
           {/* 목록 */}
-          <div className="max-h-[340px] overflow-y-auto">
+          <div className="flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="p-8 text-center text-gray-400">로딩 중...</div>
             ) : filteredExcludedUrls.length === 0 ? (
