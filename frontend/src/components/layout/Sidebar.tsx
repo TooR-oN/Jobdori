@@ -16,8 +16,16 @@ import {
   ArrowRightOnRectangleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  NoSymbolIcon,
 } from '@heroicons/react/24/outline';
+
+// 커스텀 꺾은선 그래프 아이콘
+const LineChartIcon = ({ className }: { className?: string }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5l4-4 4 4 6-6 4 4" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 20h18" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 20V4" />
+  </svg>
+);
 
 interface MenuItem {
   name: string;
@@ -39,19 +47,10 @@ const mainMenuItems: MenuItem[] = [
     icon: ChartPieIcon,
     children: [
       { name: '신고/차단 통계', href: '/stats', icon: ChartPieIcon },
-      { name: 'Manta 순위 변화', href: '/stats/manta-rankings', icon: ChartBarIcon },
+      { name: 'Manta 순위 변화', href: '/stats/manta-rankings', icon: LineChartIcon },
     ]
   },
-  { 
-    name: '사이트 목록', 
-    href: '/sites', 
-    icon: GlobeAltIcon, 
-    adminOnly: true,
-    children: [
-      { name: '불법/합법 사이트', href: '/sites', icon: GlobeAltIcon, adminOnly: true },
-      { name: '제외 URL 관리', href: '/sites/excluded-urls', icon: NoSymbolIcon, adminOnly: true },
-    ]
-  },
+  { name: '사이트 목록', href: '/sites', icon: GlobeAltIcon, adminOnly: true },
 ];
 
 const adminMenuItems: MenuItem[] = [
@@ -61,7 +60,7 @@ const adminMenuItems: MenuItem[] = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout, isAdmin } = useAuth();
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(['/stats', '/sites']);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(['/stats']);
 
   const handleLogout = async () => {
     if (confirm('로그아웃 하시겠습니까?')) {
