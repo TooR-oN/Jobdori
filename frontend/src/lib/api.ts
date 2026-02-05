@@ -233,6 +233,12 @@ export const mantaRankingsApi = {
     const res = await api.get('/api/manta-rankings');
     return res.data;
   },
+  
+  // 작품별 순위 히스토리 조회
+  getRankingHistory: async (title: string) => {
+    const res = await api.get(`/api/titles/${encodeURIComponent(title)}/ranking-history`);
+    return res.data;
+  },
 };
 
 // ============================================
@@ -286,13 +292,41 @@ export const reportTrackingApi = {
     return res.data;
   },
   
-  updateReason: async (id: number, reasonId: number | null) => {
-    const res = await api.put(`/api/report-tracking/${id}/reason`, { reason_id: reasonId });
+  updateReason: async (id: number, reason: string) => {
+    const res = await api.put(`/api/report-tracking/${id}/reason`, { reason });
     return res.data;
   },
   
   updateReportId: async (id: number, reportId: string) => {
     const res = await api.put(`/api/report-tracking/${id}/report-id`, { report_id: reportId });
+    return res.data;
+  },
+  
+  // URL 수동 추가
+  addUrl: async (sessionId: string, url: string, title: string) => {
+    const res = await api.post(`/api/report-tracking/${sessionId}/add-url`, { url, title });
+    return res.data;
+  },
+  
+  // HTML 파일 업로드 (신고 결과 매칭)
+  uploadHtml: async (sessionId: string, htmlContent: string, reportId: string, fileName?: string) => {
+    const res = await api.post(`/api/report-tracking/${sessionId}/upload`, {
+      html_content: htmlContent,
+      report_id: reportId,
+      file_name: fileName,
+    });
+    return res.data;
+  },
+  
+  // 업로드 이력 조회
+  getUploads: async (sessionId: string) => {
+    const res = await api.get(`/api/report-tracking/${sessionId}/uploads`);
+    return res.data;
+  },
+  
+  // URL 목록 내보내기
+  getUrls: async (sessionId: string, status?: string) => {
+    const res = await api.get(`/api/report-tracking/${sessionId}/urls`, { params: { status } });
     return res.data;
   },
 };

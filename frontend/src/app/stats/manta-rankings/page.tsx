@@ -85,47 +85,65 @@ export default function MantaRankingsPage() {
     }
   }, [filteredTitles, selectedTitle]);
 
-  // 선택된 작품의 순위 히스토리 시뮬레이션 (실제 API가 없으므로 현재 데이터 기반)
+  // 선택된 작품의 순위 히스토리 로드 (실제 API 호출)
   useEffect(() => {
-    if (!selectedTitle || sessions.length === 0) {
+    if (!selectedTitle) {
       setRankHistory([]);
       return;
     }
 
-    setIsLoadingHistory(true);
-    
-    // 현재 rankings에서 해당 작품의 순위 가져오기
-    const currentRanking = rankings.find(r => r.title === selectedTitle);
-    const currentRank = currentRanking?.mantaRank || null;
-    
-    // 세션 데이터를 기반으로 히스토리 생성 (실제로는 API에서 가져와야 함)
-    // 여기서는 현재 순위를 기반으로 시뮬레이션된 데이터를 생성
-    const recentSessions = sessions
-      .filter(s => s.id && s.created_at)
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-      .slice(-20);
-    
-    // 시뮬레이션된 히스토리 (실제 API 연동 시 교체 필요)
-    const history: RankHistoryPoint[] = recentSessions.map((session, index) => {
-      const date = new Date(session.created_at);
-      // 현재 순위 기반으로 약간의 변동 추가 (실제 데이터가 아님)
-      let rank = currentRank;
-      if (currentRank !== null && index < recentSessions.length - 1) {
-        // 과거 데이터에 약간의 변동 추가
-        const variation = Math.floor(Math.random() * 3) - 1;
-        rank = Math.max(1, currentRank + variation);
-      }
+    const loadHistory = async () => {
+      setIsLoadingHistory(true);
       
-      return {
-        date: `${date.getMonth() + 1}/${date.getDate()}`,
-        sessionId: session.id,
-        rank: rank,
-      };
-    });
-
-    setRankHistory(history);
-    setIsLoadingHistory(false);
-  }, [selectedTitle, sessions, rankings]);
+      try {
+        const res = await mantaRankingsApi.getRankingHistory(selectedTitle);
+        
+        if (res.success && res.history && res.history.length > 0) {
+          // API 응답을 RankHistoryPoint 형식으로 변환
+          const history: RankHistoryPoint[] = res.history.map((h: { rank: number | null; sessionId: string; recordedAt: string }) => {
+            const date = new Date(h.recordedAt);
+            return {
+              date: `${date.getMonth() + 1}/${date.getDate()}`,
+              sessionId: h.sessionId,
+              rank: h.rank,
+            };
+          });
+          
+          // 최근 20개만 표시
+          setRankHistory(history.slice(-20));
+        } else {
+          // 히스토리가 없으면 현재 순위만 표시
+          const currentRanking = rankings.find(r => r.title === selectedTitle);
+          if (currentRanking) {
+            setRankHistory([{
+              date: '현재',
+              sessionId: currentRanking.sessionId,
+              rank: currentRanking.mantaRank,
+            }]);
+          } else {
+            setRankHistory([]);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load ranking history:', err);
+        // 에러 시 현재 순위만 표시
+        const currentRanking = rankings.find(r => r.title === selectedTitle);
+        if (currentRanking) {
+          setRankHistory([{
+            date: '현재',
+            sessionId: currentRanking.sessionId,
+            rank: currentRanking.mantaRank,
+          }]);
+        } else {
+          setRankHistory([]);
+        }
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+    
+    loadHistory();
+  }, [selectedTitle, rankings]);
 
   // 그래프 SVG 생성
   const generateChartSVG = () => {
@@ -377,7 +395,7 @@ export default function MantaRankingsPage() {
                   {generateChartSVG()}
                 </div>
                 <div className="mt-4 text-center text-xs text-gray-400">
-                  ※ 현재는 시뮬레이션 데이터입니다. 실제 히스토리 API 연동 시 정확한 데이터가 표시됩니다.
+                  ※ 모니터링 실행 시마다 순위가 기록됩니다. 히스토리가 쌓이면 변화 추이를 확인할 수 있습니다.
                 </div>
               </>
             )}

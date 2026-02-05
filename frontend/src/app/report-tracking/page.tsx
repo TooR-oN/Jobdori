@@ -75,6 +75,10 @@ export default function ReportTrackingPage() {
   // 상태
   const [isLoading, setIsLoading] = useState(true);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [isAddingUrl, setIsAddingUrl] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // 세션 목록 로드
   useEffect(() => {
@@ -122,12 +126,25 @@ export default function ReportTrackingPage() {
         // 선택된 세션 정보 업데이트
         const session = sessions.find(s => s.id === selectedSessionId);
         setSelectedSession(session || null);
+        // 업로드 이력 로드
+        const uploadsRes = await reportTrackingApi.getUploads(selectedSessionId);
+        if (uploadsRes.success) {
+          setUploadHistory(uploadsRes.uploads || []);
+        }
       } catch (err) {
         console.error('Failed to load session data:', err);
       }
     };
     loadSessionData();
   }, [selectedSessionId, sessions]);
+
+  // 메시지 자동 숨김
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
 
   // 필터링된 아이템
   const filteredItems = items.filter(item => {
@@ -181,10 +198,11 @@ export default function ReportTrackingPage() {
   };
 
   // 사유 변경
-  const handleReasonChange = async (id: number, reasonId: number | null) => {
+  const handleReasonChange = async (id: number, reasonText: string) => {
     try {
-      await reportTrackingApi.updateReason(id, reasonId);
-      const reasonText = reasonId ? reasons.find(r => r.id === reasonId)?.text : null;
+      if (reasonText) {
+        await reportTrackingApi.updateReason(id, reasonText);
+      }
       setItems(prev => prev.map(item => 
         item.id === id ? { ...item, reason: reasonText || null } : item
       ));
@@ -240,12 +258,43 @@ export default function ReportTrackingPage() {
 
   // URL 수동 추가
   const handleAddUrl = async () => {
-    if (!selectedTitle || !newUrl) {
-      alert('작품과 URL을 모두 입력해주세요.');
+    if (!selectedSessionId) {
+      setErrorMessage('모니터링 회차를 선택해주세요.');
       return;
     }
-    // TODO: 백엔드 API 구현 필요
-    alert('URL 추가 기능은 백엔드 API 구현 후 사용 가능합니다.');
+    if (!selectedTitle || !newUrl) {
+      setErrorMessage('작품과 URL을 모두 입력해주세요.');
+      return;
+    }
+    
+    setIsAddingUrl(true);
+    setErrorMessage(null);
+    
+    try {
+      const res = await reportTrackingApi.addUrl(selectedSessionId, newUrl, selectedTitle);
+      if (res.success) {
+        setSuccessMessage(res.message || 'URL이 추가되었습니다.');
+        setNewUrl('');
+        setSelectedTitle('');
+        // 목록 새로고침
+        const refreshRes = await reportTrackingApi.getBySession(selectedSessionId);
+        if (refreshRes.success) {
+          setItems(refreshRes.items || []);
+        }
+        // 세션 통계 새로고침
+        const sessionsRes = await reportTrackingApi.getSessions();
+        if (sessionsRes.success) {
+          setSessions(sessionsRes.sessions || []);
+        }
+      } else {
+        setErrorMessage(res.error || 'URL 추가에 실패했습니다.');
+      }
+    } catch (err: any) {
+      console.error('Failed to add URL:', err);
+      setErrorMessage(err.response?.data?.error || 'URL 추가에 실패했습니다.');
+    } finally {
+      setIsAddingUrl(false);
+    }
   };
 
   // 파일 업로드
@@ -253,12 +302,61 @@ export default function ReportTrackingPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    // TODO: 백엔드 API 구현 필요
-    alert('파일 업로드 기능은 백엔드 API 구현 후 사용 가능합니다.');
+    if (!selectedSessionId) {
+      setErrorMessage('모니터링 회차를 선택해주세요.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     
-    // 파일 input 초기화
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (!reportId.trim()) {
+      setErrorMessage('신고 ID를 입력해주세요.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    
+    setIsUploading(true);
+    setErrorMessage(null);
+    
+    try {
+      // 파일 읽기
+      const htmlContent = await file.text();
+      
+      const res = await reportTrackingApi.uploadHtml(
+        selectedSessionId,
+        htmlContent,
+        reportId.trim(),
+        file.name
+      );
+      
+      if (res.success) {
+        setSuccessMessage(res.message || `${res.matched_urls}개 URL이 '차단' 상태로 업데이트되었습니다.`);
+        setReportId('');
+        // 목록 새로고침
+        const refreshRes = await reportTrackingApi.getBySession(selectedSessionId);
+        if (refreshRes.success) {
+          setItems(refreshRes.items || []);
+        }
+        // 업로드 이력 새로고침
+        const uploadsRes = await reportTrackingApi.getUploads(selectedSessionId);
+        if (uploadsRes.success) {
+          setUploadHistory(uploadsRes.uploads || []);
+        }
+        // 세션 통계 새로고침
+        const sessionsRes = await reportTrackingApi.getSessions();
+        if (sessionsRes.success) {
+          setSessions(sessionsRes.sessions || []);
+        }
+      } else {
+        setErrorMessage(res.error || '파일 업로드에 실패했습니다.');
+      }
+    } catch (err: any) {
+      console.error('Failed to upload file:', err);
+      setErrorMessage(err.response?.data?.error || '파일 업로드에 실패했습니다.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -279,6 +377,19 @@ export default function ReportTrackingPage() {
 
   return (
     <MainLayout pageTitle="신고결과 추적">
+      {/* 알림 메시지 */}
+      {successMessage && (
+        <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700">
+          {successMessage}
+        </div>
+      )}
+      {errorMessage && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+          {errorMessage}
+          <button onClick={() => setErrorMessage(null)} className="ml-2 underline">닫기</button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* 좌측 패널 */}
         <div className="lg:col-span-1 space-y-6">
@@ -370,9 +481,14 @@ export default function ReportTrackingPage() {
                 />
                 <button
                   onClick={handleAddUrl}
-                  className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  disabled={isAddingUrl}
+                  className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <PlusIcon className="w-5 h-5" />
+                  {isAddingUrl ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <PlusIcon className="w-5 h-5" />
+                  )}
                 </button>
               </div>
               <p className="text-xs text-gray-500">작품을 선택하고 불법 URL을 추가합니다.</p>
@@ -393,17 +509,31 @@ export default function ReportTrackingPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-500 transition"
+                onClick={() => !isUploading && fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-lg p-6 text-center transition ${
+                  isUploading 
+                    ? 'border-blue-400 bg-blue-50 cursor-wait' 
+                    : 'border-gray-300 cursor-pointer hover:border-blue-500'
+                }`}
               >
-                <ArrowUpTrayIcon className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                <p className="text-sm text-gray-600">HTML 파일을 여기에 드래그하거나</p>
-                <p className="text-sm text-blue-600 hover:underline">클릭하여 선택</p>
+                {isUploading ? (
+                  <>
+                    <div className="w-8 h-8 mx-auto border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2" />
+                    <p className="text-sm text-blue-600">업로드 중...</p>
+                  </>
+                ) : (
+                  <>
+                    <ArrowUpTrayIcon className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                    <p className="text-sm text-gray-600">HTML 파일을 여기에 드래그하거나</p>
+                    <p className="text-sm text-blue-600 hover:underline">클릭하여 선택</p>
+                  </>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".html,.htm"
                   onChange={handleFileUpload}
+                  disabled={isUploading}
                   className="hidden"
                 />
               </div>
@@ -416,10 +546,11 @@ export default function ReportTrackingPage() {
               {uploadHistory.length === 0 ? (
                 <p className="text-xs text-gray-400">이력 없음</p>
               ) : (
-                <div className="space-y-1">
-                  {uploadHistory.map((item, idx) => (
-                    <div key={idx} className="text-xs text-gray-600">
-                      {item.date} - {item.count}건
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {uploadHistory.map((item) => (
+                    <div key={item.id} className="text-xs text-gray-600 flex justify-between items-center">
+                      <span className="font-medium text-blue-600">#{item.report_id}</span>
+                      <span>{item.matched_count}건 매칭</span>
                     </div>
                   ))}
                 </div>
@@ -540,13 +671,13 @@ export default function ReportTrackingPage() {
                         </td>
                         <td className="px-4 py-3 text-center">
                           <select
-                            value={reasons.find(r => r.text === item.reason)?.id || ''}
-                            onChange={(e) => handleReasonChange(item.id, e.target.value ? Number(e.target.value) : null)}
+                            value={item.reason || ''}
+                            onChange={(e) => handleReasonChange(item.id, e.target.value)}
                             className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                           >
                             <option value="">사유 선택...</option>
                             {reasons.map(reason => (
-                              <option key={reason.id} value={reason.id}>{reason.text}</option>
+                              <option key={reason.id} value={reason.text}>{reason.text}</option>
                             ))}
                           </select>
                         </td>
