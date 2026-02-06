@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { MainLayout } from '@/components/layout';
 import { reportTrackingApi, titlesApi } from '@/lib/api';
 import { 
@@ -10,6 +10,8 @@ import {
   PlusIcon,
   ArrowUpTrayIcon,
   CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
 
 interface Session {
@@ -46,7 +48,15 @@ interface Title {
   manta_url: string | null;
 }
 
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
 const STATUS_OPTIONS = ['미신고', '신고완료', '차단', '미차단', '확인필요', '색인없음', '거부', '대기 중'];
+const ITEMS_PER_PAGE = 50;
 
 export default function ReportTrackingPage() {
   // 세션 관련
@@ -59,9 +69,18 @@ export default function ReportTrackingPage() {
   const [reasons, setReasons] = useState<Reason[]>([]);
   const [titles, setTitles] = useState<Title[]>([]);
   
+  // 페이지네이션
+  const [pagination, setPagination] = useState<Pagination>({
+    page: 1,
+    limit: ITEMS_PER_PAGE,
+    total: 0,
+    totalPages: 0
+  });
+  
   // 필터
   const [statusFilter, setStatusFilter] = useState<string>('전체 상태');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   
   // URL 추가
   const [selectedTitle, setSelectedTitle] = useState('');
@@ -79,6 +98,14 @@ export default function ReportTrackingPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // 검색어 디바운스
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // 세션 목록 로드
   useEffect(() => {
@@ -112,31 +139,59 @@ export default function ReportTrackingPage() {
     loadInitialData();
   }, []);
 
-  // 선택된 세션 데이터 로드
-  useEffect(() => {
+  // 세션 데이터 로드 함수
+  const loadSessionData = useCallback(async (page: number = 1) => {
     if (!selectedSessionId) return;
     
-    const loadSessionData = async () => {
-      try {
-        const res = await reportTrackingApi.getBySession(selectedSessionId);
-        if (res.success) {
-          setItems(res.items || []);
-        }
-        
-        // 선택된 세션 정보 업데이트
-        const session = sessions.find(s => s.id === selectedSessionId);
-        setSelectedSession(session || null);
-        // 업로드 이력 로드
-        const uploadsRes = await reportTrackingApi.getUploads(selectedSessionId);
-        if (uploadsRes.success) {
-          setUploadHistory(uploadsRes.uploads || []);
-        }
-      } catch (err) {
-        console.error('Failed to load session data:', err);
+    setIsLoading(true);
+    try {
+      const status = statusFilter !== '전체 상태' ? statusFilter : undefined;
+      const res = await reportTrackingApi.getBySession(selectedSessionId, {
+        status,
+        page,
+        limit: ITEMS_PER_PAGE,
+        search: debouncedSearch || undefined
+      });
+      
+      if (res.success) {
+        setItems(res.items || []);
+        setPagination(res.pagination || {
+          page: 1,
+          limit: ITEMS_PER_PAGE,
+          total: res.items?.length || 0,
+          totalPages: 1
+        });
       }
-    };
-    loadSessionData();
-  }, [selectedSessionId, sessions]);
+      
+      // 선택된 세션 정보 업데이트
+      const session = sessions.find(s => s.id === selectedSessionId);
+      setSelectedSession(session || null);
+      
+      // 업로드 이력 로드
+      const uploadsRes = await reportTrackingApi.getUploads(selectedSessionId);
+      if (uploadsRes.success) {
+        setUploadHistory(uploadsRes.uploads || []);
+      }
+    } catch (err) {
+      console.error('Failed to load session data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedSessionId, statusFilter, debouncedSearch, sessions]);
+
+  // 선택된 세션/필터/검색어 변경 시 데이터 로드
+  useEffect(() => {
+    if (selectedSessionId) {
+      // 검색어나 필터 변경 시 1페이지로 리셋
+      loadSessionData(1);
+    }
+  }, [selectedSessionId, statusFilter, debouncedSearch]);
+
+  // 페이지 변경
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > pagination.totalPages) return;
+    loadSessionData(newPage);
+  };
 
   // 메시지 자동 숨김
   useEffect(() => {
@@ -146,19 +201,8 @@ export default function ReportTrackingPage() {
     }
   }, [successMessage]);
 
-  // 필터링된 아이템
-  const filteredItems = items.filter(item => {
-    if (statusFilter !== '전체 상태' && item.report_status !== statusFilter) return false;
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return item.url.toLowerCase().includes(query) || item.domain.toLowerCase().includes(query);
-    }
-    return true;
-  });
-
   // 날짜 포맷
   const formatSessionDate = (sessionId: string) => {
-    // sessionId 형식: 2026-02-03T01-59-16
     try {
       const parts = sessionId.split('T');
       const datePart = parts[0];
@@ -213,7 +257,7 @@ export default function ReportTrackingPage() {
 
   // URL 복사
   const handleCopyUrls = async () => {
-    const urls = filteredItems.map(item => item.url);
+    const urls = items.map(item => item.url);
     if (urls.length === 0) {
       alert('복사할 URL이 없습니다.');
       return;
@@ -229,13 +273,13 @@ export default function ReportTrackingPage() {
 
   // CSV 내보내기
   const handleExportCsv = () => {
-    if (filteredItems.length === 0) {
+    if (items.length === 0) {
       alert('내보낼 데이터가 없습니다.');
       return;
     }
     
     const headers = ['URL', '도메인', '상태', '신고ID', '사유'];
-    const rows = filteredItems.map(item => [
+    const rows = items.map(item => [
       item.url,
       item.domain,
       item.report_status,
@@ -277,10 +321,7 @@ export default function ReportTrackingPage() {
         setNewUrl('');
         setSelectedTitle('');
         // 목록 새로고침
-        const refreshRes = await reportTrackingApi.getBySession(selectedSessionId);
-        if (refreshRes.success) {
-          setItems(refreshRes.items || []);
-        }
+        loadSessionData(pagination.page);
         // 세션 통계 새로고침
         const sessionsRes = await reportTrackingApi.getSessions();
         if (sessionsRes.success) {
@@ -318,7 +359,6 @@ export default function ReportTrackingPage() {
     setErrorMessage(null);
     
     try {
-      // 파일 읽기
       const htmlContent = await file.text();
       
       const res = await reportTrackingApi.uploadHtml(
@@ -332,10 +372,7 @@ export default function ReportTrackingPage() {
         setSuccessMessage(res.message || `${res.matched_urls}개 URL이 '차단' 상태로 업데이트되었습니다.`);
         setReportId('');
         // 목록 새로고침
-        const refreshRes = await reportTrackingApi.getBySession(selectedSessionId);
-        if (refreshRes.success) {
-          setItems(refreshRes.items || []);
-        }
+        loadSessionData(pagination.page);
         // 업로드 이력 새로고침
         const uploadsRes = await reportTrackingApi.getUploads(selectedSessionId);
         if (uploadsRes.success) {
@@ -373,6 +410,66 @@ export default function ReportTrackingPage() {
       case '대기 중': return 'bg-cyan-100 text-cyan-700';
       default: return 'bg-gray-100 text-gray-600';
     }
+  };
+
+  // 페이지네이션 렌더링
+  const renderPagination = () => {
+    if (pagination.totalPages <= 1 || debouncedSearch) return null;
+    
+    const pages: (number | string)[] = [];
+    const current = pagination.page;
+    const total = pagination.totalPages;
+    
+    // 페이지 번호 생성 로직
+    if (total <= 7) {
+      for (let i = 1; i <= total; i++) pages.push(i);
+    } else {
+      if (current <= 3) {
+        pages.push(1, 2, 3, 4, '...', total);
+      } else if (current >= total - 2) {
+        pages.push(1, '...', total - 3, total - 2, total - 1, total);
+      } else {
+        pages.push(1, '...', current - 1, current, current + 1, '...', total);
+      }
+    }
+    
+    return (
+      <div className="flex items-center justify-center gap-1 mt-4">
+        <button
+          onClick={() => handlePageChange(current - 1)}
+          disabled={current === 1}
+          className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <ChevronLeftIcon className="w-5 h-5" />
+        </button>
+        
+        {pages.map((page, idx) => (
+          page === '...' ? (
+            <span key={`ellipsis-${idx}`} className="px-3 py-2 text-gray-400">...</span>
+          ) : (
+            <button
+              key={page}
+              onClick={() => handlePageChange(page as number)}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                page === current
+                  ? 'bg-blue-600 text-white'
+                  : 'hover:bg-gray-100 text-gray-700'
+              }`}
+            >
+              {page}
+            </button>
+          )
+        ))}
+        
+        <button
+          onClick={() => handlePageChange(current + 1)}
+          disabled={current === total}
+          className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <ChevronRightIcon className="w-5 h-5" />
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -581,13 +678,21 @@ export default function ReportTrackingPage() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="URL 검색..."
+                    placeholder="URL/도메인 검색 (전체에서 검색)"
                     className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
               
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                {/* 현재 표시 정보 */}
+                <span className="text-sm text-gray-500">
+                  {debouncedSearch ? (
+                    `검색 결과: ${pagination.total}개`
+                  ) : (
+                    `${pagination.total}개 중 ${(pagination.page - 1) * ITEMS_PER_PAGE + 1}-${Math.min(pagination.page * ITEMS_PER_PAGE, pagination.total)}개`
+                  )}
+                </span>
                 <button
                   onClick={handleCopyUrls}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition ${
@@ -616,9 +721,9 @@ export default function ReportTrackingPage() {
               <div className="flex items-center justify-center h-64 text-gray-400">
                 <p>로딩 중...</p>
               </div>
-            ) : filteredItems.length === 0 ? (
+            ) : items.length === 0 ? (
               <div className="flex items-center justify-center h-64 text-gray-400">
-                <p>데이터가 없습니다</p>
+                <p>{debouncedSearch ? '검색 결과가 없습니다' : '데이터가 없습니다'}</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -633,7 +738,7 @@ export default function ReportTrackingPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredItems.map((item) => (
+                    {items.map((item) => (
                       <tr key={item.id} className="hover:bg-gray-50 transition">
                         <td className="px-4 py-3">
                           <a
@@ -687,6 +792,9 @@ export default function ReportTrackingPage() {
                 </table>
               </div>
             )}
+            
+            {/* 페이지네이션 */}
+            {renderPagination()}
           </div>
         </div>
       </div>

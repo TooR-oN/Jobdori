@@ -452,37 +452,65 @@ export async function getReportTrackingBySession(
   sessionId: string,
   filter?: string,
   page: number = 1,
-  limit: number = 50
+  limit: number = 50,
+  search?: string
 ): Promise<{ items: ReportTracking[], total: number }> {
   const offset = (page - 1) * limit
+  const hasSearch = search && search.trim().length > 0
+  const searchPattern = hasSearch ? `%${search.trim().toLowerCase()}%` : ''
   
   let rows: ReportTracking[]
   let countResult: any[]
   
-  if (filter && filter !== '전체') {
-    rows = await sql`
-      SELECT * FROM report_tracking 
-      WHERE session_id = ${sessionId} AND report_status = ${filter}
-      ORDER BY updated_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    ` as ReportTracking[]
-    
-    countResult = await sql`
-      SELECT COUNT(*) as count FROM report_tracking 
-      WHERE session_id = ${sessionId} AND report_status = ${filter}
-    `
+  // 검색어가 있으면 전체 데이터에서 검색 (limit 없음)
+  if (hasSearch) {
+    if (filter && filter !== '전체') {
+      rows = await sql`
+        SELECT * FROM report_tracking 
+        WHERE session_id = ${sessionId} 
+          AND report_status = ${filter}
+          AND (LOWER(url) LIKE ${searchPattern} OR LOWER(domain) LIKE ${searchPattern})
+        ORDER BY updated_at DESC
+      ` as ReportTracking[]
+      
+      countResult = [{ count: rows.length }]
+    } else {
+      rows = await sql`
+        SELECT * FROM report_tracking 
+        WHERE session_id = ${sessionId}
+          AND (LOWER(url) LIKE ${searchPattern} OR LOWER(domain) LIKE ${searchPattern})
+        ORDER BY updated_at DESC
+      ` as ReportTracking[]
+      
+      countResult = [{ count: rows.length }]
+    }
   } else {
-    rows = await sql`
-      SELECT * FROM report_tracking 
-      WHERE session_id = ${sessionId}
-      ORDER BY updated_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    ` as ReportTracking[]
-    
-    countResult = await sql`
-      SELECT COUNT(*) as count FROM report_tracking 
-      WHERE session_id = ${sessionId}
-    `
+    // 검색어 없으면 페이지네이션 적용
+    if (filter && filter !== '전체') {
+      rows = await sql`
+        SELECT * FROM report_tracking 
+        WHERE session_id = ${sessionId} AND report_status = ${filter}
+        ORDER BY updated_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      ` as ReportTracking[]
+      
+      countResult = await sql`
+        SELECT COUNT(*) as count FROM report_tracking 
+        WHERE session_id = ${sessionId} AND report_status = ${filter}
+      `
+    } else {
+      rows = await sql`
+        SELECT * FROM report_tracking 
+        WHERE session_id = ${sessionId}
+        ORDER BY updated_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      ` as ReportTracking[]
+      
+      countResult = await sql`
+        SELECT COUNT(*) as count FROM report_tracking 
+        WHERE session_id = ${sessionId}
+      `
+    }
   }
   
   return {
