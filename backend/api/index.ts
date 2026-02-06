@@ -8,6 +8,7 @@ import { cors } from 'hono/cors'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { neon } from '@neondatabase/serverless'
 import * as XLSX from 'xlsx'
+import bcrypt from 'bcryptjs'
 
 // ============================================
 // Database Setup
@@ -246,25 +247,10 @@ interface TokenPayload {
   role: UserRole
 }
 
-// bcrypt 호환 해시 비교 (Vercel Edge에서 동작)
+// bcrypt 해시 비교 (정적 import 사용)
 async function comparePassword(password: string, hash: string): Promise<boolean> {
   try {
-    // bcrypt 해시 형식: $2a$10$...
-    if (!hash.startsWith('$2')) return false
-    
-    const parts = hash.split('$')
-    if (parts.length !== 4) return false
-    
-    const cost = parseInt(parts[2])
-    const saltAndHash = parts[3]
-    const salt = saltAndHash.substring(0, 22)
-    
-    // Web Crypto API로 직접 bcrypt 구현은 복잡하므로
-    // 간단한 PBKDF2 기반 비교로 대체 (보안상 충분)
-    // 실제로는 bcryptjs의 compareSync를 사용해야 함
-    
-    // Vercel Serverless에서는 Node.js API 사용 가능
-    const bcrypt = await import('bcryptjs')
+    if (!hash || !hash.startsWith('$2')) return false
     return bcrypt.compareSync(password, hash)
   } catch {
     return false
@@ -1130,12 +1116,11 @@ app.get('/api/debug/user-hash', async (c) => {
     if (users.length === 0) return c.json({ error: 'user not found' })
     const hash = users[0].password_hash
     
-    // 직접 bcrypt 비교 테스트
+    // 직접 bcrypt 비교 테스트 (정적 import 사용)
     const testPassword = 'ridi123!@#'
     let bcryptResult = false
     let bcryptError = null
     try {
-      const bcrypt = await import('bcryptjs')
       bcryptResult = bcrypt.compareSync(testPassword, hash)
     } catch (e: any) {
       bcryptError = e.message
@@ -1286,8 +1271,7 @@ app.post('/api/users', requireRole(['admin']), async (c) => {
       return c.json({ success: false, error: '이미 존재하는 아이디입니다.' }, 400)
     }
     
-    // 비밀번호 해시
-    const bcrypt = await import('bcryptjs')
+    // 비밀번호 해시 (정적 import 사용)
     const passwordHash = bcrypt.hashSync(password, 10)
     
     const result = await query`
@@ -1315,9 +1299,8 @@ app.put('/api/users/:id', requireRole(['admin']), async (c) => {
       return c.json({ success: false, error: '사용자를 찾을 수 없습니다.' }, 404)
     }
     
-    // 업데이트할 필드 처리
+    // 업데이트할 필드 처리 (정적 import 사용)
     if (password && password.length >= 6) {
-      const bcrypt = await import('bcryptjs')
       const passwordHash = bcrypt.hashSync(password, 10)
       await query`
         UPDATE users 
