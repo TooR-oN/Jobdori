@@ -1051,18 +1051,34 @@ app.post('/api/auth/login', async (c) => {
     
     let role: UserRole = 'user'
     let authenticated = false
+    let debugInfo: any = { step: 'start', username }
     
     // 1. DB 사용자 인증 시도 (우선)
-    const userAuth = await authenticateUser(username, password)
-    if (userAuth) {
-      authenticated = true
-      role = userAuth.role
+    try {
+      const userAuth = await authenticateUser(username, password)
+      debugInfo.dbAuthResult = userAuth ? 'success' : 'failed'
+      if (userAuth) {
+        authenticated = true
+        role = userAuth.role
+      }
+    } catch (dbError: any) {
+      debugInfo.dbAuthError = dbError.message
     }
     
     // 2. DB 인증 실패 시 환경변수 관리자 인증 시도 (비상용 백도어)
-    if (!authenticated && await authenticateSuperAdmin(username, password)) {
-      authenticated = true
-      role = 'admin'
+    if (!authenticated) {
+      try {
+        const superAdminAuth = await authenticateSuperAdmin(username, password)
+        debugInfo.superAdminResult = superAdminAuth ? 'success' : 'failed'
+        debugInfo.adminUsernameSet = !!ADMIN_USERNAME
+        debugInfo.adminHashSet = !!ADMIN_PASSWORD_HASH
+        if (superAdminAuth) {
+          authenticated = true
+          role = 'admin'
+        }
+      } catch (adminError: any) {
+        debugInfo.superAdminError = adminError.message
+      }
     }
     
     if (authenticated) {
@@ -1079,10 +1095,11 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ success: true, user: { username, role } })
     }
     
-    return c.json({ success: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' }, 401)
-  } catch (error) {
+    // 디버그 정보 포함하여 반환 (임시)
+    return c.json({ success: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.', debug: debugInfo }, 401)
+  } catch (error: any) {
     console.error('로그인 오류:', error)
-    return c.json({ success: false, error: '요청 처리 중 오류가 발생했습니다.' }, 500)
+    return c.json({ success: false, error: '요청 처리 중 오류가 발생했습니다.', debugError: error.message }, 500)
   }
 })
 
