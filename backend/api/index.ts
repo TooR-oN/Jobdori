@@ -316,36 +316,22 @@ async function authenticateSuperAdmin(username: string, password: string): Promi
   return await comparePassword(password, ADMIN_PASSWORD_HASH)
 }
 
-// 일반 사용자 인증 (DB 기반) - 디버그 버전
-let lastDbAuthDebug: any = null
-async function authenticateUser(username: string, password: string): Promise<{ success: boolean; role: UserRole; debug?: any } | null> {
-  const debug: any = { step: 'authenticateUser', timestamp: new Date().toISOString() }
-  lastDbAuthDebug = debug
+// 일반 사용자 인증 (DB 기반)
+async function authenticateUser(username: string, password: string): Promise<{ success: boolean; role: UserRole } | null> {
   try {
     const users = await query`
       SELECT id, username, password_hash, role, is_active 
       FROM users 
       WHERE username = ${username} AND is_active = true
     `
-    debug.usersFound = users.length
-    if (users.length === 0) {
-      debug.reason = 'no_user_found'
-      return null
-    }
+    if (users.length === 0) return null
     
     const user = users[0]
-    debug.userFound = { username: user.username, role: user.role, hashLength: user.password_hash?.length }
     const isValid = await comparePassword(password, user.password_hash)
-    debug.passwordValid = isValid
-    if (!isValid) {
-      debug.reason = 'password_mismatch'
-      return null
-    }
+    if (!isValid) return null
     
-    return { success: true, role: user.role as UserRole, debug }
-  } catch (err: any) {
-    debug.error = err.message
-    debug.reason = 'exception'
+    return { success: true, role: user.role as UserRole }
+  } catch {
     return null
   }
 }
@@ -1051,35 +1037,18 @@ app.post('/api/auth/login', async (c) => {
     
     let role: UserRole = 'user'
     let authenticated = false
-    let debugInfo: any = { step: 'start', username }
     
     // 1. DB 사용자 인증 시도 (우선)
-    try {
-      const userAuth = await authenticateUser(username, password)
-      debugInfo.dbAuthResult = userAuth ? 'success' : 'failed'
-      debugInfo.dbAuthDebug = userAuth?.debug || lastDbAuthDebug || 'no_debug_info'
-      if (userAuth) {
-        authenticated = true
-        role = userAuth.role
-      }
-    } catch (dbError: any) {
-      debugInfo.dbAuthError = dbError.message
+    const userAuth = await authenticateUser(username, password)
+    if (userAuth) {
+      authenticated = true
+      role = userAuth.role
     }
     
     // 2. DB 인증 실패 시 환경변수 관리자 인증 시도 (비상용 백도어)
-    if (!authenticated) {
-      try {
-        const superAdminAuth = await authenticateSuperAdmin(username, password)
-        debugInfo.superAdminResult = superAdminAuth ? 'success' : 'failed'
-        debugInfo.adminUsernameSet = !!ADMIN_USERNAME
-        debugInfo.adminHashSet = !!ADMIN_PASSWORD_HASH
-        if (superAdminAuth) {
-          authenticated = true
-          role = 'admin'
-        }
-      } catch (adminError: any) {
-        debugInfo.superAdminError = adminError.message
-      }
+    if (!authenticated && await authenticateSuperAdmin(username, password)) {
+      authenticated = true
+      role = 'admin'
     }
     
     if (authenticated) {
@@ -1096,11 +1065,10 @@ app.post('/api/auth/login', async (c) => {
       return c.json({ success: true, user: { username, role } })
     }
     
-    // 디버그 정보 포함하여 반환 (임시)
-    return c.json({ success: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.', debug: debugInfo }, 401)
-  } catch (error: any) {
+    return c.json({ success: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' }, 401)
+  } catch (error) {
     console.error('로그인 오류:', error)
-    return c.json({ success: false, error: '요청 처리 중 오류가 발생했습니다.', debugError: error.message }, 500)
+    return c.json({ success: false, error: '요청 처리 중 오류가 발생했습니다.' }, 500)
   }
 })
 
@@ -1109,39 +1077,7 @@ app.post('/api/auth/logout', (c) => {
   return c.json({ success: true })
 })
 
-// 임시 디버그 엔드포인트 - 배포 후 삭제 필요
-app.get('/api/debug/user-hash', async (c) => {
-  try {
-    const users = await query`SELECT username, password_hash FROM users WHERE username = 'legal'`
-    if (users.length === 0) return c.json({ error: 'user not found' })
-    const hash = users[0].password_hash
-    
-    // 직접 bcrypt 비교 테스트 (정적 import 사용)
-    const testPassword = 'ridi123!@#'
-    let bcryptResult = false
-    let bcryptError = null
-    try {
-      bcryptResult = bcrypt.compareSync(testPassword, hash)
-    } catch (e: any) {
-      bcryptError = e.message
-    }
-    
-    // comparePassword 함수로도 테스트
-    const comparePwResult = await comparePassword(testPassword, hash)
-    
-    return c.json({ 
-      username: users[0].username,
-      hashPrefix: hash?.substring(0, 30) + '...',
-      hashLength: hash?.length,
-      hashMatches: hash === '$2a$10$dUg3gdcfa6Ekdjgwr7kZ.u4q2.9UlXWPLdoBJCbqychiS8v20Yb6y',
-      bcryptDirectResult: bcryptResult,
-      bcryptError: bcryptError,
-      comparePasswordResult: comparePwResult
-    })
-  } catch (err: any) {
-    return c.json({ error: err.message })
-  }
-})
+
 
 app.get('/api/auth/status', async (c) => {
   const sessionToken = getCookie(c, 'session_token')
