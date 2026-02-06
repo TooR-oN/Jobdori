@@ -1129,13 +1129,29 @@ app.get('/api/debug/user-hash', async (c) => {
     const users = await query`SELECT username, password_hash FROM users WHERE username = 'legal'`
     if (users.length === 0) return c.json({ error: 'user not found' })
     const hash = users[0].password_hash
-    // 해시의 앞부분만 노출 (보안을 위해)
+    
+    // 직접 bcrypt 비교 테스트
+    const testPassword = 'ridi123!@#'
+    let bcryptResult = false
+    let bcryptError = null
+    try {
+      const bcrypt = await import('bcryptjs')
+      bcryptResult = bcrypt.compareSync(testPassword, hash)
+    } catch (e: any) {
+      bcryptError = e.message
+    }
+    
+    // comparePassword 함수로도 테스트
+    const comparePwResult = await comparePassword(testPassword, hash)
+    
     return c.json({ 
       username: users[0].username,
       hashPrefix: hash?.substring(0, 30) + '...',
       hashLength: hash?.length,
-      expectedPrefix: '$2a$10$dUg3gdcfa6Ekdjgwr7kZ.',
-      matches: hash === '$2a$10$dUg3gdcfa6Ekdjgwr7kZ.u4q2.9UlXWPLdoBJCbqychiS8v20Yb6y'
+      hashMatches: hash === '$2a$10$dUg3gdcfa6Ekdjgwr7kZ.u4q2.9UlXWPLdoBJCbqychiS8v20Yb6y',
+      bcryptDirectResult: bcryptResult,
+      bcryptError: bcryptError,
+      comparePasswordResult: comparePwResult
     })
   } catch (err: any) {
     return c.json({ error: err.message })
