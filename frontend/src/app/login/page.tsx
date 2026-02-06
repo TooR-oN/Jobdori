@@ -77,13 +77,11 @@ export default function LoginPage() {
         
         {/* 중앙 콘텐츠 */}
         <div className="relative z-10 flex flex-col items-center justify-center text-center">
-          {/* RIDI 로고 - SVG 직접 구현 */}
-          <div className="mb-8">
-            <div className="h-24 bg-white/10 backdrop-blur-xl rounded-2xl flex items-center justify-center border border-white/20 shadow-2xl px-10">
-              <svg width="100" height="40" viewBox="0 0 100 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <text x="50" y="30" textAnchor="middle" fontFamily="Arial Black, Arial, sans-serif" fontSize="32" fontWeight="900" fill="white">RIDI</text>
-              </svg>
-            </div>
+          {/* RIDI 로고 - SVG 직접 구현 (5배 확대, 박스 제거) */}
+          <div className="mb-10">
+            <svg width="500" height="160" viewBox="0 0 500 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <text x="250" y="120" textAnchor="middle" fontFamily="Arial Black, Arial, sans-serif" fontSize="140" fontWeight="900" fill="white">RIDI</text>
+            </svg>
           </div>
           
           {/* 메인 타이틀 */}
