@@ -29,12 +29,11 @@ api.interceptors.response.use(
 
 export const authApi = {
   login: async (username: string, password: string) => {
-    // 임시: 백엔드는 password만 확인, username은 프론트에서 처리
-    const res = await api.post('/api/auth/login', { password });
+    // 백엔드에 username과 password 모두 전송
+    const res = await api.post('/api/auth/login', { username, password });
     if (res.data.success) {
-      // 임시 사용자 정보 (백엔드 사용자 관리 구현 전까지)
-      const role = username === 'admin' ? 'admin' : 'user';
-      const user = { username, role };
+      // 백엔드에서 반환된 사용자 정보 사용
+      const user = res.data.user || { username, role: 'user' };
       // 로컬스토리지에 저장 (페이지 새로고침 시 복원용)
       if (typeof window !== 'undefined') {
         localStorage.setItem('jobdori_user', JSON.stringify(user));
