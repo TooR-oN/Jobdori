@@ -349,11 +349,7 @@ export default function ReportTrackingPage() {
       return;
     }
     
-    if (!reportId.trim()) {
-      setErrorMessage('신고 ID를 입력해주세요.');
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
+    // 신고 ID는 선택 사항 (없으면 HTML에서 자동 추출 시도)
     
     setIsUploading(true);
     setErrorMessage(null);
@@ -364,12 +360,15 @@ export default function ReportTrackingPage() {
       const res = await reportTrackingApi.uploadHtml(
         selectedSessionId,
         htmlContent,
-        reportId.trim(),
+        reportId.trim() || undefined,  // 빈 문자열이면 undefined로 전달
         file.name
       );
       
       if (res.success) {
-        setSuccessMessage(res.message || `${res.matched_urls}개 URL이 '차단' 상태로 업데이트되었습니다.`);
+        const autoExtractedMsg = res.auto_extracted 
+          ? ` (신고 ID ${res.report_id} 자동 추출됨)` 
+          : '';
+        setSuccessMessage(res.message || `${res.matched_urls}개 URL이 '차단' 상태로 업데이트되었습니다.${autoExtractedMsg}`);
         setReportId('');
         // 목록 새로고침
         loadSessionData(pagination.page);
@@ -602,7 +601,7 @@ export default function ReportTrackingPage() {
                 type="text"
                 value={reportId}
                 onChange={(e) => setReportId(e.target.value)}
-                placeholder="신고 ID (예: 12345)"
+                placeholder="신고 ID (선택, 미입력시 자동추출)"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <div
@@ -634,7 +633,7 @@ export default function ReportTrackingPage() {
                   className="hidden"
                 />
               </div>
-              <p className="text-xs text-gray-500">구글 신고 결과 페이지를 업로드하면 차단된 URL을 자동 매칭합니다.</p>
+              <p className="text-xs text-gray-500">구글 신고 결과 페이지를 업로드하면 차단된 URL을 자동 매칭합니다. 신고 ID는 HTML에서 자동 추출됩니다.</p>
             </div>
             
             {/* 업로드 이력 */}

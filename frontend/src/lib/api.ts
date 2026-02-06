@@ -316,11 +316,11 @@ export const reportTrackingApi = {
     return res.data;
   },
   
-  // HTML 파일 업로드 (신고 결과 매칭)
-  uploadHtml: async (sessionId: string, htmlContent: string, reportId: string, fileName?: string) => {
+  // HTML 파일 업로드 (신고 결과 매칭) - reportId는 선택 사항 (없으면 HTML에서 자동 추출)
+  uploadHtml: async (sessionId: string, htmlContent: string, reportId?: string, fileName?: string) => {
     const res = await api.post(`/api/report-tracking/${sessionId}/upload`, {
       html_content: htmlContent,
-      report_id: reportId,
+      report_id: reportId || undefined,
       file_name: fileName,
     });
     return res.data;

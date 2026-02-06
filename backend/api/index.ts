@@ -2244,6 +2244,51 @@ function extractUrlsFromHtml(htmlContent: string): string[] {
   return uniqueUrls
 }
 
+// HTML에서 신고 ID 자동 추출 (Google Report Content 페이지)
+function extractReportIdFromHtml(htmlContent: string): string | null {
+  // 방법 1: URL 파라미터에서 추출 (report_content?id=12345)
+  // 예: https://www.google.com/webmasters/tools/dmca-notice?id=18654693&hl=ko
+  const urlParamMatch = htmlContent.match(/dmca-notice\?id=(\d+)/i)
+  if (urlParamMatch) {
+    console.log(`🔍 Extracted report ID from URL param: ${urlParamMatch[1]}`)
+    return urlParamMatch[1]
+  }
+  
+  // 방법 2: report_content URL에서 추출
+  // 예: report_content?id=12345
+  const reportContentMatch = htmlContent.match(/report_content\?id=(\d+)/i)
+  if (reportContentMatch) {
+    console.log(`🔍 Extracted report ID from report_content: ${reportContentMatch[1]}`)
+    return reportContentMatch[1]
+  }
+  
+  // 방법 3: 페이지 타이틀에서 추출
+  // 예: <title>신고 ID 12345678 - Google</title> 또는 <title>Request #12345678</title>
+  const titleMatch = htmlContent.match(/<title>[^<]*(?:신고\s*(?:ID)?|Request\s*#?|ID\s*:?\s*)(\d+)[^<]*<\/title>/i)
+  if (titleMatch) {
+    console.log(`🔍 Extracted report ID from title: ${titleMatch[1]}`)
+    return titleMatch[1]
+  }
+  
+  // 방법 4: 페이지 본문에서 숫자 ID 패턴 추출
+  // 예: "요청 ID: 12345678" 또는 "Request ID: 12345678"
+  const bodyIdMatch = htmlContent.match(/(?:요청\s*ID|Request\s*ID|신고\s*번호|Report\s*ID)\s*[:#]?\s*(\d{6,})/i)
+  if (bodyIdMatch) {
+    console.log(`🔍 Extracted report ID from body: ${bodyIdMatch[1]}`)
+    return bodyIdMatch[1]
+  }
+  
+  // 방법 5: canonical URL에서 추출
+  const canonicalMatch = htmlContent.match(/href="[^"]*(?:id|report)[=\/](\d+)[^"]*"/i)
+  if (canonicalMatch) {
+    console.log(`🔍 Extracted report ID from canonical: ${canonicalMatch[1]}`)
+    return canonicalMatch[1]
+  }
+  
+  console.log('⚠️ Could not auto-extract report ID from HTML')
+  return null
+}
+
 // ⚠️ 정적 라우트는 동적 라우트(:sessionId) 앞에 배치해야 함
 
 // 세션 목록 (신고 추적용) - 정적 라우트
@@ -2527,14 +2572,31 @@ app.post('/api/report-tracking/:sessionId/add-url', async (c) => {
 app.post('/api/report-tracking/:sessionId/upload', async (c) => {
   try {
     const sessionId = c.req.param('sessionId')
-    const { html_content, report_id, file_name } = await c.req.json()
+    const { html_content, report_id: providedReportId, file_name } = await c.req.json()
     
-    if (!html_content || !report_id) {
-      return c.json({ success: false, error: 'Missing html_content or report_id' }, 400)
+    if (!html_content) {
+      return c.json({ success: false, error: 'Missing html_content' }, 400)
+    }
+    
+    // 신고 ID: 제공된 값 사용 또는 HTML에서 자동 추출
+    let reportId = providedReportId?.trim()
+    let autoExtracted = false
+    
+    if (!reportId) {
+      reportId = extractReportIdFromHtml(html_content)
+      autoExtracted = true
+      
+      if (!reportId) {
+        return c.json({ 
+          success: false, 
+          error: 'HTML에서 신고 ID를 자동으로 추출할 수 없습니다. 신고 ID를 직접 입력해주세요.' 
+        }, 400)
+      }
+      console.log(`🤖 Auto-extracted report ID: ${reportId}`)
     }
     
     // HTML에서 URL 추출 (정규식 기반)
-    console.log(`📥 Processing HTML upload for session ${sessionId}, report_id: ${report_id}`)
+    console.log(`📥 Processing HTML upload for session ${sessionId}, report_id: ${reportId}${autoExtracted ? ' (auto-extracted)' : ''}`)
     const extractedUrls = extractUrlsFromHtml(html_content)
     
     if (extractedUrls.length === 0) {
@@ -2549,7 +2611,7 @@ app.post('/api/report-tracking/:sessionId/upload', async (c) => {
       sessionId,
       extractedUrls,
       '차단',
-      report_id
+      reportId
     )
     
     console.log(`✅ Matched and updated ${matchedCount} URLs`)
@@ -2557,7 +2619,7 @@ app.post('/api/report-tracking/:sessionId/upload', async (c) => {
     // 업로드 이력 저장
     await createReportUpload({
       session_id: sessionId,
-      report_id,
+      report_id: reportId,
       file_name: file_name || 'uploaded.html',
       matched_count: matchedCount,
       total_urls_in_html: extractedUrls.length
@@ -2565,10 +2627,13 @@ app.post('/api/report-tracking/:sessionId/upload', async (c) => {
     
     return c.json({
       success: true,
-      report_id,
+      report_id: reportId,
+      auto_extracted: autoExtracted,
       extracted_urls: extractedUrls.length,
       matched_urls: matchedCount,
-      message: `${matchedCount}개 URL이 '차단' 상태로 업데이트되었습니다.`
+      message: autoExtracted 
+        ? `신고 ID ${reportId}가 자동 추출되었습니다. ${matchedCount}개 URL이 '차단' 상태로 업데이트되었습니다.`
+        : `${matchedCount}개 URL이 '차단' 상태로 업데이트되었습니다.`
     })
   } catch (error) {
     console.error('HTML upload error:', error)
