@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { MainLayout } from '@/components/layout';
-import { sessionsApi, titlesApi } from '@/lib/api';
+import { sessionsApi, titlesApi, excludedUrlsApi } from '@/lib/api';
 import { ArrowLeftIcon, ArrowDownTrayIcon, DocumentDuplicateIcon, CheckIcon, ClipboardIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 
 interface Result {
@@ -109,29 +109,47 @@ export default function SessionDetailPage() {
     return title?.manta_url || null;
   };
 
-  // 선택한 필터 조건의 모든 불법 URL 복사
+  // 선택한 필터 조건의 모든 불법 URL 복사 (신고 제외 URL 필터링)
   const handleCopyAllIllegalUrls = async () => {
     setIsCopyingAll(true);
     try {
-      // 서버에서 해당 조건의 모든 URL 가져오기
-      const res = await sessionsApi.getAllUrls(
-        sessionId, 
-        titleFilter, 
-        statusFilter === 'all' ? 'illegal' : statusFilter
-      );
+      // 서버에서 해당 조건의 모든 URL과 신고 제외 URL 목록 가져오기
+      const [urlsRes, excludedRes] = await Promise.all([
+        sessionsApi.getAllUrls(
+          sessionId, 
+          titleFilter, 
+          statusFilter === 'all' ? 'illegal' : statusFilter
+        ),
+        excludedUrlsApi.getList()
+      ]);
       
-      if (res.success) {
-        const urls = res.results
+      if (urlsRes.success) {
+        // 신고 제외 URL Set 생성
+        const excludedUrls = new Set<string>(
+          excludedRes.success ? excludedRes.items.map((item: { url: string }) => item.url) : []
+        );
+        
+        // 불법 URL 중 신고 제외 URL을 제외하고 필터링
+        const allIllegalUrls = urlsRes.results
           .filter((r: Result) => r.final_status === 'illegal')
           .map((r: Result) => r.url);
         
-        if (urls.length === 0) {
-          alert('복사할 불법 URL이 없습니다.');
+        const filteredUrls = allIllegalUrls.filter((url: string) => !excludedUrls.has(url));
+        const excludedCount = allIllegalUrls.length - filteredUrls.length;
+        
+        if (filteredUrls.length === 0) {
+          alert('복사할 불법 URL이 없습니다.' + (excludedCount > 0 ? ` (신고 제외 ${excludedCount}개)` : ''));
           return;
         }
         
-        await navigator.clipboard.writeText(urls.join('\n'));
+        await navigator.clipboard.writeText(filteredUrls.join('\n'));
         setCopySuccess(true);
+        
+        // 제외된 URL이 있으면 알림
+        if (excludedCount > 0) {
+          console.log(`${filteredUrls.length}개 복사 완료 (신고 제외 ${excludedCount}개 제외됨)`);
+        }
+        
         setTimeout(() => setCopySuccess(false), 2000);
       }
     } catch (err) {
