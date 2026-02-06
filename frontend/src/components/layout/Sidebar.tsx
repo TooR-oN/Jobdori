@@ -177,9 +177,9 @@ export default function Sidebar() {
       <div className="p-6 border-b border-gray-100">
         <div className="flex items-center gap-2">
           <span className="text-2xl font-bold text-[#1E9EF4]">RIDI</span>
+          <span className="text-2xl font-bold text-gray-800">Jobdori</span>
         </div>
-        <h1 className="text-xl font-bold text-gray-800 mt-1">Jobdori</h1>
-        <p className="text-xs text-gray-500 mt-0.5">리디 저작권 침해 모니터링</p>
+        <p className="text-xs text-gray-500 mt-1">리디 저작권 침해 모니터링</p>
       </div>
 
       {/* 메인 메뉴 */}

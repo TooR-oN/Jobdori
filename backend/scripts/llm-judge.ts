@@ -175,7 +175,7 @@ async function createManusTask(prompt: string): Promise<ManusTaskResponse | null
         agentProfile: 'manus-1.6',
         projectId: MANUS_PROJECT_ID,
         taskMode: 'agent',
-        hideInTaskList: true,  // 작업 목록에서 숨기기
+        hideInTaskList: false,  // 프로젝트 Task 목록에 표시
       }),
     });
 

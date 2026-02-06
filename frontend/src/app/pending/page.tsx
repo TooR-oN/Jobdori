@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MainLayout } from '@/components/layout';
 import { pendingApi } from '@/lib/api';
-import { CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, XMarkIcon, ChevronUpIcon, ChevronDownIcon, ArrowsUpDownIcon } from '@heroicons/react/24/outline';
 
 interface PendingItem {
   id: number;
@@ -14,6 +14,9 @@ interface PendingItem {
   llm_reason: string | null;
   created_at: string;
 }
+
+type SortField = 'domain' | 'llm_judgment' | 'titles';
+type SortDirection = 'asc' | 'desc' | null;
 
 export default function PendingPage() {
   const [items, setItems] = useState<PendingItem[]>([]);
@@ -27,6 +30,10 @@ export default function PendingPage() {
   // 처리 중 상태
   const [processingIds, setProcessingIds] = useState<Set<number>>(new Set());
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
+  // 정렬 상태
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
   // 데이터 로드
   const loadPending = async () => {
@@ -51,6 +58,71 @@ export default function PendingPage() {
   useEffect(() => {
     loadPending();
   }, []);
+
+  // 정렬된 아이템
+  const sortedItems = useMemo(() => {
+    if (!sortField || !sortDirection) return items;
+
+    return [...items].sort((a, b) => {
+      let aValue: string | number = '';
+      let bValue: string | number = '';
+
+      switch (sortField) {
+        case 'domain':
+          aValue = a.domain.toLowerCase();
+          bValue = b.domain.toLowerCase();
+          break;
+        case 'llm_judgment':
+          // 정렬 순서: likely_illegal > uncertain > likely_legal > null
+          const judgmentOrder: Record<string, number> = {
+            'likely_illegal': 0,
+            'uncertain': 1,
+            'likely_legal': 2,
+          };
+          aValue = a.llm_judgment ? judgmentOrder[a.llm_judgment] ?? 3 : 3;
+          bValue = b.llm_judgment ? judgmentOrder[b.llm_judgment] ?? 3 : 3;
+          break;
+        case 'titles':
+          aValue = a.titles?.[0]?.toLowerCase() || '';
+          bValue = b.titles?.[0]?.toLowerCase() || '';
+          break;
+      }
+
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [items, sortField, sortDirection]);
+
+  // 정렬 핸들러
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // 같은 필드 클릭 시 방향 토글
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else if (sortDirection === 'desc') {
+        setSortField(null);
+        setSortDirection(null);
+      } else {
+        setSortDirection('asc');
+      }
+    } else {
+      // 새 필드 클릭 시 오름차순으로 시작
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // 정렬 아이콘
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowsUpDownIcon className="w-4 h-4 text-gray-400" />;
+    }
+    if (sortDirection === 'asc') {
+      return <ChevronUpIcon className="w-4 h-4 text-blue-600" />;
+    }
+    return <ChevronDownIcon className="w-4 h-4 text-blue-600" />;
+  };
 
   // 개별 승인/거부
   const handleReview = async (id: number, action: 'approve' | 'reject') => {
@@ -106,9 +178,6 @@ export default function PendingPage() {
     }
   };
 
-  // NOTE: AI 일괄 검토 기능 삭제됨 - Manus API 연동으로 대체 예정
-  // LLM 2차 판별은 파이프라인(llm-judge.ts)에서 처리
-
   // 전체 선택/해제
   const handleSelectAll = () => {
     if (selectedIds.size === items.length) {
@@ -135,13 +204,13 @@ export default function PendingPage() {
   const getJudgmentBadge = (judgment: string | null) => {
     switch (judgment) {
       case 'likely_illegal':
-        return <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-full">불법 추정</span>;
+        return <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-full whitespace-nowrap">불법 추정</span>;
       case 'likely_legal':
-        return <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-700 rounded-full">합법 추정</span>;
+        return <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-700 rounded-full whitespace-nowrap">합법 추정</span>;
       case 'uncertain':
-        return <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 rounded-full">불확실</span>;
+        return <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 rounded-full whitespace-nowrap">불확실</span>;
       default:
-        return <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">미분석</span>;
+        return <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 rounded-full whitespace-nowrap">미분석</span>;
     }
   };
 
@@ -176,26 +245,6 @@ export default function PendingPage() {
             {selectedIds.size > 0 && ` (${selectedIds.size}개 선택됨)`}
           </span>
         </div>
-        
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => handleBulkReview('approve')}
-            disabled={isBulkProcessing || selectedIds.size === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-          >
-            <CheckIcon className="w-4 h-4" />
-            {isBulkProcessing ? '처리 중...' : '선택 불법 등록'}
-          </button>
-          
-          <button
-            onClick={() => handleBulkReview('reject')}
-            disabled={isBulkProcessing || selectedIds.size === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-          >
-            <XMarkIcon className="w-4 h-4" />
-            {isBulkProcessing ? '처리 중...' : '선택 합법 처리'}
-          </button>
-        </div>
       </div>
 
       {/* 테이블 */}
@@ -216,7 +265,8 @@ export default function PendingPage() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  <th className="px-4 py-3 text-left">
+                  {/* 체크박스 */}
+                  <th className="px-3 py-3 text-left w-10">
                     <input
                       type="checkbox"
                       checked={selectedIds.size === items.length && items.length > 0}
@@ -224,17 +274,68 @@ export default function PendingPage() {
                       className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                     />
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">도메인</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">관련 작품</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">AI 판단</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">URL 수</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-600">액션</th>
+                  {/* 일괄 액션 버튼 */}
+                  <th className="px-2 py-3 text-left w-48">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleBulkReview('approve')}
+                        disabled={isBulkProcessing || selectedIds.size === 0}
+                        className="flex items-center gap-1 px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="선택한 항목을 불법 사이트로 등록"
+                      >
+                        <CheckIcon className="w-3 h-3" />
+                        불법등록
+                      </button>
+                      <button
+                        onClick={() => handleBulkReview('reject')}
+                        disabled={isBulkProcessing || selectedIds.size === 0}
+                        className="flex items-center gap-1 px-2 py-1 bg-gray-500 text-white rounded text-xs hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="선택한 항목을 합법 사이트로 처리"
+                      >
+                        <XMarkIcon className="w-3 h-3" />
+                        합법처리
+                      </button>
+                    </div>
+                  </th>
+                  {/* 도메인 - 정렬 가능 */}
+                  <th className="px-4 py-3 text-left">
+                    <button 
+                      onClick={() => handleSort('domain')}
+                      className="flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-800"
+                    >
+                      도메인
+                      {getSortIcon('domain')}
+                    </button>
+                  </th>
+                  {/* AI 판단 - 정렬 가능 */}
+                  <th className="px-4 py-3 text-left min-w-[300px]">
+                    <button 
+                      onClick={() => handleSort('llm_judgment')}
+                      className="flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-800"
+                    >
+                      AI 판단
+                      {getSortIcon('llm_judgment')}
+                    </button>
+                  </th>
+                  {/* 관련 작품 - 정렬 가능 */}
+                  <th className="px-4 py-3 text-left">
+                    <button 
+                      onClick={() => handleSort('titles')}
+                      className="flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-800"
+                    >
+                      관련 작품
+                      {getSortIcon('titles')}
+                    </button>
+                  </th>
+                  {/* URL 수 */}
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 w-20">URL 수</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {items.map((item) => (
+                {sortedItems.map((item) => (
                   <tr key={item.id} className="hover:bg-gray-50 transition">
-                    <td className="px-4 py-3">
+                    {/* 체크박스 */}
+                    <td className="px-3 py-3">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(item.id)}
@@ -242,13 +343,56 @@ export default function PendingPage() {
                         className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       />
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm font-medium text-gray-800 font-mono">{item.domain}</span>
+                    {/* 개별 액션 버튼 */}
+                    <td className="px-2 py-3">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleReview(item.id, 'approve')}
+                          disabled={processingIds.has(item.id)}
+                          className="flex items-center gap-1 px-2 py-1 text-red-600 hover:bg-red-50 rounded text-xs font-medium border border-red-200 disabled:opacity-50"
+                          title="불법 사이트로 등록"
+                        >
+                          <CheckIcon className="w-3 h-3" />
+                          불법
+                        </button>
+                        <button
+                          onClick={() => handleReview(item.id, 'reject')}
+                          disabled={processingIds.has(item.id)}
+                          className="flex items-center gap-1 px-2 py-1 text-green-600 hover:bg-green-50 rounded text-xs font-medium border border-green-200 disabled:opacity-50"
+                          title="합법 사이트로 처리"
+                        >
+                          <XMarkIcon className="w-3 h-3" />
+                          합법
+                        </button>
+                      </div>
                     </td>
+                    {/* 도메인 (링크) */}
+                    <td className="px-4 py-3">
+                      <a 
+                        href={`https://${item.domain}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline font-mono"
+                      >
+                        {item.domain}
+                      </a>
+                    </td>
+                    {/* AI 판단 (전체 표시) */}
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        {getJudgmentBadge(item.llm_judgment)}
+                        {item.llm_reason && (
+                          <p className="text-xs text-gray-600 leading-relaxed">
+                            {item.llm_reason}
+                          </p>
+                        )}
+                      </div>
+                    </td>
+                    {/* 관련 작품 */}
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {item.titles?.slice(0, 3).map((title, idx) => (
-                          <span key={idx} className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded">
+                          <span key={idx} className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded whitespace-nowrap">
                             {title}
                           </span>
                         ))}
@@ -257,40 +401,9 @@ export default function PendingPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <div>
-                        {getJudgmentBadge(item.llm_judgment)}
-                        {item.llm_reason && (
-                          <p className="mt-1 text-xs text-gray-500 max-w-xs truncate" title={item.llm_reason}>
-                            {item.llm_reason}
-                          </p>
-                        )}
-                      </div>
-                    </td>
+                    {/* URL 수 */}
                     <td className="px-4 py-3">
                       <span className="text-sm text-gray-600">{item.urls?.length || 0}개</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleReview(item.id, 'approve')}
-                          disabled={processingIds.has(item.id)}
-                          className="flex items-center gap-1 px-2 py-1.5 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50 text-sm font-medium border border-red-200"
-                          title="불법 사이트로 등록"
-                        >
-                          <CheckIcon className="w-4 h-4" />
-                          <span>불법</span>
-                        </button>
-                        <button
-                          onClick={() => handleReview(item.id, 'reject')}
-                          disabled={processingIds.has(item.id)}
-                          className="flex items-center gap-1 px-2 py-1.5 text-green-600 hover:bg-green-50 rounded-lg transition disabled:opacity-50 text-sm font-medium border border-green-200"
-                          title="합법 사이트로 처리"
-                        >
-                          <XMarkIcon className="w-4 h-4" />
-                          <span>합법</span>
-                        </button>
-                      </div>
                     </td>
                   </tr>
                 ))}
