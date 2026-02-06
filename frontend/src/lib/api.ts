@@ -138,10 +138,7 @@ export const pendingApi = {
     return res.data;
   },
   
-  aiReview: async () => {
-    const res = await api.post('/api/pending/ai-review');
-    return res.data;
-  },
+  // NOTE: AI 일괄 검토 기능 삭제됨 - Manus API 연동으로 대체 예정
 };
 
 // ============================================

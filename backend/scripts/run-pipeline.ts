@@ -189,7 +189,7 @@ async function saveDetectionResultsToDb(sessionId: string, finalResults: FinalRe
 
   console.log(`📋 Saving ${finalResults.length} results to detection_results...`);
 
-  // 배열 준비
+  // 배열 준비 (snippet 포함)
   const sessionIds: string[] = [];
   const titles: string[] = [];
   const urls: string[] = [];
@@ -202,6 +202,7 @@ async function saveDetectionResultsToDb(sessionId: string, finalResults: FinalRe
   const llmReasons: (string | null)[] = [];
   const finalStatuses: string[] = [];
   const reviewedAts: (string | null)[] = [];
+  const snippets: (string | null)[] = [];
 
   for (const r of finalResults) {
     sessionIds.push(sessionId);
@@ -216,16 +217,17 @@ async function saveDetectionResultsToDb(sessionId: string, finalResults: FinalRe
     llmReasons.push(r.llm_reason || null);
     finalStatuses.push(r.final_status);
     reviewedAts.push(r.reviewed_at || null);
+    snippets.push(r.snippet || null);
   }
 
-  // UNNEST를 사용한 배치 INSERT
+  // UNNEST를 사용한 배치 INSERT (snippet 포함)
   try {
     await sql`
       INSERT INTO detection_results (
         session_id, title, url, domain, 
         search_query, page, rank,
         initial_status, llm_judgment, llm_reason, final_status,
-        reviewed_at
+        reviewed_at, snippet
       )
       SELECT * FROM UNNEST(
         ${sessionIds}::text[],
@@ -239,7 +241,8 @@ async function saveDetectionResultsToDb(sessionId: string, finalResults: FinalRe
         ${llmJudgments}::text[],
         ${llmReasons}::text[],
         ${finalStatuses}::text[],
-        ${reviewedAts}::timestamptz[]
+        ${reviewedAts}::timestamptz[],
+        ${snippets}::text[]
       )
       ON CONFLICT (session_id, url) DO NOTHING
     `;

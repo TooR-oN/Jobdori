@@ -12,6 +12,7 @@ export interface SearchResult {
   search_query: string;    // 검색어
   page: number;            // 검색 결과 페이지 (1-3)
   rank: number;            // 전체 순위 (1-50)
+  snippet?: string;        // 검색 결과 스니펫 (LLM 판별용)
 }
 
 /**

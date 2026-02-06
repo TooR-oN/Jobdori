@@ -95,7 +95,7 @@ async function executeSearch(
 
       console.log(`    📄 페이지 ${pageNum}: ${pageResults.length}개 결과`);
 
-      // 결과 저장
+      // 결과 저장 (스니펫 포함)
       for (const item of pageResults) {
         if (globalRank > config.search.maxResults) break;
 
@@ -106,6 +106,7 @@ async function executeSearch(
           search_query: query,
           page: pageNum,
           rank: globalRank,
+          snippet: item.snippet || undefined,  // 스니펫 저장 (LLM 판별용)
         });
         globalRank++;
       }

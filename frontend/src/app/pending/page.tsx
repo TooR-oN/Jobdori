@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout';
 import { pendingApi } from '@/lib/api';
-import { CheckIcon, XMarkIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { CheckIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 interface PendingItem {
   id: number;
@@ -26,7 +26,6 @@ export default function PendingPage() {
   
   // 처리 중 상태
   const [processingIds, setProcessingIds] = useState<Set<number>>(new Set());
-  const [isAiReviewing, setIsAiReviewing] = useState(false);
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
   // 데이터 로드
@@ -107,29 +106,8 @@ export default function PendingPage() {
     }
   };
 
-  // AI 일괄 검토
-  const handleAiReview = async () => {
-    if (!confirm('AI가 모든 대기 항목을 분석합니다. 진행하시겠습니까?')) {
-      return;
-    }
-    
-    setIsAiReviewing(true);
-    
-    try {
-      const res = await pendingApi.aiReview();
-      if (res.success) {
-        setSuccessMessage(res.message || 'AI 검토가 완료되었습니다.');
-        loadPending();
-      } else {
-        setError(res.error || 'AI 검토에 실패했습니다.');
-      }
-    } catch (err) {
-      console.error('Failed to AI review:', err);
-      setError('AI 검토에 실패했습니다.');
-    } finally {
-      setIsAiReviewing(false);
-    }
-  };
+  // NOTE: AI 일괄 검토 기능 삭제됨 - Manus API 연동으로 대체 예정
+  // LLM 2차 판별은 파이프라인(llm-judge.ts)에서 처리
 
   // 전체 선택/해제
   const handleSelectAll = () => {
@@ -200,15 +178,6 @@ export default function PendingPage() {
         </div>
         
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleAiReview}
-            disabled={isAiReviewing || items.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-          >
-            <SparklesIcon className="w-4 h-4" />
-            {isAiReviewing ? 'AI 분석 중...' : 'AI 일괄 분석'}
-          </button>
-          
           <button
             onClick={() => handleBulkReview('approve')}
             disabled={isBulkProcessing || selectedIds.size === 0}
