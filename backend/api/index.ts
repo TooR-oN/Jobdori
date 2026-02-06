@@ -1123,6 +1123,25 @@ app.post('/api/auth/logout', (c) => {
   return c.json({ success: true })
 })
 
+// 임시 디버그 엔드포인트 - 배포 후 삭제 필요
+app.get('/api/debug/user-hash', async (c) => {
+  try {
+    const users = await query`SELECT username, password_hash FROM users WHERE username = 'legal'`
+    if (users.length === 0) return c.json({ error: 'user not found' })
+    const hash = users[0].password_hash
+    // 해시의 앞부분만 노출 (보안을 위해)
+    return c.json({ 
+      username: users[0].username,
+      hashPrefix: hash?.substring(0, 30) + '...',
+      hashLength: hash?.length,
+      expectedPrefix: '$2a$10$dUg3gdcfa6Ekdjgwr7kZ.',
+      matches: hash === '$2a$10$dUg3gdcfa6Ekdjgwr7kZ.u4q2.9UlXWPLdoBJCbqychiS8v20Yb6y'
+    })
+  } catch (err: any) {
+    return c.json({ error: err.message })
+  }
+})
+
 app.get('/api/auth/status', async (c) => {
   const sessionToken = getCookie(c, 'session_token')
   if (!sessionToken) return c.json({ authenticated: false })
