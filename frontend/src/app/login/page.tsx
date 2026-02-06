@@ -76,27 +76,20 @@ export default function LoginPage() {
         </div>
         
         {/* 중앙 콘텐츠 */}
-        <div className="relative z-10 max-w-lg text-center">
-          {/* RIDI 로고 이미지 */}
-          <div className="mb-8 flex justify-center">
-            <div className="h-24 w-auto bg-white/10 backdrop-blur-xl rounded-2xl flex items-center justify-center border border-white/20 shadow-2xl px-8">
-              <img 
-                src="https://www.genspark.ai/api/files/s/3kCWwP2h" 
-                alt="RIDI Logo" 
-                className="h-12 w-auto"
-              />
+        <div className="relative z-10 flex flex-col items-center justify-center text-center">
+          {/* RIDI 로고 - SVG 직접 구현 */}
+          <div className="mb-8">
+            <div className="h-24 bg-white/10 backdrop-blur-xl rounded-2xl flex items-center justify-center border border-white/20 shadow-2xl px-10">
+              <svg width="100" height="40" viewBox="0 0 100 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <text x="50" y="30" textAnchor="middle" fontFamily="Arial Black, Arial, sans-serif" fontSize="32" fontWeight="900" fill="white">RIDI</text>
+              </svg>
             </div>
           </div>
           
           {/* 메인 타이틀 */}
-          <h1 className="text-4xl xl:text-5xl font-black leading-tight tracking-tight mb-6">
+          <h1 className="text-4xl xl:text-5xl font-black leading-tight tracking-tight">
             Protecting RIDI&apos;s Creative
           </h1>
-          
-          {/* 서브 타이틀 */}
-          <p className="text-lg text-blue-100 font-medium leading-relaxed opacity-90">
-            Jobdori provides real-time copyright monitoring and data intelligence to protect creators&apos; assets across the digital ecosystem.
-          </p>
         </div>
       </div>
 
