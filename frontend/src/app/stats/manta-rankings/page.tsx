@@ -40,7 +40,7 @@ export default function MantaRankingsPage() {
 
   // 작품 목록 (중복 제거 및 정렬)
   const titles = useMemo(() => {
-    const uniqueTitles = [...new Set(rankings.map(r => r.title))];
+    const uniqueTitles = Array.from(new Set(rankings.map(r => r.title)));
     return uniqueTitles.sort((a, b) => a.localeCompare(b));
   }, [rankings]);
 
