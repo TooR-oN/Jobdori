@@ -537,10 +537,10 @@ async function runPipeline() {
     // Step 4: 2차 판별 (LLM)
     // ==========================================
     console.log('\n' + '─'.repeat(60));
-    console.log('📌 Step 3: 2차 판별 (Gemini LLM)');
+    console.log('📌 Step 3: 2차 판별 (Manus API)');
     console.log('─'.repeat(60));
     
-    const llmJudgedResults = await runLLMJudge(classifiedResults);
+    const llmJudgedResults = await runLLMJudge(classifiedResults, timestamp);
     saveJson(llmJudgedResults, `output/3_llm-judged-results-${timestamp}.json`);
     
     console.log(`\n✅ Step 3 완료`);
