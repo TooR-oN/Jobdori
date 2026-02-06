@@ -330,22 +330,33 @@ async function authenticateSuperAdmin(username: string, password: string): Promi
   return await comparePassword(password, ADMIN_PASSWORD_HASH)
 }
 
-// 일반 사용자 인증 (DB 기반)
-async function authenticateUser(username: string, password: string): Promise<{ success: boolean; role: UserRole } | null> {
+// 일반 사용자 인증 (DB 기반) - 디버그 버전
+async function authenticateUser(username: string, password: string): Promise<{ success: boolean; role: UserRole; debug?: any } | null> {
+  const debug: any = { step: 'authenticateUser' }
   try {
     const users = await query`
       SELECT id, username, password_hash, role, is_active 
       FROM users 
       WHERE username = ${username} AND is_active = true
     `
-    if (users.length === 0) return null
+    debug.usersFound = users.length
+    if (users.length === 0) {
+      debug.reason = 'no_user_found'
+      return null
+    }
     
     const user = users[0]
+    debug.userFound = { username: user.username, role: user.role, hashLength: user.password_hash?.length }
     const isValid = await comparePassword(password, user.password_hash)
-    if (!isValid) return null
+    debug.passwordValid = isValid
+    if (!isValid) {
+      debug.reason = 'password_mismatch'
+      return null
+    }
     
-    return { success: true, role: user.role as UserRole }
-  } catch {
+    return { success: true, role: user.role as UserRole, debug }
+  } catch (err: any) {
+    debug.error = err.message
     return null
   }
 }
@@ -1057,6 +1068,7 @@ app.post('/api/auth/login', async (c) => {
     try {
       const userAuth = await authenticateUser(username, password)
       debugInfo.dbAuthResult = userAuth ? 'success' : 'failed'
+      debugInfo.dbAuthDebug = userAuth?.debug || 'no_debug_info'
       if (userAuth) {
         authenticated = true
         role = userAuth.role
