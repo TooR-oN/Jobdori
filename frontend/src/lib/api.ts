@@ -101,8 +101,20 @@ export const sessionsApi = {
     return res.data;
   },
   
-  getResults: async (id: string, page: number = 1) => {
-    const res = await api.get(`/api/sessions/${id}/results`, { params: { page } });
+  getResults: async (id: string, page: number = 1, title?: string, status?: string) => {
+    const params: { page: number; title?: string; status?: string } = { page };
+    if (title && title !== 'all') params.title = title;
+    if (status && status !== 'all') params.status = status;
+    const res = await api.get(`/api/sessions/${id}/results`, { params });
+    return res.data;
+  },
+  
+  // 필터 조건에 맞는 모든 URL 가져오기 (복사용)
+  getAllUrls: async (id: string, title?: string, status?: string) => {
+    const params: { limit: number; title?: string; status?: string } = { limit: 10000 };
+    if (title && title !== 'all') params.title = title;
+    if (status && status !== 'all') params.status = status;
+    const res = await api.get(`/api/sessions/${id}/results`, { params });
     return res.data;
   },
 };

@@ -145,13 +145,13 @@ export default function MantaRankingsPage() {
     loadHistory();
   }, [selectedTitle, rankings]);
 
-  // 그래프 SVG 생성
+  // 그래프 SVG 생성 (확대된 크기)
   const generateChartSVG = () => {
     if (rankHistory.length === 0) return null;
 
-    const width = 700;
-    const height = 250;
-    const padding = { top: 30, right: 30, bottom: 40, left: 50 };
+    const width = 1000;
+    const height = 450;
+    const padding = { top: 40, right: 40, bottom: 60, left: 60 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
@@ -177,7 +177,7 @@ export default function MantaRankingsPage() {
     const yTicks = [1, 5, 10, 15, 20, 25, 30];
 
     return (
-      <svg width={width} height={height} className="w-full">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full max-h-[500px]" preserveAspectRatio="xMidYMid meet">
         {/* Y축 그리드 라인 */}
         {yTicks.map(tick => {
           const y = padding.top + ((tick - minRank) / (maxRank - minRank)) * chartHeight;
@@ -387,17 +387,17 @@ export default function MantaRankingsPage() {
                 <p>히스토리 데이터가 없습니다</p>
               </div>
             ) : (
-              <>
+              <div className="flex-1 flex flex-col h-full">
                 <div className="flex items-center justify-end mb-2">
-                  <span className="text-xs text-gray-500">1위가 가장 좋음</span>
+                  <span className="text-xs text-gray-500">↑ 1위가 가장 좋음 (상단)</span>
                 </div>
-                <div className="flex-1 flex items-center justify-center">
+                <div className="flex-1 min-h-0">
                   {generateChartSVG()}
                 </div>
-                <div className="mt-4 text-center text-xs text-gray-400">
+                <div className="mt-2 text-center text-xs text-gray-400">
                   ※ 모니터링 실행 시마다 순위가 기록됩니다. 히스토리가 쌓이면 변화 추이를 확인할 수 있습니다.
                 </div>
-              </>
+              </div>
             )}
           </div>
         </div>

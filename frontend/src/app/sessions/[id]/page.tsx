@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { MainLayout } from '@/components/layout';
 import { sessionsApi, titlesApi } from '@/lib/api';
-import { ArrowLeftIcon, ArrowDownTrayIcon, DocumentDuplicateIcon, CheckIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, ArrowDownTrayIcon, DocumentDuplicateIcon, CheckIcon, ClipboardIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 
 interface Result {
   title: string;
@@ -44,11 +44,15 @@ export default function SessionDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [isCopyingAll, setIsCopyingAll] = useState(false);
   
   // 필터
   const [titleFilter, setTitleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
+  
+  // Manta URL 토글
+  const [showMantaUrl, setShowMantaUrl] = useState(false);
 
   // 타이틀 데이터 로드 (Manta URL 포함)
   useEffect(() => {
@@ -65,13 +69,13 @@ export default function SessionDetailPage() {
     loadTitles();
   }, []);
 
-  // 데이터 로드
+  // 데이터 로드 (서버사이드 필터링)
   const loadResults = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const res = await sessionsApi.getResults(sessionId, currentPage);
+      const res = await sessionsApi.getResults(sessionId, currentPage, titleFilter, statusFilter);
       if (res.success) {
         setResults(res.results || []);
         setPagination(res.pagination);
@@ -87,18 +91,16 @@ export default function SessionDetailPage() {
     }
   };
 
+  // 필터 변경 시 페이지 1로 리셋하고 다시 로드
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [titleFilter, statusFilter]);
+
   useEffect(() => {
     if (sessionId) {
       loadResults();
     }
-  }, [sessionId, currentPage]);
-
-  // 필터링된 결과
-  const filteredResults = results.filter(r => {
-    if (titleFilter !== 'all' && r.title !== titleFilter) return false;
-    if (statusFilter !== 'all' && r.final_status !== statusFilter) return false;
-    return true;
-  });
+  }, [sessionId, currentPage, titleFilter, statusFilter]);
 
   // 선택한 작품의 Manta URL 가져오기
   const getSelectedTitleMantaUrl = () => {
@@ -107,23 +109,45 @@ export default function SessionDetailPage() {
     return title?.manta_url || null;
   };
 
-  // 불법 URL만 복사
-  const handleCopyIllegalUrls = async () => {
-    const illegalUrls = filteredResults
-      .filter(r => r.final_status === 'illegal')
-      .map(r => r.url);
-    
-    if (illegalUrls.length === 0) {
-      alert('복사할 불법 URL이 없습니다.');
-      return;
-    }
-    
+  // 선택한 필터 조건의 모든 불법 URL 복사
+  const handleCopyAllIllegalUrls = async () => {
+    setIsCopyingAll(true);
     try {
-      await navigator.clipboard.writeText(illegalUrls.join('\n'));
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
+      // 서버에서 해당 조건의 모든 URL 가져오기
+      const res = await sessionsApi.getAllUrls(
+        sessionId, 
+        titleFilter, 
+        statusFilter === 'all' ? 'illegal' : statusFilter
+      );
+      
+      if (res.success) {
+        const urls = res.results
+          .filter((r: Result) => r.final_status === 'illegal')
+          .map((r: Result) => r.url);
+        
+        if (urls.length === 0) {
+          alert('복사할 불법 URL이 없습니다.');
+          return;
+        }
+        
+        await navigator.clipboard.writeText(urls.join('\n'));
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+      }
     } catch (err) {
-      alert('클립보드 복사에 실패했습니다.');
+      console.error('Failed to copy URLs:', err);
+      alert('URL 복사에 실패했습니다.');
+    } finally {
+      setIsCopyingAll(false);
+    }
+  };
+
+  // Manta URL 복사
+  const handleCopyMantaUrl = async () => {
+    const mantaUrl = getSelectedTitleMantaUrl();
+    if (mantaUrl) {
+      await navigator.clipboard.writeText(mantaUrl);
+      alert('Manta URL이 복사되었습니다.');
     }
   };
 
@@ -160,8 +184,8 @@ export default function SessionDetailPage() {
     window.open(`/api/sessions/${sessionId}/download`, '_blank');
   };
 
-  // 불법 URL 개수
-  const illegalCount = filteredResults.filter(r => r.final_status === 'illegal').length;
+  // 불법 URL 개수 (서버에서 필터링된 전체 개수)
+  const illegalCount = pagination?.total || 0;
 
   return (
     <MainLayout pageTitle={`모니터링 회차: ${sessionId}`}>
@@ -177,14 +201,17 @@ export default function SessionDetailPage() {
         
         <div className="flex items-center gap-2">
           <button
-            onClick={handleCopyIllegalUrls}
+            onClick={handleCopyAllIllegalUrls}
+            disabled={isCopyingAll}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
               copySuccess 
                 ? 'bg-green-600 text-white' 
                 : 'bg-red-600 text-white hover:bg-red-700'
-            }`}
+            } disabled:opacity-50`}
           >
-            {copySuccess ? (
+            {isCopyingAll ? (
+              <span>로딩...</span>
+            ) : copySuccess ? (
               <>
                 <CheckIcon className="w-4 h-4" />
                 <span>복사됨!</span>
@@ -192,7 +219,7 @@ export default function SessionDetailPage() {
             ) : (
               <>
                 <DocumentDuplicateIcon className="w-4 h-4" />
-                <span>불법 URL 복사 ({illegalCount})</span>
+                <span>불법 URL 복사 {statusFilter === 'illegal' && pagination ? `(${pagination.total})` : ''}</span>
               </>
             )}
           </button>
@@ -228,16 +255,39 @@ export default function SessionDetailPage() {
                 <option key={title} value={title}>{title}</option>
               ))}
             </select>
-            {/* 선택한 작품의 Manta URL 표시 */}
+            
+            {/* 선택한 작품의 Manta URL 토글 */}
             {titleFilter !== 'all' && getSelectedTitleMantaUrl() && (
-              <a
-                href={getSelectedTitleMantaUrl()!}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-600 hover:underline mt-1 block"
-              >
-                📖 Manta 공식 페이지 →
-              </a>
+              <div className="mt-2">
+                <button
+                  onClick={() => setShowMantaUrl(!showMantaUrl)}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
+                >
+                  📖 Manta 공식 페이지
+                  {showMantaUrl ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />}
+                </button>
+                {showMantaUrl && (
+                  <div className="mt-1 p-2 bg-blue-50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={getSelectedTitleMantaUrl()!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:underline break-all flex-1"
+                      >
+                        {getSelectedTitleMantaUrl()}
+                      </a>
+                      <button
+                        onClick={handleCopyMantaUrl}
+                        className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                        title="URL 복사"
+                      >
+                        <ClipboardIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
           
@@ -259,13 +309,6 @@ export default function SessionDetailPage() {
             {pagination && (
               <div className="text-sm text-gray-600 py-2">
                 총 <strong>{pagination.total.toLocaleString()}</strong>건
-                {statusFilter === 'all' && (
-                  <span className="ml-2">
-                    (🔴 {results.filter(r => r.final_status === 'illegal').length} / 
-                    🟢 {results.filter(r => r.final_status === 'legal').length} / 
-                    🟡 {results.filter(r => r.final_status === 'pending').length})
-                  </span>
-                )}
               </div>
             )}
           </div>
@@ -278,7 +321,7 @@ export default function SessionDetailPage() {
           <div className="flex items-center justify-center h-64 text-gray-400">
             <p>로딩 중...</p>
           </div>
-        ) : filteredResults.length === 0 ? (
+        ) : results.length === 0 ? (
           <div className="flex items-center justify-center h-64 text-gray-400">
             <p>결과가 없습니다</p>
           </div>
@@ -296,7 +339,7 @@ export default function SessionDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredResults.map((result, idx) => (
+                {results.map((result, idx) => (
                   <tr key={idx} className={`transition ${getRowBgColor(result.final_status)}`}>
                     <td className="px-4 py-3">
                       <span className="text-sm text-gray-800">{result.title}</span>
