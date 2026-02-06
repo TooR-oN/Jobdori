@@ -331,8 +331,10 @@ async function authenticateSuperAdmin(username: string, password: string): Promi
 }
 
 // 일반 사용자 인증 (DB 기반) - 디버그 버전
+let lastDbAuthDebug: any = null
 async function authenticateUser(username: string, password: string): Promise<{ success: boolean; role: UserRole; debug?: any } | null> {
-  const debug: any = { step: 'authenticateUser' }
+  const debug: any = { step: 'authenticateUser', timestamp: new Date().toISOString() }
+  lastDbAuthDebug = debug
   try {
     const users = await query`
       SELECT id, username, password_hash, role, is_active 
@@ -357,6 +359,7 @@ async function authenticateUser(username: string, password: string): Promise<{ s
     return { success: true, role: user.role as UserRole, debug }
   } catch (err: any) {
     debug.error = err.message
+    debug.reason = 'exception'
     return null
   }
 }
@@ -1068,7 +1071,7 @@ app.post('/api/auth/login', async (c) => {
     try {
       const userAuth = await authenticateUser(username, password)
       debugInfo.dbAuthResult = userAuth ? 'success' : 'failed'
-      debugInfo.dbAuthDebug = userAuth?.debug || 'no_debug_info'
+      debugInfo.dbAuthDebug = userAuth?.debug || lastDbAuthDebug || 'no_debug_info'
       if (userAuth) {
         authenticated = true
         role = userAuth.role
