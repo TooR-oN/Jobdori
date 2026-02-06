@@ -40,7 +40,7 @@ export default function LoginPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-900">
+      <div className="min-h-screen flex items-center justify-center bg-[#136dec]">
         <div className="text-center text-white">
           <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p>로딩 중...</p>
@@ -51,52 +51,58 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex">
-      {/* 좌측 패널 - 브랜딩 영역 (60%) */}
-      <div className="hidden lg:flex lg:w-[60%] relative bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-900 overflow-hidden">
-        {/* 그리드 패턴 오버레이 */}
-        <div 
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
-                              linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-            backgroundSize: '40px 40px'
-          }}
-        />
-        
-        {/* 하단 그라데이션 박스 */}
-        <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-blue-800/50 to-transparent rounded-t-[3rem]" />
+      {/* 좌측 패널 - 브랜딩 영역 (70%) */}
+      <div 
+        className="hidden lg:flex lg:w-[70%] relative overflow-hidden flex-col justify-center items-center p-12 text-white"
+        style={{
+          backgroundColor: '#136dec',
+          backgroundImage: `
+            radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
+            radial-gradient(at 50% 0%, hsla(225,39%,30%,1) 0, transparent 50%), 
+            radial-gradient(at 100% 0%, hsla(263,93%,61%,1) 0, transparent 50%)
+          `
+        }}
+      >
+        {/* 격자 패턴 오버레이 */}
+        <div className="absolute inset-0 opacity-20 pointer-events-none">
+          <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" strokeWidth="1" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
+        </div>
         
         {/* 중앙 콘텐츠 */}
-        <div className="relative z-10 flex flex-col items-center justify-center w-full px-12">
-          {/* 자물쇠 아이콘 */}
-          <div className="w-20 h-20 bg-blue-500/30 rounded-2xl flex items-center justify-center mb-8 backdrop-blur-sm border border-blue-400/30">
-            <LockClosedIcon className="w-10 h-10 text-blue-200" />
+        <div className="relative z-10 max-w-lg text-center">
+          {/* RIDI 로고 이미지 */}
+          <div className="mb-8 flex justify-center">
+            <div className="h-24 w-auto bg-white/10 backdrop-blur-xl rounded-2xl flex items-center justify-center border border-white/20 shadow-2xl px-8">
+              <img 
+                src="https://www.genspark.ai/api/files/s/3kCWwP2h" 
+                alt="RIDI Logo" 
+                className="h-12 w-auto"
+              />
+            </div>
           </div>
           
           {/* 메인 타이틀 */}
-          <h1 className="text-4xl md:text-5xl font-bold text-white text-center leading-tight">
-            Protecting Creative
+          <h1 className="text-4xl xl:text-5xl font-black leading-tight tracking-tight mb-6">
+            Protecting RIDI&apos;s Creative
           </h1>
           
           {/* 서브 타이틀 */}
-          <p className="text-blue-200 text-center mt-6 max-w-md text-lg">
-            리디 저작권 침해 모니터링 시스템
+          <p className="text-lg text-blue-100 font-medium leading-relaxed opacity-90">
+            Jobdori provides real-time copyright monitoring and data intelligence to protect creators&apos; assets across the digital ecosystem.
           </p>
-          
-          {/* 하단 차트 아이콘 데코레이션 */}
-          <div className="absolute bottom-20 opacity-30">
-            <svg className="w-32 h-32 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.5l4-4 4 4 6-6 4 4" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 20h18" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 20V4" />
-            </svg>
-          </div>
         </div>
       </div>
 
-      {/* 우측 패널 - 로그인 폼 (40%) */}
-      <div className="w-full lg:w-[40%] flex items-center justify-center bg-white p-8">
-        <div className="w-full max-w-md">
+      {/* 우측 패널 - 로그인 폼 (30%) */}
+      <div className="w-full lg:w-[30%] flex flex-col justify-center items-center p-6 sm:p-8 bg-white">
+        <div className="w-full max-w-[360px]">
           {/* 로고 */}
           <div className="flex items-center gap-3 mb-8">
             {/* RIDI 로고 */}
@@ -109,7 +115,7 @@ export default function LoginPage() {
           {/* 환영 메시지 */}
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Welcome back</h2>
-            <p className="text-gray-500">Enter your credentials to access the dashboard</p>
+            <p className="text-gray-500 text-sm">Enter your credentials to access the dashboard</p>
           </div>
 
           {/* 에러 메시지 */}
@@ -123,7 +129,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* 아이디 입력 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Username or ID
               </label>
               <div className="relative">
@@ -132,7 +138,7 @@ export default function LoginPage() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  className="w-full pl-12 pr-4 py-3.5 bg-gray-100 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition text-gray-900"
                   placeholder="Enter your ID"
                   required
                   autoFocus
@@ -143,7 +149,7 @@ export default function LoginPage() {
             
             {/* 비밀번호 입력 */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Password
               </label>
               <div className="relative">
@@ -152,7 +158,7 @@ export default function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-12 pr-12 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  className="w-full pl-12 pr-12 py-3.5 bg-gray-100 border-none rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition text-gray-900"
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"
@@ -175,7 +181,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-3.5 px-4 rounded-xl transition flex items-center justify-center gap-2 mt-6"
+              className="w-full bg-[#136dec] hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-4 px-4 rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 mt-2"
             >
               {isSubmitting ? (
                 <>
@@ -204,7 +210,7 @@ export default function LoginPage() {
       <style jsx>{`
         @media (max-width: 1023px) {
           .min-h-screen {
-            background: linear-gradient(to bottom right, #2563eb, #1d4ed8, #312e81);
+            background: #136dec;
           }
         }
       `}</style>
