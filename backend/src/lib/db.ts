@@ -41,6 +41,10 @@ export interface Session {
   results_legal: number
   results_pending: number
   file_final_results: string | null
+  // 사이트 집중 모니터링
+  deep_monitoring_executed: boolean
+  deep_monitoring_targets_count: number
+  deep_monitoring_new_urls: number
 }
 
 export interface MonthlyStats {
@@ -697,6 +701,80 @@ export async function addOrUpdateReportReason(reasonText: string): Promise<Repor
 }
 
 // ============================================
+// Deep Monitoring Targets (사이트 집중 모니터링)
+// ============================================
+
+export interface DeepMonitoringTarget {
+  id: number
+  session_id: string
+  title: string
+  domain: string
+  url_count: number
+  base_keyword: string
+  deep_query: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  results_count: number
+  new_urls_count: number
+  created_at: string
+  executed_at: string | null
+  completed_at: string | null
+}
+
+// 세션별 심층 모니터링 대상 조회
+export async function getDeepMonitoringTargets(sessionId: string): Promise<DeepMonitoringTarget[]> {
+  const rows = await sql`
+    SELECT * FROM deep_monitoring_targets
+    WHERE session_id = ${sessionId}
+    ORDER BY url_count DESC
+  `
+  return rows as DeepMonitoringTarget[]
+}
+
+// 대상 생성 (중복 시 업데이트)
+export async function createDeepMonitoringTarget(target: Partial<DeepMonitoringTarget>): Promise<DeepMonitoringTarget> {
+  const rows = await sql`
+    INSERT INTO deep_monitoring_targets
+      (session_id, title, domain, url_count, base_keyword, deep_query, status)
+    VALUES (${target.session_id}, ${target.title}, ${target.domain},
+            ${target.url_count}, ${target.base_keyword}, ${target.deep_query},
+            ${target.status || 'pending'})
+    ON CONFLICT (session_id, title, domain) DO UPDATE SET
+      url_count = EXCLUDED.url_count,
+      base_keyword = EXCLUDED.base_keyword,
+      deep_query = EXCLUDED.deep_query,
+      status = 'pending',
+      results_count = 0,
+      new_urls_count = 0,
+      executed_at = NULL,
+      completed_at = NULL
+    RETURNING *
+  `
+  return rows[0] as DeepMonitoringTarget
+}
+
+// 대상 상태/결과 업데이트
+export async function updateDeepMonitoringTarget(id: number, updates: Partial<DeepMonitoringTarget>): Promise<DeepMonitoringTarget | null> {
+  const rows = await sql`
+    UPDATE deep_monitoring_targets SET
+      status = COALESCE(${updates.status || null}, status),
+      results_count = COALESCE(${updates.results_count ?? null}, results_count),
+      new_urls_count = COALESCE(${updates.new_urls_count ?? null}, new_urls_count),
+      executed_at = COALESCE(${updates.executed_at || null}, executed_at),
+      completed_at = COALESCE(${updates.completed_at || null}, completed_at)
+    WHERE id = ${id}
+    RETURNING *
+  `
+  return rows[0] as DeepMonitoringTarget || null
+}
+
+// 세션별 대상 전체 삭제 (re-scan 시)
+export async function deleteDeepMonitoringTargetsBySession(sessionId: string): Promise<void> {
+  await sql`
+    DELETE FROM deep_monitoring_targets WHERE session_id = ${sessionId}
+  `
+}
+
+// ============================================
 // Database Initialization
 // ============================================
 
@@ -885,6 +963,76 @@ export async function initializeDatabase(): Promise<void> {
       ('중복 신고', 98),
       ('URL 오류', 97)
     ON CONFLICT (reason_text) DO NOTHING
+  `
+
+  // ============================================
+  // 사이트 집중 모니터링 (Deep Monitoring) 테이블
+  // ============================================
+
+  // deep_monitoring_targets 테이블
+  await sql`
+    CREATE TABLE IF NOT EXISTS deep_monitoring_targets (
+      id SERIAL PRIMARY KEY,
+      session_id VARCHAR(50) NOT NULL,
+      title VARCHAR(500) NOT NULL,
+      domain VARCHAR(255) NOT NULL,
+      url_count INTEGER NOT NULL,
+      base_keyword VARCHAR(500) NOT NULL,
+      deep_query VARCHAR(500) NOT NULL,
+      status VARCHAR(20) DEFAULT 'pending',
+      results_count INTEGER DEFAULT 0,
+      new_urls_count INTEGER DEFAULT 0,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      executed_at TIMESTAMP WITH TIME ZONE,
+      completed_at TIMESTAMP WITH TIME ZONE,
+      UNIQUE(session_id, title, domain)
+    )
+  `
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_deep_monitoring_session
+    ON deep_monitoring_targets(session_id, status)
+  `
+
+  // detection_results에 source 컬럼 추가 (regular/deep 구분)
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'detection_results' AND column_name = 'source'
+      ) THEN
+        ALTER TABLE detection_results ADD COLUMN source VARCHAR(20) DEFAULT 'regular';
+      END IF;
+    END $$
+  `
+
+  // detection_results에 deep_target_id 컬럼 추가
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'detection_results' AND column_name = 'deep_target_id'
+      ) THEN
+        ALTER TABLE detection_results ADD COLUMN deep_target_id INTEGER;
+      END IF;
+    END $$
+  `
+
+  // sessions에 deep_monitoring 관련 컬럼 추가
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'sessions' AND column_name = 'deep_monitoring_executed'
+      ) THEN
+        ALTER TABLE sessions ADD COLUMN deep_monitoring_executed BOOLEAN DEFAULT false;
+        ALTER TABLE sessions ADD COLUMN deep_monitoring_targets_count INTEGER DEFAULT 0;
+        ALTER TABLE sessions ADD COLUMN deep_monitoring_new_urls INTEGER DEFAULT 0;
+      END IF;
+    END $$
   `
 
   console.log('✅ Database tables initialized')

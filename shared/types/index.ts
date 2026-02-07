@@ -97,6 +97,10 @@ export interface Session {
   keywords_count: number
   total_searches: number
   results_summary: ResultsSummary
+  // 사이트 집중 모니터링
+  deep_monitoring_executed?: boolean
+  deep_monitoring_targets_count?: number
+  deep_monitoring_new_urls?: number
 }
 
 export interface SessionDetail extends Session {
@@ -130,6 +134,9 @@ export interface DetectionResult {
   llm_reason: string | null
   final_status: FinalStatus
   reviewed_at: string | null
+  // 사이트 집중 모니터링
+  source?: 'regular' | 'deep'
+  deep_target_id?: number | null
 }
 
 // ============================================
@@ -251,3 +258,61 @@ export const ROLE_PERMISSIONS = {
 } as const
 
 export type Permission = keyof typeof ROLE_PERMISSIONS.superadmin
+
+// ============================================
+// 사이트 집중 모니터링 타입
+// ============================================
+
+export type DeepMonitoringStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface KeywordBreakdown {
+  keyword: string                  // 검색 쿼리 (예: "Merry Psycho manga")
+  urls: number                     // 해당 쿼리에서 나온 고유 URL 수
+}
+
+export interface DeepMonitoringTarget {
+  id?: number
+  session_id: string               // 원본 세션 ID
+  title: string                    // 공식 작품명
+  domain: string                   // 대상 도메인
+  url_count: number                // 합산 URL 수 (중복 제거 후)
+  base_keyword: string             // 기반 키워드 조합 (예: "Merry Psycho manga")
+  deep_query: string               // 심층 검색 쿼리 (예: "Merry Psycho manga site:mangadex.net")
+  status: DeepMonitoringStatus
+  results_count: number            // 심층 검색으로 수집된 결과 수
+  new_urls_count: number           // 신규 URL 수 (기존 중복 제외)
+  keyword_breakdown?: KeywordBreakdown[]
+  created_at?: string
+  executed_at?: string | null
+  completed_at?: string | null
+}
+
+export interface DeepMonitoringResult {
+  session_id: string
+  executed_targets: number
+  total_new_results: number
+  total_new_urls: number
+  results_per_target: DeepTargetResult[]
+}
+
+export interface DeepTargetResult {
+  target_id: number
+  title: string
+  domain: string
+  deep_query: string
+  results_count: number
+  new_urls_count: number
+  illegal_count: number
+  legal_count: number
+  pending_count: number
+}
+
+export interface DeepMonitoringStatusResponse {
+  is_running: boolean
+  session_id: string | null
+  progress?: {
+    total_targets: number
+    completed_targets: number
+    current_target?: string
+  }
+}

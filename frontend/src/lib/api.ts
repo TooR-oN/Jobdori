@@ -339,4 +339,36 @@ export const reportTrackingApi = {
   },
 };
 
+// ============================================
+// Deep Monitoring API (사이트 집중 모니터링)
+// ============================================
+
+export const deepMonitoringApi = {
+  // 대상 검색 (scan)
+  scan: async (sessionId: string) => {
+    const res = await api.post(`/api/sessions/${sessionId}/deep-monitoring/scan`);
+    return res.data;
+  },
+
+  // 심층 검색 실행 (execute)
+  execute: async (sessionId: string, targetIds?: number[]) => {
+    const res = await api.post(`/api/sessions/${sessionId}/deep-monitoring/execute`, {
+      target_ids: targetIds,
+    });
+    return res.data;
+  },
+
+  // 대상 목록 조회
+  getTargets: async (sessionId: string) => {
+    const res = await api.get(`/api/sessions/${sessionId}/deep-monitoring/targets`);
+    return res.data;
+  },
+
+  // 실행 상태 조회 (폴링용)
+  getStatus: async (sessionId: string) => {
+    const res = await api.get(`/api/sessions/${sessionId}/deep-monitoring/status`);
+    return res.data;
+  },
+};
+
 export default api;

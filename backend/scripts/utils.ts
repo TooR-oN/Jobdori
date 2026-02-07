@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
-import XLSX from 'xlsx';
+import * as XLSX from 'xlsx';
 import { neon } from '@neondatabase/serverless';
 import { Config, FinalResult, REPORT_COLUMNS, TitleSearchConfig } from './types/index.js';
 

@@ -1,4 +1,4 @@
-import XLSX from 'xlsx';
+import * as XLSX from 'xlsx';
 import * as path from 'path';
 
 // 20개 작품 리스트
