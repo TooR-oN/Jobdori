@@ -440,7 +440,10 @@ app.get('/api/sessions', async (c) => {
           illegal: s.results_illegal,
           legal: s.results_legal,
           pending: s.results_pending
-        }
+        },
+        deep_monitoring_executed: s.deep_monitoring_executed || false,
+        deep_monitoring_targets_count: s.deep_monitoring_targets_count || 0,
+        deep_monitoring_new_urls: s.deep_monitoring_new_urls || 0
       }))
     })
   } catch (error) {
@@ -470,7 +473,10 @@ app.get('/api/sessions/:id', async (c) => {
           illegal: session.results_illegal,
           legal: session.results_legal,
           pending: session.results_pending
-        }
+        },
+        deep_monitoring_executed: session.deep_monitoring_executed || false,
+        deep_monitoring_targets_count: session.deep_monitoring_targets_count || 0,
+        deep_monitoring_new_urls: session.deep_monitoring_new_urls || 0
       }
     })
   } catch (error) {
@@ -572,6 +578,144 @@ app.get('/api/sessions/:id/download', async (c) => {
     })
   } catch (error) {
     return c.json({ success: false, error: 'Failed to generate report' }, 500)
+  }
+})
+
+// ============================================
+// API - 사이트 집중 모니터링 (Deep Monitoring)
+// ============================================
+
+// 대상 검색 (scan)
+app.post('/api/sessions/:id/deep-monitoring/scan', async (c) => {
+  try {
+    const sessionId = c.req.param('id')
+    
+    // 세션 존재 & 완료 여부 확인
+    const session = await db.getSessionById(sessionId)
+    if (!session) {
+      return c.json({ success: false, error: '세션을 찾을 수 없습니다.' }, 404)
+    }
+    if (session.status !== 'completed') {
+      return c.json({ success: false, error: '완료된 세션에서만 집중 모니터링 대상을 검색할 수 있습니다.' }, 400)
+    }
+
+    // deep-monitoring 모듈 동적 import (scripts 디렉토리)
+    const deepMon = await import('../scripts/deep-monitoring.js')
+    const result = await deepMon.scanAndSaveTargets(sessionId)
+
+    return c.json({
+      success: true,
+      ...result
+    })
+  } catch (error: any) {
+    console.error('Deep monitoring scan error:', error)
+    return c.json({ success: false, error: error.message || '대상 검색 실패' }, 500)
+  }
+})
+
+// 심층 검색 실행 (execute)
+app.post('/api/sessions/:id/deep-monitoring/execute', async (c) => {
+  try {
+    const sessionId = c.req.param('id')
+    const body = await c.req.json().catch(() => ({}))
+    const targetIds: number[] | undefined = body.target_ids
+
+    // 세션 확인
+    const session = await db.getSessionById(sessionId)
+    if (!session) {
+      return c.json({ success: false, error: '세션을 찾을 수 없습니다.' }, 404)
+    }
+    if (session.status !== 'completed') {
+      return c.json({ success: false, error: '완료된 세션에서만 집중 모니터링을 실행할 수 있습니다.' }, 400)
+    }
+
+    const deepMon = await import('../scripts/deep-monitoring.js')
+
+    // 이미 실행 중인지 확인
+    const progress = deepMon.getDeepMonitoringProgress()
+    if (progress && progress.is_running) {
+      return c.json({ success: false, error: '이미 집중 모니터링이 실행 중입니다.' }, 409)
+    }
+
+    // 비동기 실행 (응답은 즉시 반환, 백그라운드에서 실행)
+    deepMon.executeDeepMonitoring(sessionId, targetIds)
+      .then((result: any) => {
+        console.log(`✅ [집중 모니터링] 완료: ${result.total_new_urls}개 신규 URL`)
+      })
+      .catch((err: any) => {
+        console.error('❌ [집중 모니터링] 실패:', err)
+      })
+
+    return c.json({
+      success: true,
+      message: '집중 모니터링이 시작되었습니다.',
+      session_id: sessionId,
+      target_ids: targetIds || 'all pending'
+    })
+  } catch (error: any) {
+    console.error('Deep monitoring execute error:', error)
+    return c.json({ success: false, error: error.message || '실행 실패' }, 500)
+  }
+})
+
+// 대상 목록 조회
+app.get('/api/sessions/:id/deep-monitoring/targets', async (c) => {
+  try {
+    const sessionId = c.req.param('id')
+    const targets = await db.getDeepMonitoringTargets(sessionId)
+
+    return c.json({
+      success: true,
+      count: targets.length,
+      targets
+    })
+  } catch (error: any) {
+    console.error('Deep monitoring targets error:', error)
+    return c.json({ success: false, error: error.message || '대상 목록 조회 실패' }, 500)
+  }
+})
+
+// 실행 상태 조회 (폴링용)
+app.get('/api/sessions/:id/deep-monitoring/status', async (c) => {
+  try {
+    const sessionId = c.req.param('id')
+    
+    const deepMon = await import('../scripts/deep-monitoring.js')
+    const progress = deepMon.getDeepMonitoringProgress()
+
+    if (progress && progress.is_running && progress.session_id === sessionId) {
+      return c.json({
+        success: true,
+        is_running: true,
+        progress: {
+          total_targets: progress.total_targets,
+          completed_targets: progress.completed_targets,
+          current_target: progress.current_target,
+          results_so_far: progress.results_so_far
+        }
+      })
+    }
+
+    // 실행 중이 아니면 DB에서 대상 상태 조회
+    const targets = await db.getDeepMonitoringTargets(sessionId)
+    const completedCount = targets.filter(t => t.status === 'completed').length
+    const failedCount = targets.filter(t => t.status === 'failed').length
+    const pendingCount = targets.filter(t => t.status === 'pending').length
+
+    return c.json({
+      success: true,
+      is_running: false,
+      summary: {
+        total: targets.length,
+        completed: completedCount,
+        failed: failedCount,
+        pending: pendingCount
+      },
+      targets
+    })
+  } catch (error: any) {
+    console.error('Deep monitoring status error:', error)
+    return c.json({ success: false, error: error.message || '상태 조회 실패' }, 500)
   }
 })
 

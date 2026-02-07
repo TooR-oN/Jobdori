@@ -1,4 +1,4 @@
-import XLSX from 'xlsx';
+import * as XLSX from 'xlsx';
 import * as path from 'path';
 
 // 하단 10개 작품만 포함

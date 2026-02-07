@@ -1690,6 +1690,27 @@ app.get('/api/sessions/:id/download', (c) => {
 })
 
 // ============================================
+// API - 사이트 집중 모니터링 (Deep Monitoring)
+// 로컬 서버에서는 DB 기반 기능 미지원 - Vercel 배포 전용
+// ============================================
+
+app.post('/api/sessions/:id/deep-monitoring/scan', (c) => {
+  return c.json({ success: false, error: '집중 모니터링은 Vercel 배포 환경에서만 사용 가능합니다.' }, 501)
+})
+
+app.post('/api/sessions/:id/deep-monitoring/execute', (c) => {
+  return c.json({ success: false, error: '집중 모니터링은 Vercel 배포 환경에서만 사용 가능합니다.' }, 501)
+})
+
+app.get('/api/sessions/:id/deep-monitoring/targets', (c) => {
+  return c.json({ success: true, count: 0, targets: [] })
+})
+
+app.get('/api/sessions/:id/deep-monitoring/status', (c) => {
+  return c.json({ success: true, is_running: false, summary: { total: 0, completed: 0, failed: 0, pending: 0 }, targets: [] })
+})
+
+// ============================================
 // 메인 페이지 (승인 UI + 세션 결과 조회)
 // ============================================
 

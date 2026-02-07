@@ -78,7 +78,7 @@ async function searchWithSerper(
 /**
  * 단일 검색 쿼리 실행 (페이지 1-3)
  */
-async function executeSearch(
+export async function executeSearch(
   query: string,
   titleName: string,
   config: Config

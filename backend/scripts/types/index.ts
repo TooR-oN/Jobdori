@@ -152,3 +152,61 @@ export interface TitleSearchConfig {
   official: string;        // 공식 타이틀 (결과에 사용)
   searchTerms: string[];   // 검색할 모든 타이틀 (공식 + 비공식)
 }
+
+// ============================================
+// 사이트 집중 모니터링 (Deep Monitoring) 타입
+// ============================================
+
+/**
+ * 심층 모니터링 대상
+ */
+export interface DeepMonitoringTarget {
+  id?: number;
+  session_id: string;              // 원본 세션 ID
+  title: string;                   // 공식 작품명
+  domain: string;                  // 대상 도메인
+  url_count: number;               // 합산 URL 수 (중복 제거 후)
+  base_keyword: string;            // 기반 키워드 조합 (예: "Merry Psycho manga")
+  deep_query: string;              // 심층 검색 쿼리 (예: "Merry Psycho manga site:mangadex.net")
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  results_count: number;           // 심층 검색으로 수집된 결과 수
+  new_urls_count: number;          // 신규 URL 수 (기존 중복 제외)
+  keyword_breakdown?: KeywordBreakdown[];  // 키워드 조합별 상세 (프론트 표시용)
+  created_at?: string;
+  executed_at?: string;
+  completed_at?: string;
+}
+
+/**
+ * 키워드 조합별 URL 수 내역
+ */
+export interface KeywordBreakdown {
+  keyword: string;                 // 검색 쿼리 (예: "Merry Psycho manga")
+  urls: number;                    // 해당 쿼리에서 나온 고유 URL 수
+}
+
+/**
+ * 심층 모니터링 실행 결과 (전체)
+ */
+export interface DeepMonitoringResult {
+  session_id: string;
+  executed_targets: number;
+  total_new_results: number;
+  total_new_urls: number;
+  results_per_target: DeepTargetResult[];
+}
+
+/**
+ * 심층 모니터링 실행 결과 (대상별)
+ */
+export interface DeepTargetResult {
+  target_id: number;
+  title: string;
+  domain: string;
+  deep_query: string;
+  results_count: number;
+  new_urls_count: number;
+  illegal_count: number;
+  legal_count: number;
+  pending_count: number;
+}

@@ -201,8 +201,61 @@ async function ensureDbMigration() {
       )
     `
     
+    // deep_monitoring_targets 테이블 생성 (집중 모니터링)
+    await db`
+      CREATE TABLE IF NOT EXISTS deep_monitoring_targets (
+        id SERIAL PRIMARY KEY,
+        session_id VARCHAR(50) NOT NULL,
+        title TEXT NOT NULL,
+        domain VARCHAR(255) NOT NULL,
+        url_count INTEGER DEFAULT 0,
+        base_keyword TEXT,
+        deep_query TEXT,
+        status VARCHAR(20) DEFAULT 'pending',
+        results_count INTEGER DEFAULT 0,
+        new_urls_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        executed_at TIMESTAMP WITH TIME ZONE,
+        completed_at TIMESTAMP WITH TIME ZONE,
+        UNIQUE(session_id, title, domain)
+      )
+    `
+    await db`
+      CREATE INDEX IF NOT EXISTS idx_deep_monitoring_session
+      ON deep_monitoring_targets(session_id)
+    `
+
+    // detection_results에 source, deep_target_id 컬럼 추가 (없으면)
+    try {
+      await db`ALTER TABLE detection_results ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'regular'`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: detection_results.source error:', e.message)
+    }
+    try {
+      await db`ALTER TABLE detection_results ADD COLUMN IF NOT EXISTS deep_target_id INTEGER`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: detection_results.deep_target_id error:', e.message)
+    }
+
+    // sessions에 deep_monitoring 관련 컬럼 추가 (없으면)
+    try {
+      await db`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deep_monitoring_executed BOOLEAN DEFAULT false`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: sessions.deep_monitoring_executed error:', e.message)
+    }
+    try {
+      await db`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deep_monitoring_targets_count INTEGER DEFAULT 0`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: sessions.deep_monitoring_targets_count error:', e.message)
+    }
+    try {
+      await db`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deep_monitoring_new_urls INTEGER DEFAULT 0`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: sessions.deep_monitoring_new_urls error:', e.message)
+    }
+
     dbMigrationDone = true
-    console.log('✅ DB migration completed (including report_tracking tables)')
+    console.log('✅ DB migration completed (including report_tracking & deep_monitoring tables)')
   } catch (error) {
     console.error('DB migration error:', error)
   }
@@ -1696,7 +1749,10 @@ app.get('/api/sessions', async (c) => {
         titles_count: s.titles_count,
         keywords_count: s.keywords_count,
         total_searches: s.total_searches,
-        results_summary
+        results_summary,
+        deep_monitoring_executed: s.deep_monitoring_executed || false,
+        deep_monitoring_targets_count: s.deep_monitoring_targets_count || 0,
+        deep_monitoring_new_urls: s.deep_monitoring_new_urls || 0
       }
     }))
     
@@ -1730,7 +1786,10 @@ app.get('/api/sessions/:id', async (c) => {
           illegal: session.results_illegal,
           legal: session.results_legal,
           pending: session.results_pending
-        }
+        },
+        deep_monitoring_executed: session.deep_monitoring_executed || false,
+        deep_monitoring_targets_count: session.deep_monitoring_targets_count || 0,
+        deep_monitoring_new_urls: session.deep_monitoring_new_urls || 0
       }
     })
   } catch {
@@ -1818,6 +1877,255 @@ app.get('/api/sessions/:id/download', async (c) => {
     })
   } catch {
     return c.json({ success: false, error: 'Failed to generate report' }, 500)
+  }
+})
+
+// ============================================
+// API - 사이트 집중 모니터링 (Deep Monitoring)
+// ============================================
+
+/** 집중 모니터링 대상 선정 기준: 도메인별 최소 고유 URL 수 */
+const DEEP_MONITORING_MIN_URL_THRESHOLD = 5
+
+/**
+ * 대상 검색 (scan) — 인라인 구현
+ * detection_results를 분석하여 작품×도메인별로 집계 후 임계치 이상인 대상 식별
+ */
+app.post('/api/sessions/:id/deep-monitoring/scan', async (c) => {
+  let currentStep = 'init'
+  try {
+    currentStep = 'migration'
+    await ensureDbMigration()
+    const sessionId = c.req.param('id')
+    
+    currentStep = 'session-check'
+    const session = await getSessionById(sessionId)
+    if (!session) return c.json({ success: false, error: '세션을 찾을 수 없습니다.' }, 404)
+    if (session.status !== 'completed') {
+      return c.json({ success: false, error: '완료된 세션에서만 집중 모니터링 대상을 검색할 수 있습니다.' }, 400)
+    }
+
+    // Step 1: 작품별 비공식 타이틀 역맵핑 로드
+    currentStep = 'title-mapping'
+    const titleRows = await query`SELECT name, unofficial_titles FROM titles WHERE is_current = true`
+    const titleReverseMap = new Map<string, string>()
+    for (const row of titleRows) {
+      const official = row.name as string
+      // unofficial_titles 방어적 파싱: DB 타입에 따라 string | string[] | null 가능
+      let unofficials: string[] = []
+      const raw = row.unofficial_titles
+      if (Array.isArray(raw)) {
+        unofficials = raw.filter((s: any) => typeof s === 'string')
+      } else if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw)
+          if (Array.isArray(parsed)) {
+            unofficials = parsed.filter((s: any) => typeof s === 'string')
+          }
+        } catch {
+          // PostgreSQL array 형태 "{val1,val2}" 처리
+          if (raw.startsWith('{') && raw.endsWith('}')) {
+            unofficials = raw.slice(1, -1).split(',').map((s: string) => s.replace(/^"|"$/g, '').trim()).filter(Boolean)
+          }
+        }
+      }
+      for (const name of [official, ...unofficials]) {
+        titleReverseMap.set(name.toLowerCase(), official)
+      }
+    }
+    console.log(`[Deep Scan] Step 1 완료: ${titleRows.length}개 작품, ${titleReverseMap.size}개 매핑`)
+
+    // Step 2: 세션의 detection_results 전체 조회
+    currentStep = 'detection-results'
+    const detectionRows = await query`
+      SELECT title, domain, url, search_query, final_status, initial_status, llm_judgment
+      FROM detection_results
+      WHERE session_id = ${sessionId}
+    `
+    console.log(`[Deep Scan] Step 2 완료: ${detectionRows.length}개 결과`)
+    if (detectionRows.length === 0) {
+      return c.json({ success: true, targets: [], summary: { total_targets: 0, total_estimated_api_calls: 0, domains: [] } })
+    }
+
+    // Step 3: 불법 도메인 목록 로드
+    currentStep = 'illegal-domains'
+    const illegalRows = await query`SELECT domain FROM sites WHERE type = 'illegal'`
+    const illegalDomains = new Set(illegalRows.map((r: any) => (r.domain as string).toLowerCase()))
+    console.log(`[Deep Scan] Step 3 완료: ${illegalDomains.size}개 불법 도메인`)
+
+    // Step 4: 작품×도메인별 고유 URL 합산 (불법 도메인만)
+    currentStep = 'domain-analysis'
+    interface DomainAnalysisLocal {
+      title: string; domain: string; uniqueUrls: Set<string>;
+      keywordBreakdown: Map<string, Set<string>>;
+    }
+    const analysisMap = new Map<string, DomainAnalysisLocal>()
+
+    for (const row of detectionRows) {
+      const domain = (row.domain as string).toLowerCase()
+      if (!illegalDomains.has(domain)) continue
+
+      const officialTitle = titleReverseMap.get((row.title as string).toLowerCase()) || row.title as string
+      const key = `${officialTitle}|||${domain}`
+
+      if (!analysisMap.has(key)) {
+        analysisMap.set(key, { title: officialTitle, domain, uniqueUrls: new Set(), keywordBreakdown: new Map() })
+      }
+      const analysis = analysisMap.get(key)!
+      analysis.uniqueUrls.add(row.url as string)
+
+      const sq = row.search_query as string
+      if (!analysis.keywordBreakdown.has(sq)) analysis.keywordBreakdown.set(sq, new Set())
+      analysis.keywordBreakdown.get(sq)!.add(row.url as string)
+    }
+
+    console.log(`[Deep Scan] Step 4 완료: ${analysisMap.size}개 작품×도메인 분석`)
+
+    // Step 5: 임계치 필터 + 쿼리 생성
+    currentStep = 'threshold-filter'
+    interface TargetCandidate {
+      session_id: string; title: string; domain: string; url_count: number;
+      base_keyword: string; deep_query: string; keyword_breakdown: { keyword: string; urls: number }[];
+    }
+    const candidates: TargetCandidate[] = []
+
+    for (const [, analysis] of analysisMap) {
+      const urlCount = analysis.uniqueUrls.size
+      if (urlCount < DEEP_MONITORING_MIN_URL_THRESHOLD) continue
+
+      let bestKeyword = ''; let bestCount = 0
+      const breakdowns: { keyword: string; urls: number }[] = []
+
+      for (const [keyword, urls] of analysis.keywordBreakdown) {
+        const count = urls.size
+        breakdowns.push({ keyword, urls: count })
+        if (count > bestCount) { bestCount = count; bestKeyword = keyword }
+      }
+      breakdowns.sort((a, b) => b.urls - a.urls)
+
+      candidates.push({
+        session_id: sessionId, title: analysis.title, domain: analysis.domain,
+        url_count: urlCount, base_keyword: bestKeyword,
+        deep_query: `${bestKeyword} site:${analysis.domain}`,
+        keyword_breakdown: breakdowns,
+      })
+    }
+    candidates.sort((a, b) => b.url_count - a.url_count)
+
+    console.log(`[Deep Scan] Step 5 완료: ${candidates.length}개 대상 후보 (임계치 ${DEEP_MONITORING_MIN_URL_THRESHOLD} 이상)`)
+
+    // Step 6: DB 저장 (기존 대상 삭제 후 재생성)
+    currentStep = 'db-save'
+    await query`DELETE FROM deep_monitoring_targets WHERE session_id = ${sessionId}`
+
+    const savedTargets: any[] = []
+    for (const t of candidates) {
+      const rows = await query`
+        INSERT INTO deep_monitoring_targets (session_id, title, domain, url_count, base_keyword, deep_query, status)
+        VALUES (${t.session_id}, ${t.title}, ${t.domain}, ${t.url_count}, ${t.base_keyword}, ${t.deep_query}, 'pending')
+        RETURNING *
+      `
+      const saved = rows[0]
+      saved.keyword_breakdown = t.keyword_breakdown
+      savedTargets.push(saved)
+    }
+
+    return c.json({
+      success: true,
+      targets: savedTargets,
+      summary: {
+        total_targets: savedTargets.length,
+        total_estimated_api_calls: savedTargets.length * 3,
+        domains: savedTargets.map((t: any) => t.domain),
+      }
+    })
+  } catch (error: any) {
+    console.error(`Deep monitoring scan error at step [${currentStep}]:`, error)
+    return c.json({ 
+      success: false, 
+      error: `대상 검색 실패 (단계: ${currentStep})`, 
+      detail: error.message || String(error)
+    }, 500)
+  }
+})
+
+// 심층 검색 실행 (execute) — Vercel Serverless에서는 제한적 지원
+app.post('/api/sessions/:id/deep-monitoring/execute', async (c) => {
+  try {
+    const sessionId = c.req.param('id')
+    const body = await c.req.json().catch(() => ({}))
+    const targetIds: number[] | undefined = body.target_ids
+
+    const session = await getSessionById(sessionId)
+    if (!session) return c.json({ success: false, error: '세션을 찾을 수 없습니다.' }, 404)
+    if (session.status !== 'completed') {
+      return c.json({ success: false, error: '완료된 세션에서만 집중 모니터링을 실행할 수 있습니다.' }, 400)
+    }
+
+    // 현재 실행 중인 대상이 있는지 DB 확인
+    const runningTargets = await query`
+      SELECT id FROM deep_monitoring_targets
+      WHERE session_id = ${sessionId} AND status = 'running'
+    `
+    if (runningTargets.length > 0) {
+      return c.json({ success: false, error: '이미 집중 모니터링이 실행 중입니다.' }, 409)
+    }
+
+    // Vercel Serverless 환경에서는 장시간 실행이 어려움
+    // 향후 Vercel Cron 또는 별도 실행 환경에서 처리
+    return c.json({
+      success: false,
+      error: '집중 모니터링 실행은 현재 서버 환경(CLI)에서만 지원됩니다. npx tsx deep-monitoring.ts execute <session_id> 명령을 사용해주세요.'
+    }, 501)
+  } catch (error: any) {
+    console.error('Deep monitoring execute error:', error)
+    return c.json({ success: false, error: error.message || '실행 실패' }, 500)
+  }
+})
+
+// 대상 목록 조회
+app.get('/api/sessions/:id/deep-monitoring/targets', async (c) => {
+  try {
+    await ensureDbMigration()
+    const sessionId = c.req.param('id')
+    const targets = await query`
+      SELECT * FROM deep_monitoring_targets
+      WHERE session_id = ${sessionId}
+      ORDER BY url_count DESC
+    `
+    return c.json({ success: true, count: targets.length, targets })
+  } catch (error: any) {
+    console.error('Deep monitoring targets error:', error)
+    return c.json({ success: false, error: error.message || '대상 목록 조회 실패' }, 500)
+  }
+})
+
+// 실행 상태 조회 (폴링용) — DB 기반
+app.get('/api/sessions/:id/deep-monitoring/status', async (c) => {
+  try {
+    await ensureDbMigration()
+    const sessionId = c.req.param('id')
+
+    const targets = await query`
+      SELECT * FROM deep_monitoring_targets
+      WHERE session_id = ${sessionId}
+      ORDER BY url_count DESC
+    `
+
+    const runningCount = targets.filter((t: any) => t.status === 'running').length
+    const completedCount = targets.filter((t: any) => t.status === 'completed').length
+    const failedCount = targets.filter((t: any) => t.status === 'failed').length
+    const pendingCount = targets.filter((t: any) => t.status === 'pending').length
+
+    return c.json({
+      success: true,
+      is_running: runningCount > 0,
+      summary: { total: targets.length, completed: completedCount, failed: failedCount, pending: pendingCount },
+      targets
+    })
+  } catch (error: any) {
+    console.error('Deep monitoring status error:', error)
+    return c.json({ success: false, error: error.message || '상태 조회 실패' }, 500)
   }
 })
 

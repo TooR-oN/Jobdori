@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jobdori - Deep Monitoring Wireframe</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+  body { background: #f3f4f6; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+  .wireframe-badge { position: fixed; top: 12px; right: 12px; background: #ef4444; color: white; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; z-index: 999; letter-spacing: 0.5px; }
+</style>
+</head>
+<body class="p-6 max-w-6xl mx-auto">
+
+<div class="wireframe-badge">WIREFRAME - 참고용 데모</div>
+
+<!-- 페이지 제목 -->
+<div class="mb-2">
+  <p class="text-xs text-gray-400 mb-1">모니터링 회차 &gt; 세션 상세</p>
+  <h1 class="text-xl font-bold text-gray-800">모니터링 회차: 2026-02-06T09-00-00</h1>
+</div>
+
+<!-- 상단 네비게이션 (기존) -->
+<div class="mb-5 flex items-center justify-between">
+  <button class="flex items-center gap-2 text-gray-500 hover:text-gray-800 text-sm">
+    <i class="fas fa-arrow-left text-xs"></i> 목록으로 돌아가기
+  </button>
+  <div class="flex items-center gap-2">
+    <button class="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm">
+      <i class="far fa-copy text-xs"></i> 불법 URL 복사 (47)
+    </button>
+    <button class="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">
+      <i class="fas fa-download text-xs"></i> Excel 다운로드
+    </button>
+  </div>
+</div>
+
+<!-- 기존 필터 카드 (축소 표시) -->
+<div class="mb-5 bg-white rounded-xl shadow-sm border border-gray-100 p-3 opacity-60">
+  <div class="flex gap-4 items-center">
+    <div class="flex-1">
+      <span class="text-xs text-gray-400">작품 선택</span>
+      <div class="mt-0.5 px-2 py-1 border border-gray-200 rounded-lg text-xs text-gray-500">전체 작품</div>
+    </div>
+    <div class="flex-1">
+      <span class="text-xs text-gray-400">상태 필터</span>
+      <div class="mt-0.5 px-2 py-1 border border-gray-200 rounded-lg text-xs text-gray-500">전체 상태</div>
+    </div>
+    <div class="text-xs text-gray-400 pt-4">총 <strong class="text-gray-700">127</strong>건</div>
+  </div>
+</div>
+
+<!-- 기존 결과 테이블 (축소 표시) -->
+<div class="mb-6 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden opacity-60">
+  <table class="w-full">
+    <thead class="bg-gray-50 border-b border-gray-100">
+      <tr>
+        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">작품</th>
+        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">도메인</th>
+        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">URL</th>
+        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">상태</th>
+        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">페이지</th>
+        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">순위</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50 text-xs">
+      <tr class="bg-red-50"><td class="px-3 py-1.5 text-gray-500" colspan="6">... 기존 결과 테이블 (정기 모니터링 결과) ...</td></tr>
+      <tr class="bg-red-50"><td class="px-3 py-1.5 text-gray-400" colspan="6">... 축소 표시됨 ...</td></tr>
+    </tbody>
+  </table>
+  <div class="px-3 py-2 border-t border-gray-100 flex items-center justify-center gap-2 text-xs text-gray-400">
+    이전 | 1 / 3 | 다음
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- 🔍 사이트 집중 모니터링 패널 (NEW!) -->
+<!-- ============================================ -->
+<div class="mb-6">
+  <!-- 섹션 헤더 -->
+  <div class="flex items-center gap-3 mb-4">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+        <i class="fas fa-crosshairs text-purple-600 text-sm"></i>
+      </div>
+      <div>
+        <h2 class="text-lg font-bold text-gray-800">사이트 집중 모니터링</h2>
+        <p class="text-xs text-gray-400">특정 도메인에서 5개 이상 URL이 발견된 경우, site: 쿼리로 심층 검색</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 1: 대상 검색 카드 -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <span class="flex items-center justify-center w-6 h-6 rounded-full bg-purple-600 text-white text-xs font-bold">1</span>
+        <h3 class="text-sm font-semibold text-gray-700">집중 모니터링 대상 검색</h3>
+        <span class="text-xs text-gray-400 ml-1">이 세션의 detection_results를 분석하여 대상 도메인 식별</span>
+      </div>
+      <button class="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition shadow-sm">
+        <i class="fas fa-search text-xs"></i>
+        대상 검색 실행
+      </button>
+    </div>
+
+    <!-- 대상 검색 설명 -->
+    <div class="bg-purple-50 rounded-lg p-3 mb-0">
+      <div class="flex items-start gap-2">
+        <i class="fas fa-info-circle text-purple-400 text-xs mt-0.5"></i>
+        <div class="text-xs text-purple-700 leading-relaxed">
+          <strong>선정 기준:</strong> 승인 대기(pending)에서 최종 불법(illegal) 판정된 도메인 중, 작품별 고유 URL이 <strong>5개 이상</strong>인 도메인을 대상으로 선정합니다.
+          <br>공식/비공식 타이틀은 하나의 작품으로 병합하여 합산합니다.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: 검색 결과 - 대상 목록 -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <span class="flex items-center justify-center w-6 h-6 rounded-full bg-purple-600 text-white text-xs font-bold">2</span>
+        <h3 class="text-sm font-semibold text-gray-700">식별된 대상 목록</h3>
+        <span class="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">3건 발견</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+          <input type="checkbox" checked class="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-3.5 h-3.5">
+          전체 선택
+        </label>
+      </div>
+    </div>
+
+    <!-- 대상 카드 리스트 -->
+    <div class="space-y-3">
+      
+      <!-- 대상 1 -->
+      <div class="border border-purple-200 bg-purple-50/30 rounded-lg p-4 hover:border-purple-300 transition">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-3">
+            <input type="checkbox" checked class="mt-1 rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-4 h-4">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-sm font-semibold text-gray-800">Merry Her Obsession</span>
+                <span class="text-xs text-gray-400">&times;</span>
+                <span class="font-mono text-sm text-purple-700 font-medium">mangadex.net</span>
+              </div>
+              <div class="flex items-center gap-4 mb-2">
+                <div class="flex items-center gap-1">
+                  <i class="fas fa-link text-gray-400 text-xs"></i>
+                  <span class="text-xs text-gray-600">고유 URL: <strong class="text-purple-700">6개</strong></span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <i class="fas fa-key text-gray-400 text-xs"></i>
+                  <span class="text-xs text-gray-600">최다 키워드: <strong>"Merry Her Obsession chapter"</strong> (5개)</span>
+                </div>
+              </div>
+              <!-- 심층 검색 쿼리 -->
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-400">심층 쿼리:</span>
+                <code class="px-2 py-0.5 bg-gray-100 text-xs font-mono text-gray-700 rounded">Merry Her Obsession chapter site:mangadex.net</code>
+                <span class="text-xs text-gray-400">× 3페이지</span>
+              </div>
+              <!-- 키워드 breakdown (접이식) -->
+              <details class="mt-2">
+                <summary class="text-xs text-purple-600 cursor-pointer hover:text-purple-800">키워드별 상세 보기</summary>
+                <div class="mt-1.5 ml-1 space-y-1">
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="w-2 h-2 bg-purple-400 rounded-full"></span>
+                    <span class="text-gray-600">"Merry Her Obsession chapter"</span>
+                    <span class="font-mono text-purple-600">5개 URL</span>
+                    <span class="px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded text-[10px] font-medium">최다 → 쿼리 선정</span>
+                  </div>
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="w-2 h-2 bg-gray-300 rounded-full"></span>
+                    <span class="text-gray-600">"Merry Her Obsession manga"</span>
+                    <span class="font-mono text-gray-500">3개 URL</span>
+                  </div>
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="w-2 h-2 bg-gray-300 rounded-full"></span>
+                    <span class="text-gray-600">"Merry Psycho chapter"</span>
+                    <span class="font-mono text-gray-500">1개 URL</span>
+                    <span class="text-[10px] text-gray-400">(비공식 타이틀)</span>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+          <!-- 상태 배지 -->
+          <span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium whitespace-nowrap">
+            대기중
+          </span>
+        </div>
+      </div>
+
+      <!-- 대상 2 -->
+      <div class="border border-purple-200 bg-purple-50/30 rounded-lg p-4 hover:border-purple-300 transition">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-3">
+            <input type="checkbox" checked class="mt-1 rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-4 h-4">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-sm font-semibold text-gray-800">Merry Her Obsession</span>
+                <span class="text-xs text-gray-400">&times;</span>
+                <span class="font-mono text-sm text-purple-700 font-medium">xbato.com</span>
+              </div>
+              <div class="flex items-center gap-4 mb-2">
+                <div class="flex items-center gap-1">
+                  <i class="fas fa-link text-gray-400 text-xs"></i>
+                  <span class="text-xs text-gray-600">고유 URL: <strong class="text-purple-700">5개</strong></span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <i class="fas fa-key text-gray-400 text-xs"></i>
+                  <span class="text-xs text-gray-600">최다 키워드: <strong>"Merry Psycho manga"</strong> (4개)</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-400">심층 쿼리:</span>
+                <code class="px-2 py-0.5 bg-gray-100 text-xs font-mono text-gray-700 rounded">Merry Psycho manga site:xbato.com</code>
+                <span class="text-xs text-gray-400">× 3페이지</span>
+              </div>
+              <details class="mt-2">
+                <summary class="text-xs text-purple-600 cursor-pointer hover:text-purple-800">키워드별 상세 보기</summary>
+                <div class="mt-1.5 ml-1 space-y-1">
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="w-2 h-2 bg-purple-400 rounded-full"></span>
+                    <span class="text-gray-600">"Merry Psycho manga"</span>
+                    <span class="font-mono text-purple-600">4개 URL</span>
+                    <span class="px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded text-[10px] font-medium">최다 → 쿼리 선정</span>
+                  </div>
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="w-2 h-2 bg-gray-300 rounded-full"></span>
+                    <span class="text-gray-600">"Merry Psycho chapter"</span>
+                    <span class="font-mono text-gray-500">3개 URL</span>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+          <span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium whitespace-nowrap">
+            대기중
+          </span>
+        </div>
+      </div>
+
+      <!-- 대상 3 -->
+      <div class="border border-purple-200 bg-purple-50/30 rounded-lg p-4 hover:border-purple-300 transition">
+        <div class="flex items-start justify-between">
+          <div class="flex items-start gap-3">
+            <input type="checkbox" checked class="mt-1 rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-4 h-4">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-sm font-semibold text-gray-800">Betrayal of Dignity</span>
+                <span class="text-xs text-gray-400">&times;</span>
+                <span class="font-mono text-sm text-purple-700 font-medium">kunmanga.com</span>
+              </div>
+              <div class="flex items-center gap-4 mb-2">
+                <div class="flex items-center gap-1">
+                  <i class="fas fa-link text-gray-400 text-xs"></i>
+                  <span class="text-xs text-gray-600">고유 URL: <strong class="text-purple-700">7개</strong></span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <i class="fas fa-key text-gray-400 text-xs"></i>
+                  <span class="text-xs text-gray-600">최다 키워드: <strong>"Betrayal of Dignity manga"</strong> (5개)</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-gray-400">심층 쿼리:</span>
+                <code class="px-2 py-0.5 bg-gray-100 text-xs font-mono text-gray-700 rounded">Betrayal of Dignity manga site:kunmanga.com</code>
+                <span class="text-xs text-gray-400">× 3페이지</span>
+              </div>
+            </div>
+          </div>
+          <span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium whitespace-nowrap">
+            대기중
+          </span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Step 3: 실행 버튼 -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="flex items-center justify-center w-6 h-6 rounded-full bg-purple-600 text-white text-xs font-bold">3</span>
+        <h3 class="text-sm font-semibold text-gray-700">사이트 집중 모니터링 시작</h3>
+        <span class="text-xs text-gray-400 ml-1">선택된 대상에 대해 site: 쿼리로 3페이지 심층 검색</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-500">
+          선택: <strong class="text-purple-700">3개</strong> 대상 &middot; 예상 API 호출: <strong>9회</strong>
+        </span>
+        <button class="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition shadow-md">
+          <i class="fas fa-play text-xs"></i>
+          집중 모니터링 시작
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 실행 완료 후: 결과 요약 (실행 후 표시) -->
+  <div class="bg-white rounded-xl shadow-sm border border-green-200 p-5">
+    <div class="flex items-center gap-2 mb-4">
+      <div class="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
+        <i class="fas fa-check text-green-600 text-xs"></i>
+      </div>
+      <h3 class="text-sm font-semibold text-gray-700">실행 결과 요약</h3>
+      <span class="text-xs text-gray-400">(집중 모니터링 완료 후 표시됨)</span>
+    </div>
+
+    <!-- 요약 통계 카드 -->
+    <div class="grid grid-cols-4 gap-3 mb-4">
+      <div class="bg-gray-50 rounded-lg p-3 text-center">
+        <div class="text-xs text-gray-500 mb-1">실행 대상</div>
+        <div class="text-xl font-bold text-purple-700">3</div>
+        <div class="text-[10px] text-gray-400">개 도메인</div>
+      </div>
+      <div class="bg-gray-50 rounded-lg p-3 text-center">
+        <div class="text-xs text-gray-500 mb-1">총 검색 결과</div>
+        <div class="text-xl font-bold text-blue-700">42</div>
+        <div class="text-[10px] text-gray-400">개 URL</div>
+      </div>
+      <div class="bg-gray-50 rounded-lg p-3 text-center">
+        <div class="text-xs text-gray-500 mb-1">신규 발견</div>
+        <div class="text-xl font-bold text-green-700">28</div>
+        <div class="text-[10px] text-gray-400">개 신규 URL</div>
+      </div>
+      <div class="bg-gray-50 rounded-lg p-3 text-center">
+        <div class="text-xs text-gray-500 mb-1">불법 판정</div>
+        <div class="text-xl font-bold text-red-700">25</div>
+        <div class="text-[10px] text-gray-400">개 illegal</div>
+      </div>
+    </div>
+
+    <!-- 대상별 결과 테이블 -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 border-b border-gray-100">
+          <tr>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">작품</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">도메인</th>
+            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">심층 쿼리</th>
+            <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">검색</th>
+            <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">신규</th>
+            <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">
+              <span class="text-red-500">불법</span> /
+              <span class="text-green-500">합법</span> /
+              <span class="text-yellow-500">대기</span>
+            </th>
+            <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">상태</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2.5 text-xs text-gray-800 font-medium">Merry Her Obsession</td>
+            <td class="px-3 py-2.5 text-xs font-mono text-purple-600">mangadex.net</td>
+            <td class="px-3 py-2.5"><code class="text-[11px] font-mono text-gray-500">...chapter site:mangadex.net</code></td>
+            <td class="px-3 py-2.5 text-center text-xs font-bold text-blue-600">16</td>
+            <td class="px-3 py-2.5 text-center text-xs font-bold text-green-600">11</td>
+            <td class="px-3 py-2.5 text-center text-xs">
+              <span class="text-red-600 font-bold">10</span> / 
+              <span class="text-green-600">0</span> / 
+              <span class="text-yellow-600">1</span>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-[11px] font-medium">완료</span>
+            </td>
+          </tr>
+          <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2.5 text-xs text-gray-800 font-medium">Merry Her Obsession</td>
+            <td class="px-3 py-2.5 text-xs font-mono text-purple-600">xbato.com</td>
+            <td class="px-3 py-2.5"><code class="text-[11px] font-mono text-gray-500">...manga site:xbato.com</code></td>
+            <td class="px-3 py-2.5 text-center text-xs font-bold text-blue-600">12</td>
+            <td class="px-3 py-2.5 text-center text-xs font-bold text-green-600">9</td>
+            <td class="px-3 py-2.5 text-center text-xs">
+              <span class="text-red-600 font-bold">8</span> / 
+              <span class="text-green-600">0</span> / 
+              <span class="text-yellow-600">1</span>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-[11px] font-medium">완료</span>
+            </td>
+          </tr>
+          <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2.5 text-xs text-gray-800 font-medium">Betrayal of Dignity</td>
+            <td class="px-3 py-2.5 text-xs font-mono text-purple-600">kunmanga.com</td>
+            <td class="px-3 py-2.5"><code class="text-[11px] font-mono text-gray-500">...manga site:kunmanga.com</code></td>
+            <td class="px-3 py-2.5 text-center text-xs font-bold text-blue-600">14</td>
+            <td class="px-3 py-2.5 text-center text-xs font-bold text-green-600">8</td>
+            <td class="px-3 py-2.5 text-center text-xs">
+              <span class="text-red-600 font-bold">7</span> / 
+              <span class="text-green-600">0</span> / 
+              <span class="text-yellow-600">1</span>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-[11px] font-medium">완료</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 안내 메시지 -->
+    <div class="mt-3 flex items-center gap-2 text-xs text-gray-400">
+      <i class="fas fa-info-circle"></i>
+      <span>심층 검색 결과는 원본 세션의 detection_results에 source='deep'으로 병합되었습니다. 상단 결과 테이블에서 확인하세요.</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- 페이지 하단 안내 -->
+<div class="mt-8 text-center text-xs text-gray-300">
+  Jobdori &copy; 2026 &middot; 사이트 집중 모니터링 패널 와이어프레임
+</div>
+
+</body>
+</html>

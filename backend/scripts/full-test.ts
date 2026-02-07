@@ -7,7 +7,7 @@
 import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
-import XLSX from 'xlsx';
+import * as XLSX from 'xlsx';
 import {
   SearchResult,
   ClassifiedResult,
