@@ -608,16 +608,16 @@ async function getMonthlyStatsByMonth(month: string): Promise<any | null> {
     ),
     top_contents AS (
       SELECT title as name, COUNT(*) as count
-      FROM detection_results
-      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      FROM report_tracking
+      WHERE session_id LIKE ${monthPattern} AND report_status != '미신고' AND title IS NOT NULL
       GROUP BY title
       ORDER BY count DESC
       LIMIT 10
     ),
     top_domains AS (
       SELECT domain, COUNT(*) as count
-      FROM detection_results
-      WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+      FROM report_tracking
+      WHERE session_id LIKE ${monthPattern} AND report_status != '미신고'
       GROUP BY domain
       ORDER BY count DESC
       LIMIT 10
@@ -2193,20 +2193,20 @@ app.get('/api/dashboard', async (c) => {
         FROM report_tracking
         WHERE session_id LIKE ${monthPattern}
       ),
-      -- Top 5 작품: detection_results 기반
+      -- Top 5 작품: report_tracking 기반 (신고 건수)
       top_contents AS (
         SELECT title as name, COUNT(*) as count
-        FROM detection_results
-        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+        FROM report_tracking
+        WHERE session_id LIKE ${monthPattern} AND report_status != '미신고' AND title IS NOT NULL
         GROUP BY title
         ORDER BY count DESC
         LIMIT 5
       ),
-      -- Top 5 도메인: detection_results 기반
+      -- Top 5 도메인: report_tracking 기반 (신고 건수)
       top_domains AS (
         SELECT domain, COUNT(*) as count
-        FROM detection_results
-        WHERE session_id LIKE ${monthPattern} AND final_status = 'illegal'
+        FROM report_tracking
+        WHERE session_id LIKE ${monthPattern} AND report_status != '미신고'
         GROUP BY domain
         ORDER BY count DESC
         LIMIT 5
@@ -3165,13 +3165,13 @@ app.get('/', (c) => {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           <div>
             <div class="flex justify-between items-center mb-3">
-              <h3 class="font-bold text-sm md:text-base"><i class="fas fa-fire text-red-500 mr-2"></i>불법 URL 많은 작품 Top 5</h3>
+              <h3 class="font-bold text-sm md:text-base"><i class="fas fa-fire text-red-500 mr-2"></i>신고 많은 작품 Top 5</h3>
               <button onclick="openAllTitlesModal()" class="text-xs md:text-sm text-blue-500 hover:text-blue-700">전체보기 <i class="fas fa-arrow-right"></i></button>
             </div>
             <div id="top-contents" class="space-y-2 text-sm">로딩 중...</div>
           </div>
           <div>
-            <h3 class="font-bold mb-3 text-sm md:text-base"><i class="fas fa-skull-crossbones text-red-500 mr-2"></i>상위 불법 도메인 Top 5</h3>
+            <h3 class="font-bold mb-3 text-sm md:text-base"><i class="fas fa-skull-crossbones text-red-500 mr-2"></i>신고 많은 도메인 Top 5</h3>
             <div id="top-domains" class="space-y-2 text-sm">로딩 중...</div>
           </div>
         </div>

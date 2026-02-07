@@ -248,7 +248,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100">
           <div className="px-6 py-4 border-b border-gray-100">
             <h3 className="text-lg font-semibold text-gray-800">Top 5 작품</h3>
-            <p className="text-sm text-gray-500">불법 URL 발견 건수 기준</p>
+            <p className="text-sm text-gray-500">신고 건수 기준</p>
           </div>
           <div className="p-6">
             {isLoading ? (
@@ -265,7 +265,7 @@ export default function DashboardPage() {
                   <tr className="text-left text-sm text-gray-500 border-b border-gray-100">
                     <th className="pb-3 font-medium">순위</th>
                     <th className="pb-3 font-medium">작품명</th>
-                    <th className="pb-3 font-medium text-right">발견 건수</th>
+                    <th className="pb-3 font-medium text-right">신고 건수</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -296,7 +296,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100">
           <div className="px-6 py-4 border-b border-gray-100">
             <h3 className="text-lg font-semibold text-gray-800">Top 5 불법 사이트</h3>
-            <p className="text-sm text-gray-500">도메인별 발견 건수 기준</p>
+            <p className="text-sm text-gray-500">도메인별 신고 건수 기준</p>
           </div>
           <div className="p-6">
             {isLoading ? (
@@ -313,7 +313,7 @@ export default function DashboardPage() {
                   <tr className="text-left text-sm text-gray-500 border-b border-gray-100">
                     <th className="pb-3 font-medium">순위</th>
                     <th className="pb-3 font-medium">도메인</th>
-                    <th className="pb-3 font-medium text-right">발견 건수</th>
+                    <th className="pb-3 font-medium text-right">신고 건수</th>
                   </tr>
                 </thead>
                 <tbody>
