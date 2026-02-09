@@ -27,7 +27,7 @@ jobs:
       - name: 🚀 Run Full Pipeline
         env:
           SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
-          Manus_API_KEY: ${{ secrets.Manus_API_KEY }}
+          MANUS_API_KEY: ${{ secrets.MANUS_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
