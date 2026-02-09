@@ -2400,18 +2400,100 @@ app.post('/api/sessions/:id/deep-monitoring/finalize', async (c) => {
       WHERE id = ${sessionId}
     `
 
-    // 세션 results_summary 재계산
-    await query`
-      UPDATE sessions SET
-        results_total = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId}),
-        results_illegal = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'illegal'),
-        results_legal = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'legal'),
-        results_pending = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'pending')
-      WHERE id = ${sessionId}
-    `
+    // ── Blob 병합: deep 결과를 Blob에 추가 ──
+    // (results API가 Blob에서 읽으므로 반드시 필요)
+    let blobMerged = false
+    try {
+      const session = await getSessionById(sessionId)
+      if (session?.file_final_results?.startsWith('http')) {
+        // 기존 Blob 결과 다운로드
+        const existingResults = await downloadResults(session.file_final_results)
+        const existingUrls = new Set(existingResults.map((r: any) => r.url))
 
-    console.log(`[Deep Finalize] 세션 ${sessionId}: 대상 ${totalTargets}건, 신규 URL ${totalNewUrls}개`)
-    return c.json({ success: true, total_targets: totalTargets, total_new_urls: totalNewUrls })
+        // DB에서 deep 결과 조회
+        const deepResults = await query`
+          SELECT title, domain, url, search_query, page, rank,
+                 initial_status as status, llm_judgment, llm_reason, final_status,
+                 reviewed_at, snippet
+          FROM detection_results
+          WHERE session_id = ${sessionId} AND source = 'deep'
+        `
+
+        // 중복 제외하고 Blob에 병합
+        const newDeepResults: FinalResult[] = []
+        for (const r of deepResults) {
+          if (!existingUrls.has(r.url)) {
+            const statusVal = (r.status === 'illegal' || r.status === 'legal') ? r.status : 'unknown' as const
+            const finalVal = (r.final_status === 'illegal' || r.final_status === 'legal') ? r.final_status : 'pending' as const
+            newDeepResults.push({
+              title: r.title,
+              domain: r.domain,
+              url: r.url,
+              search_query: r.search_query,
+              page: r.page || 0,
+              rank: r.rank || 0,
+              status: statusVal,
+              llm_judgment: r.llm_judgment || null,
+              llm_reason: r.llm_reason || null,
+              final_status: finalVal,
+              reviewed_at: r.reviewed_at || null,
+            })
+          }
+        }
+
+        if (newDeepResults.length > 0) {
+          const mergedResults = [...existingResults, ...newDeepResults]
+          const { put } = await import('@vercel/blob')
+          const blob = await put(
+            `results/${sessionId}/final-results.json`,
+            JSON.stringify(mergedResults),
+            { access: 'public', addRandomSuffix: false }
+          )
+
+          // 세션 파일 URL 및 카운트 업데이트
+          const illegalCount = mergedResults.filter((r: any) => r.final_status === 'illegal').length
+          const legalCount = mergedResults.filter((r: any) => r.final_status === 'legal').length
+          const pendingCount = mergedResults.filter((r: any) => r.final_status === 'pending').length
+          await query`
+            UPDATE sessions SET
+              file_final_results = ${blob.url},
+              results_total = ${mergedResults.length},
+              results_illegal = ${illegalCount},
+              results_legal = ${legalCount},
+              results_pending = ${pendingCount}
+            WHERE id = ${sessionId}
+          `
+          blobMerged = true
+          console.log(`[Deep Finalize] Blob 병합: 기존 ${existingResults.length} + 신규 ${newDeepResults.length} = ${mergedResults.length}`)
+        } else {
+          console.log(`[Deep Finalize] Blob 병합 불필요: 신규 deep URL 0건`)
+
+          // 그래도 세션 카운트는 재계산
+          await query`
+            UPDATE sessions SET
+              results_total = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId}),
+              results_illegal = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'illegal'),
+              results_legal = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'legal'),
+              results_pending = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'pending')
+            WHERE id = ${sessionId}
+          `
+        }
+      }
+    } catch (blobError) {
+      console.error('[Deep Finalize] Blob 병합 오류:', blobError)
+      // Blob 실패 시에도 세션 카운트는 DB 기반으로 업데이트
+      await query`
+        UPDATE sessions SET
+          results_total = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId}),
+          results_illegal = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'illegal'),
+          results_legal = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'legal'),
+          results_pending = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'pending')
+        WHERE id = ${sessionId}
+      `
+    }
+
+    console.log(`[Deep Finalize] 세션 ${sessionId}: 대상 ${totalTargets}건, 신규 URL ${totalNewUrls}개, Blob 병합: ${blobMerged}`)
+    return c.json({ success: true, total_targets: totalTargets, total_new_urls: totalNewUrls, blob_merged: blobMerged })
   } catch (error: any) {
     console.error('Deep monitoring finalize error:', error)
     return c.json({ success: false, error: error.message || '후처리 실패' }, 500)
