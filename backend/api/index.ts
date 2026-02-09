@@ -2052,7 +2052,7 @@ app.post('/api/sessions/:id/deep-monitoring/scan', async (c) => {
 // 심층 검색 실행 (execute) — Vercel Serverless에서는 제한적 지원
 // ── 헬퍼: Serper.dev 검색 (대상 1건) ──
 const SERPER_API_URL = 'https://google.serper.dev/search'
-const DEEP_SEARCH_CONFIG = { maxPages: 3, resultsPerPage: 10, maxResults: 30, delayMin: 500, delayMax: 1000 }
+const DEEP_SEARCH_CONFIG = { maxPages: 2, resultsPerPage: 10, maxResults: 20, delayMin: 300, delayMax: 600 }
 
 function deepExtractDomain(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
@@ -2102,6 +2102,9 @@ async function deepJudgeWithManus(
   const domainsData = domainInfos.map(info => ({ domain: info.domain, snippets: info.snippets.slice(0, 3) }))
   const prompt = `[Jobdori 집중 모니터링 세션: ${sessionId}]\n\n다음 ${domainInfos.length}개 도메인의 불법 유통 사이트 여부를 판별해주세요.\n\n${ILLEGAL_CRITERIA}\n\n## 판별할 도메인 목록\n\`\`\`json\n${JSON.stringify({ domains: domainsData }, null, 2)}\n\`\`\`\n\n## 중요: 응답 형식\n반드시 아래 JSON 형식으로 텍스트로 직접 출력해주세요.\n\`\`\`json\n{"results": [{"domain": "example.com", "judgment": "likely_illegal|likely_legal|uncertain", "confidence": 0.0, "reason": "판단 근거"}], "summary": {"total": 0}}\n\`\`\``
 
+  // Vercel 30초 제한 대비: LLM 판별에 최대 15초 할당
+  const LLM_TIMEOUT_MS = 15000
+
   try {
     // Task 생성
     const createRes = await fetch(MANUS_API_URL_BASE, {
@@ -2114,13 +2117,12 @@ async function deepJudgeWithManus(
     const taskId = taskData.task_id
     console.log(`  🤖 Manus Task: ${taskId}`)
 
-    // 폴링 (최대 5분)
+    // 폴링 (Vercel 제한 대비 최대 15초)
     await new Promise(r => setTimeout(r, 2000))
-    const maxWait = 300000
     const start = Date.now()
-    while (Date.now() - start < maxWait) {
+    while (Date.now() - start < LLM_TIMEOUT_MS) {
       const statusRes = await fetch(`${MANUS_API_URL_BASE}/${taskId}`, { headers: { 'API_KEY': apiKey } })
-      if (!statusRes.ok) { await new Promise(r => setTimeout(r, 5000)); continue }
+      if (!statusRes.ok) { await new Promise(r => setTimeout(r, 3000)); continue }
       const statusData = await statusRes.json()
 
       if (statusData.status === 'completed') {
@@ -2157,7 +2159,12 @@ async function deepJudgeWithManus(
         break
       }
       if (statusData.status === 'failed') { console.error('  ❌ Manus Task 실패'); break }
-      await new Promise(r => setTimeout(r, 5000))
+      await new Promise(r => setTimeout(r, 3000))
+    }
+
+    // 타임아웃 시 로그
+    if (Date.now() - start >= LLM_TIMEOUT_MS) {
+      console.log(`  ⏱️ Manus LLM 판별 타임아웃 (${LLM_TIMEOUT_MS / 1000}초 초과), uncertain 처리`)
     }
   } catch (error) {
     console.error('  ❌ Manus LLM 판별 오류:', error)

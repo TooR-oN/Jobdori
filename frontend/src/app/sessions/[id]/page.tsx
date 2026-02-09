@@ -80,6 +80,7 @@ export default function SessionDetailPage() {
   const [deepExecuting, setDeepExecuting] = useState(false);
   const [deepScanDone, setDeepScanDone] = useState(false);
   const [deepError, setDeepError] = useState<string | null>(null);
+  const [deepSuccessMessage, setDeepSuccessMessage] = useState<string | null>(null);
   const [deepProgress, setDeepProgress] = useState<{
     total_targets: number;
     completed_targets: number;
@@ -211,6 +212,7 @@ export default function SessionDetailPage() {
   const handleDeepScan = async () => {
     setDeepScanning(true);
     setDeepError(null);
+    setDeepSuccessMessage(null);
     setDeepTargets([]);
     setDeepScanDone(false);
     setDeepSummary(null);
@@ -247,6 +249,7 @@ export default function SessionDetailPage() {
 
     setDeepExecuting(true);
     setDeepError(null);
+    setDeepSuccessMessage(null);
     setDeepProgress({ total_targets: executableTargets.length, completed_targets: 0 });
     setDeepSummary(null);
 
@@ -254,6 +257,7 @@ export default function SessionDetailPage() {
     let failedCount = 0;
     let totalNewUrls = 0;
     let totalResultsCount = 0;
+    let totalIllegalCount = 0;
 
     for (const target of executableTargets) {
       // 진행률 업데이트 (현재 대상 표시)
@@ -279,6 +283,7 @@ export default function SessionDetailPage() {
             completedCount++;
             totalNewUrls += res.new_urls_count || 0;
             totalResultsCount += res.results_count || 0;
+            totalIllegalCount += res.illegal_count || 0;
           }
           // UI 반영: completed
           setDeepTargets(prev =>
@@ -340,8 +345,20 @@ export default function SessionDetailPage() {
     loadResults();
 
     // 실패 건이 있으면 안내
-    if (failedCount > 0) {
+    if (failedCount > 0 && completedCount > 0) {
       setDeepError(`${failedCount}건의 대상이 실패했습니다. 실패한 대상을 선택하여 재실행할 수 있습니다.`);
+    } else if (failedCount > 0) {
+      setDeepError(`${failedCount}건의 대상이 모두 실패했습니다. 실패한 대상을 선택하여 재실행할 수 있습니다.`);
+    }
+
+    // 완료 알림: 추가 발견된 불법 URL 수
+    if (completedCount > 0) {
+      const illegalMsg = totalIllegalCount > 0
+        ? `불법 URL ${totalIllegalCount}건 추가 발견`
+        : '추가 불법 URL 없음';
+      setDeepSuccessMessage(
+        `집중 모니터링 완료: ${completedCount}개 대상 실행, 신규 URL ${totalNewUrls}건 발견 (${illegalMsg})`
+      );
     }
   };
 
@@ -616,6 +633,16 @@ export default function SessionDetailPage() {
               {deepError && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                   {deepError}
+                </div>
+              )}
+
+              {/* 성공 알림: 추가 발견된 불법 URL 수 */}
+              {deepSuccessMessage && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700 flex items-center gap-2">
+                  <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>{deepSuccessMessage}</span>
                 </div>
               )}
 
