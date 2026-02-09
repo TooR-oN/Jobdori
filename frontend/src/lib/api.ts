@@ -350,11 +350,15 @@ export const deepMonitoringApi = {
     return res.data;
   },
 
-  // 심층 검색 실행 (execute)
-  execute: async (sessionId: string, targetIds?: number[]) => {
-    const res = await api.post(`/api/sessions/${sessionId}/deep-monitoring/execute`, {
-      target_ids: targetIds,
-    });
+  // 대상 1건 실행 (순차 호출용)
+  executeTarget: async (sessionId: string, targetId: number) => {
+    const res = await api.post(`/api/sessions/${sessionId}/deep-monitoring/execute-target/${targetId}`);
+    return res.data;
+  },
+
+  // 전체 완료 후처리 (세션 통계 갱신)
+  finalize: async (sessionId: string) => {
+    const res = await api.post(`/api/sessions/${sessionId}/deep-monitoring/finalize`);
     return res.data;
   },
 

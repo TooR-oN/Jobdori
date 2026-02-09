@@ -2050,37 +2050,373 @@ app.post('/api/sessions/:id/deep-monitoring/scan', async (c) => {
 })
 
 // 심층 검색 실행 (execute) — Vercel Serverless에서는 제한적 지원
-app.post('/api/sessions/:id/deep-monitoring/execute', async (c) => {
-  try {
-    const sessionId = c.req.param('id')
-    const body = await c.req.json().catch(() => ({}))
-    const targetIds: number[] | undefined = body.target_ids
+// ── 헬퍼: Serper.dev 검색 (대상 1건) ──
+const SERPER_API_URL = 'https://google.serper.dev/search'
+const DEEP_SEARCH_CONFIG = { maxPages: 3, resultsPerPage: 10, maxResults: 30, delayMin: 500, delayMax: 1000 }
 
-    const session = await getSessionById(sessionId)
-    if (!session) return c.json({ success: false, error: '세션을 찾을 수 없습니다.' }, 404)
-    if (session.status !== 'completed') {
-      return c.json({ success: false, error: '완료된 세션에서만 집중 모니터링을 실행할 수 있습니다.' }, 400)
-    }
+function deepExtractDomain(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
+}
 
-    // 현재 실행 중인 대상이 있는지 DB 확인
-    const runningTargets = await query`
-      SELECT id FROM deep_monitoring_targets
-      WHERE session_id = ${sessionId} AND status = 'running'
-    `
-    if (runningTargets.length > 0) {
-      return c.json({ success: false, error: '이미 집중 모니터링이 실행 중입니다.' }, 409)
-    }
-
-    // Vercel Serverless 환경에서는 장시간 실행이 어려움
-    // 향후 Vercel Cron 또는 별도 실행 환경에서 처리
-    return c.json({
-      success: false,
-      error: '집중 모니터링 실행은 현재 서버 환경(CLI)에서만 지원됩니다. npx tsx deep-monitoring.ts execute <session_id> 명령을 사용해주세요.'
-    }, 501)
-  } catch (error: any) {
-    console.error('Deep monitoring execute error:', error)
-    return c.json({ success: false, error: error.message || '실행 실패' }, 500)
+function deepCheckDomainInList(domain: string, list: Set<string>): boolean {
+  if (list.has(domain)) return true
+  const parts = domain.split('.')
+  for (let i = 1; i < parts.length - 1; i++) {
+    if (list.has(parts.slice(i).join('.'))) return true
   }
+  return false
+}
+
+async function deepSearchSerper(apiKey: string, searchQuery: string, page: number, num: number) {
+  const res = await fetch(SERPER_API_URL, {
+    method: 'POST',
+    headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ q: searchQuery, gl: 'us', hl: 'en', num, page }),
+  })
+  if (!res.ok) throw new Error(`Serper API 오류: ${res.status}`)
+  const data = await res.json()
+  return (data.organic || []) as { title: string; link: string; snippet?: string; position: number }[]
+}
+
+// ── 헬퍼: Manus LLM 판별 ──
+const MANUS_API_URL_BASE = 'https://api.manus.ai/v1/tasks'
+const MANUS_PROJECT_ID = 'mhCkDAxQCwTJCdPx8KqR5s'
+
+const ILLEGAL_CRITERIA = `## 불법 사이트 판별 기준
+- 도메인명에 manga, manhwa, comic, read, scan, raw 등 포함
+- 숫자나 특수문자가 많은 의심 도메인
+- .to, .cc, .ws, .io 등 흔하지 않은 TLD
+- free, read online, scan, raw 등 SEO 키워드
+- 공식 배급사/출판사가 아닌 사이트
+- 여러 작품을 무료로 제공하는 사이트`
+
+async function deepJudgeWithManus(
+  apiKey: string,
+  domainInfos: { domain: string; snippets: string[] }[],
+  sessionId: string
+): Promise<Map<string, { judgment: string; reason: string }>> {
+  const judgmentMap = new Map<string, { judgment: string; reason: string }>()
+
+  if (domainInfos.length === 0) return judgmentMap
+
+  const domainsData = domainInfos.map(info => ({ domain: info.domain, snippets: info.snippets.slice(0, 3) }))
+  const prompt = `[Jobdori 집중 모니터링 세션: ${sessionId}]\n\n다음 ${domainInfos.length}개 도메인의 불법 유통 사이트 여부를 판별해주세요.\n\n${ILLEGAL_CRITERIA}\n\n## 판별할 도메인 목록\n\`\`\`json\n${JSON.stringify({ domains: domainsData }, null, 2)}\n\`\`\`\n\n## 중요: 응답 형식\n반드시 아래 JSON 형식으로 텍스트로 직접 출력해주세요.\n\`\`\`json\n{"results": [{"domain": "example.com", "judgment": "likely_illegal|likely_legal|uncertain", "confidence": 0.0, "reason": "판단 근거"}], "summary": {"total": 0}}\n\`\`\``
+
+  try {
+    // Task 생성
+    const createRes = await fetch(MANUS_API_URL_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'API_KEY': apiKey },
+      body: JSON.stringify({ prompt, agentProfile: 'manus-1.6', projectId: MANUS_PROJECT_ID, taskMode: 'agent', hideInTaskList: false }),
+    })
+    if (!createRes.ok) throw new Error(`Manus Task 생성 실패: ${createRes.status}`)
+    const taskData = await createRes.json()
+    const taskId = taskData.task_id
+    console.log(`  🤖 Manus Task: ${taskId}`)
+
+    // 폴링 (최대 5분)
+    await new Promise(r => setTimeout(r, 2000))
+    const maxWait = 300000
+    const start = Date.now()
+    while (Date.now() - start < maxWait) {
+      const statusRes = await fetch(`${MANUS_API_URL_BASE}/${taskId}`, { headers: { 'API_KEY': apiKey } })
+      if (!statusRes.ok) { await new Promise(r => setTimeout(r, 5000)); continue }
+      const statusData = await statusRes.json()
+
+      if (statusData.status === 'completed') {
+        let textResult: string | null = null
+        for (let i = (statusData.output || []).length - 1; i >= 0; i--) {
+          const msg = statusData.output[i]
+          if (msg.role === 'assistant' && msg.content) {
+            for (const c of msg.content) {
+              if (c.type === 'output_text' && c.text) {
+                const m = c.text.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+                textResult = m ? m[1] : (c.text.trim().startsWith('{') ? c.text : null)
+              }
+              if (!textResult && c.type === 'output_file' && c.fileUrl) {
+                try { const fr = await fetch(c.fileUrl); if (fr.ok) textResult = await fr.text() } catch {}
+              }
+            }
+          }
+          if (textResult) break
+        }
+        if (textResult) {
+          try {
+            let jsonStr = textResult
+            const jm = textResult.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+            if (jm) jsonStr = jm[1]
+            const parsed = JSON.parse(jsonStr.trim())
+            const results = parsed.results || parsed
+            if (Array.isArray(results)) {
+              for (const r of results) {
+                judgmentMap.set(r.domain.toLowerCase(), { judgment: r.judgment, reason: r.reason })
+              }
+            }
+          } catch { console.error('  ❌ Manus 응답 파싱 실패') }
+        }
+        break
+      }
+      if (statusData.status === 'failed') { console.error('  ❌ Manus Task 실패'); break }
+      await new Promise(r => setTimeout(r, 5000))
+    }
+  } catch (error) {
+    console.error('  ❌ Manus LLM 판별 오류:', error)
+  }
+
+  // 판별 못한 도메인은 uncertain 처리
+  for (const info of domainInfos) {
+    if (!judgmentMap.has(info.domain.toLowerCase())) {
+      judgmentMap.set(info.domain.toLowerCase(), { judgment: 'uncertain', reason: '판별 실패 또는 타임아웃' })
+    }
+  }
+  return judgmentMap
+}
+
+/**
+ * 대상 1건 실행 API (프론트에서 순차 호출)
+ * 흐름: Serper 검색 → 중복 제거 → 1차 판별(리스트) → 2차 판별(LLM) → DB 저장
+ */
+app.post('/api/sessions/:id/deep-monitoring/execute-target/:targetId', async (c) => {
+  let step = 'init'
+  try {
+    await ensureDbMigration()
+    const sessionId = c.req.param('id')
+    const targetId = parseInt(c.req.param('targetId'))
+
+    // 대상 로드
+    step = 'load-target'
+    const targetRows = await query`
+      SELECT * FROM deep_monitoring_targets WHERE id = ${targetId} AND session_id = ${sessionId}
+    `
+    if (targetRows.length === 0) return c.json({ success: false, error: '대상을 찾을 수 없습니다.' }, 404)
+    const target = targetRows[0]
+
+    // 이미 완료된 대상은 건너뛰기 (방어코드)
+    if (target.status === 'completed') {
+      return c.json({ success: true, skipped: true, message: '이미 완료된 대상입니다.', target_id: targetId })
+    }
+    if (target.status === 'running') {
+      return c.json({ success: false, error: '이미 실행 중인 대상입니다.' }, 409)
+    }
+
+    // 대상 상태: running
+    await query`UPDATE deep_monitoring_targets SET status = 'running', executed_at = NOW() WHERE id = ${targetId}`
+
+    const SERPER_KEY = process.env.SERPER_API_KEY
+    if (!SERPER_KEY) {
+      await query`UPDATE deep_monitoring_targets SET status = 'failed', completed_at = NOW() WHERE id = ${targetId}`
+      return c.json({ success: false, error: 'SERPER_API_KEY가 설정되지 않았습니다.' }, 500)
+    }
+
+    // ── Step 1: 심층 검색 (Serper) ──
+    step = 'search'
+    console.log(`[Deep Execute] 대상 ${targetId}: "${target.deep_query}"`)
+
+    interface DeepSearchResult {
+      title: string; domain: string; url: string; search_query: string;
+      page: number; rank: number; snippet?: string; status?: string;
+      llm_judgment?: string | null; llm_reason?: string | null; final_status?: string;
+      reviewed_at?: string | null;
+    }
+
+    const searchResults: DeepSearchResult[] = []
+    let globalRank = 1
+    for (let pageNum = 1; pageNum <= DEEP_SEARCH_CONFIG.maxPages; pageNum++) {
+      try {
+        const pageResults = await deepSearchSerper(SERPER_KEY, target.deep_query, pageNum, DEEP_SEARCH_CONFIG.resultsPerPage)
+        for (const item of pageResults) {
+          if (globalRank > DEEP_SEARCH_CONFIG.maxResults) break
+          searchResults.push({
+            title: target.title, domain: deepExtractDomain(item.link), url: item.link,
+            search_query: target.deep_query, page: pageNum, rank: globalRank, snippet: item.snippet || undefined,
+          })
+          globalRank++
+        }
+        if (globalRank > DEEP_SEARCH_CONFIG.maxResults) break
+        if (pageNum < DEEP_SEARCH_CONFIG.maxPages && pageResults.length > 0) {
+          await new Promise(r => setTimeout(r, DEEP_SEARCH_CONFIG.delayMin + Math.random() * (DEEP_SEARCH_CONFIG.delayMax - DEEP_SEARCH_CONFIG.delayMin)))
+        }
+      } catch (e) { console.error(`  페이지 ${pageNum} 검색 실패:`, e) }
+    }
+    console.log(`  검색 결과: ${searchResults.length}개`)
+
+    // ── Step 2: 기존 URL 중복 제거 ──
+    step = 'dedup'
+    const existingUrlRows = await query`SELECT url FROM detection_results WHERE session_id = ${sessionId}`
+    const existingUrls = new Set(existingUrlRows.map((r: any) => r.url))
+    const newResults = searchResults.filter(r => !existingUrls.has(r.url))
+    console.log(`  신규 URL: ${newResults.length}개 (중복 제외: ${searchResults.length - newResults.length}개)`)
+
+    if (newResults.length === 0) {
+      await query`UPDATE deep_monitoring_targets SET status = 'completed', results_count = ${searchResults.length}, new_urls_count = 0, completed_at = NOW() WHERE id = ${targetId}`
+      return c.json({ success: true, target_id: targetId, results_count: searchResults.length, new_urls_count: 0, illegal_count: 0, legal_count: 0, pending_count: 0 })
+    }
+
+    // ── Step 3: 1차 판별 (리스트 대조) ──
+    step = 'classify'
+    const illegalRows = await query`SELECT domain FROM sites WHERE type = 'illegal'`
+    const legalRows = await query`SELECT domain FROM sites WHERE type = 'legal'`
+    const illegalSites = new Set(illegalRows.map((r: any) => (r.domain as string).toLowerCase()))
+    const legalSites = new Set(legalRows.map((r: any) => (r.domain as string).toLowerCase()))
+
+    for (const r of newResults) {
+      const d = r.domain.toLowerCase()
+      if (deepCheckDomainInList(d, illegalSites)) r.status = 'illegal'
+      else if (deepCheckDomainInList(d, legalSites)) r.status = 'legal'
+      else r.status = 'unknown'
+    }
+
+    // ── Step 4: 2차 판별 (LLM — unknown 도메인만) ──
+    step = 'llm-judge'
+    const unknownResults = newResults.filter(r => r.status === 'unknown')
+    if (unknownResults.length > 0) {
+      const MANUS_KEY = process.env.MANUS_API_KEY
+      if (MANUS_KEY) {
+        // 도메인별 스니펫 수집
+        const domainInfoMap = new Map<string, { domain: string; snippets: string[] }>()
+        for (const r of unknownResults) {
+          const dl = r.domain.toLowerCase()
+          if (!domainInfoMap.has(dl)) domainInfoMap.set(dl, { domain: r.domain, snippets: [] })
+          if (r.snippet && !domainInfoMap.get(dl)!.snippets.includes(r.snippet)) domainInfoMap.get(dl)!.snippets.push(r.snippet)
+        }
+        console.log(`  LLM 판별: ${domainInfoMap.size}개 unknown 도메인`)
+
+        const judgmentMap = await deepJudgeWithManus(MANUS_KEY, Array.from(domainInfoMap.values()), sessionId)
+
+        for (const r of newResults) {
+          if (r.status === 'unknown') {
+            const j = judgmentMap.get(r.domain.toLowerCase())
+            if (j) { r.llm_judgment = j.judgment; r.llm_reason = j.reason }
+          }
+        }
+      } else {
+        console.log('  ⚠️ MANUS_API_KEY 없음, unknown 도메인은 pending 처리')
+        for (const r of unknownResults) { r.llm_judgment = 'uncertain'; r.llm_reason = 'API 키 미설정' }
+      }
+    }
+
+    // ── Step 5: 최종 상태 결정 ──
+    step = 'finalize-status'
+    for (const r of newResults) {
+      if (r.status === 'illegal') r.final_status = 'illegal'
+      else if (r.status === 'legal') r.final_status = 'legal'
+      else r.final_status = 'pending'
+      r.reviewed_at = r.status !== 'unknown' ? new Date().toISOString() : null
+    }
+
+    // ── Step 6: DB 저장 ──
+    step = 'db-save'
+    let insertedCount = 0
+    for (const r of newResults) {
+      try {
+        await query`
+          INSERT INTO detection_results (
+            session_id, title, url, domain, search_query, page, rank,
+            initial_status, llm_judgment, llm_reason, final_status,
+            reviewed_at, snippet, source, deep_target_id
+          ) VALUES (
+            ${sessionId}, ${r.title}, ${r.url}, ${r.domain}, ${r.search_query}, ${r.page}, ${r.rank},
+            ${r.status}, ${r.llm_judgment || null}, ${r.llm_reason || null}, ${r.final_status},
+            ${r.reviewed_at || null}, ${r.snippet || null}, 'deep', ${targetId}
+          ) ON CONFLICT (session_id, url) DO NOTHING
+        `
+        insertedCount++
+      } catch {}
+    }
+
+    // ── Step 7: 불법 URL 신고결과 추적 등록 ──
+    step = 'report-tracking'
+    const illegalFinalResults = newResults.filter(r => r.final_status === 'illegal')
+    const excludedUrlRows = await query`SELECT url FROM excluded_urls`
+    const excludedUrls = new Set(excludedUrlRows.map((r: any) => r.url))
+
+    for (const r of illegalFinalResults) {
+      try {
+        const isExcluded = excludedUrls.has(r.url)
+        if (isExcluded) {
+          await query`INSERT INTO report_tracking (session_id, url, domain, title, report_status, reason) VALUES (${sessionId}, ${r.url}, ${r.domain}, ${r.title}, '미신고', '웹사이트 메인 페이지') ON CONFLICT (session_id, url) DO NOTHING`
+        } else {
+          await query`INSERT INTO report_tracking (session_id, url, domain, title, report_status) VALUES (${sessionId}, ${r.url}, ${r.domain}, ${r.title}, '미신고') ON CONFLICT (session_id, url) DO NOTHING`
+        }
+      } catch {}
+    }
+
+    // ── 대상 완료 ──
+    const illegalCount = newResults.filter(r => r.final_status === 'illegal').length
+    const legalCount = newResults.filter(r => r.final_status === 'legal').length
+    const pendingCount = newResults.filter(r => r.final_status === 'pending').length
+
+    await query`
+      UPDATE deep_monitoring_targets SET
+        status = 'completed', results_count = ${searchResults.length},
+        new_urls_count = ${newResults.length}, completed_at = NOW()
+      WHERE id = ${targetId}
+    `
+
+    console.log(`  ✅ 완료: 불법 ${illegalCount} / 합법 ${legalCount} / 대기 ${pendingCount}`)
+    return c.json({
+      success: true, target_id: targetId,
+      results_count: searchResults.length, new_urls_count: newResults.length,
+      illegal_count: illegalCount, legal_count: legalCount, pending_count: pendingCount,
+    })
+
+  } catch (error: any) {
+    // 대상 상태 복구 (failed)
+    try {
+      const targetId = parseInt(c.req.param('targetId'))
+      await query`UPDATE deep_monitoring_targets SET status = 'failed', completed_at = NOW() WHERE id = ${targetId}`
+    } catch {}
+    console.error(`Deep monitoring execute-target error at [${step}]:`, error)
+    return c.json({ success: false, error: `실행 실패 (단계: ${step})`, detail: error.message || String(error) }, 500)
+  }
+})
+
+/**
+ * 전체 완료 후처리 API — 세션 통계 갱신
+ */
+app.post('/api/sessions/:id/deep-monitoring/finalize', async (c) => {
+  try {
+    await ensureDbMigration()
+    const sessionId = c.req.param('id')
+
+    // 대상 통계 조회
+    const targets = await query`SELECT * FROM deep_monitoring_targets WHERE session_id = ${sessionId}`
+    const totalTargets = targets.length
+    const totalNewUrls = targets.reduce((sum: number, t: any) => sum + (parseInt(t.new_urls_count) || 0), 0)
+
+    // 세션 deep_monitoring 컬럼 업데이트
+    await query`
+      UPDATE sessions SET
+        deep_monitoring_executed = true,
+        deep_monitoring_targets_count = ${totalTargets},
+        deep_monitoring_new_urls = ${totalNewUrls}
+      WHERE id = ${sessionId}
+    `
+
+    // 세션 results_summary 재계산
+    await query`
+      UPDATE sessions SET
+        results_total = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId}),
+        results_illegal = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'illegal'),
+        results_legal = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'legal'),
+        results_pending = (SELECT COUNT(*) FROM detection_results WHERE session_id = ${sessionId} AND final_status = 'pending')
+      WHERE id = ${sessionId}
+    `
+
+    console.log(`[Deep Finalize] 세션 ${sessionId}: 대상 ${totalTargets}건, 신규 URL ${totalNewUrls}개`)
+    return c.json({ success: true, total_targets: totalTargets, total_new_urls: totalNewUrls })
+  } catch (error: any) {
+    console.error('Deep monitoring finalize error:', error)
+    return c.json({ success: false, error: error.message || '후처리 실패' }, 500)
+  }
+})
+
+// 기존 execute API (순차 실행으로 대체됨 — 호환성 유지)
+app.post('/api/sessions/:id/deep-monitoring/execute', async (c) => {
+  return c.json({
+    success: false,
+    error: '이 API는 더 이상 사용되지 않습니다. 프론트엔드에서 execute-target API를 순차 호출하세요.'
+  }, 410)
 })
 
 // 대상 목록 조회

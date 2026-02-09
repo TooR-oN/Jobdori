@@ -155,9 +155,13 @@ export default function SessionDetailPage() {
       if (res.success && res.targets && res.targets.length > 0) {
         setDeepTargets(res.targets);
         setDeepScanDone(true);
-        // 기존 선택 유지
-        const allIds = new Set<number>(res.targets.filter((t: DeepMonitoringTarget) => t.id).map((t: DeepMonitoringTarget) => t.id!));
-        setDeepSelectedIds(allIds);
+        // 실행 가능한 대상만 선택 (pending/failed)
+        const selectableIds = new Set<number>(
+          res.targets
+            .filter((t: DeepMonitoringTarget) => t.id && (t.status === 'pending' || t.status === 'failed'))
+            .map((t: DeepMonitoringTarget) => t.id!)
+        );
+        setDeepSelectedIds(selectableIds);
       }
     } catch {
       // 대상이 없으면 무시
@@ -230,31 +234,114 @@ export default function SessionDetailPage() {
     }
   };
 
-  // === Deep Monitoring: 실행 (Execute) ===
+  // === Deep Monitoring: 순차 실행 (Execute — 대상 1건씩) ===
   const handleDeepExecute = async () => {
-    if (deepSelectedIds.size === 0) {
-      setDeepError('실행할 대상을 선택해주세요.');
+    // 실행 대상: 선택된 ID 중 pending/failed 상태만
+    const executableTargets = deepTargets.filter(
+      t => t.id && deepSelectedIds.has(t.id) && (t.status === 'pending' || t.status === 'failed')
+    );
+    if (executableTargets.length === 0) {
+      setDeepError('실행할 대상을 선택해주세요. (이미 완료된 대상은 건너뜁니다)');
       return;
     }
-    
+
     setDeepExecuting(true);
     setDeepError(null);
-    setDeepProgress(null);
+    setDeepProgress({ total_targets: executableTargets.length, completed_targets: 0 });
     setDeepSummary(null);
-    
-    try {
-      const targetIds = Array.from(deepSelectedIds);
-      const res = await deepMonitoringApi.execute(sessionId, targetIds);
-      if (res.success) {
-        // 폴링 시작
-        startPolling();
-      } else {
-        setDeepExecuting(false);
-        setDeepError(res.error || '실행에 실패했습니다.');
+
+    let completedCount = 0;
+    let failedCount = 0;
+    let totalNewUrls = 0;
+    let totalResultsCount = 0;
+
+    for (const target of executableTargets) {
+      // 진행률 업데이트 (현재 대상 표시)
+      setDeepProgress({
+        total_targets: executableTargets.length,
+        completed_targets: completedCount,
+        current_target: `${target.title} x ${target.domain}`,
+        results_so_far: totalNewUrls,
+      });
+
+      // 대상 상태를 running으로 UI 즉시 반영
+      setDeepTargets(prev =>
+        prev.map(t => t.id === target.id ? { ...t, status: 'running' as const } : t)
+      );
+
+      try {
+        const res = await deepMonitoringApi.executeTarget(sessionId, target.id!);
+        if (res.success) {
+          if (res.skipped) {
+            // 이미 완료된 대상 (방어코드)
+            completedCount++;
+          } else {
+            completedCount++;
+            totalNewUrls += res.new_urls_count || 0;
+            totalResultsCount += res.results_count || 0;
+          }
+          // UI 반영: completed
+          setDeepTargets(prev =>
+            prev.map(t => t.id === target.id ? {
+              ...t,
+              status: 'completed' as const,
+              results_count: res.results_count || 0,
+              new_urls_count: res.new_urls_count || 0,
+            } : t)
+          );
+        } else {
+          // API 응답 실패
+          failedCount++;
+          setDeepTargets(prev =>
+            prev.map(t => t.id === target.id ? { ...t, status: 'failed' as const } : t)
+          );
+          console.error(`대상 ${target.id} 실행 실패:`, res.error);
+        }
+      } catch (err: any) {
+        // 네트워크/서버 오류
+        failedCount++;
+        setDeepTargets(prev =>
+          prev.map(t => t.id === target.id ? { ...t, status: 'failed' as const } : t)
+        );
+        console.error(`대상 ${target.id} 실행 오류:`, err?.response?.data?.error || err?.message);
       }
-    } catch (err: any) {
-      setDeepExecuting(false);
-      setDeepError(err?.response?.data?.error || '실행에 실패했습니다.');
+    }
+
+    // 전체 완료: 진행률 최종 업데이트
+    setDeepProgress({
+      total_targets: executableTargets.length,
+      completed_targets: completedCount + failedCount,
+      results_so_far: totalNewUrls,
+    });
+
+    // 후처리: 세션 통계 갱신
+    try {
+      await deepMonitoringApi.finalize(sessionId);
+    } catch (err) {
+      console.error('후처리 실패:', err);
+    }
+
+    // 최종 요약
+    const alreadyCompleted = deepTargets.filter(
+      t => t.status === 'completed' && !executableTargets.some(et => et.id === t.id)
+    ).length;
+    setDeepSummary({
+      total: deepTargets.length,
+      completed: completedCount + alreadyCompleted,
+      failed: failedCount,
+      pending: deepTargets.length - (completedCount + alreadyCompleted + failedCount),
+    });
+
+    setDeepExecuting(false);
+    setDeepProgress(null);
+
+    // 대상 목록 + 결과 테이블 새로고침
+    await loadDeepTargets();
+    loadResults();
+
+    // 실패 건이 있으면 안내
+    if (failedCount > 0) {
+      setDeepError(`${failedCount}건의 대상이 실패했습니다. 실패한 대상을 선택하여 재실행할 수 있습니다.`);
     }
   };
 
@@ -272,11 +359,11 @@ export default function SessionDetailPage() {
   };
 
   const toggleSelectAll = () => {
-    const pendingTargets = deepTargets.filter(t => t.status === 'pending' && t.id);
-    if (deepSelectedIds.size === pendingTargets.length) {
+    const selectableTargets = deepTargets.filter(t => (t.status === 'pending' || t.status === 'failed') && t.id);
+    if (deepSelectedIds.size === selectableTargets.length) {
       setDeepSelectedIds(new Set());
     } else {
-      setDeepSelectedIds(new Set(pendingTargets.map(t => t.id!)));
+      setDeepSelectedIds(new Set(selectableTargets.map(t => t.id!)));
     }
   };
 
@@ -400,7 +487,8 @@ export default function SessionDetailPage() {
   const illegalCount = pagination?.total || 0;
 
   // Deep monitoring pending 대상 수
-  const pendingTargets = deepTargets.filter(t => t.status === 'pending');
+  // 실행 가능 대상: pending + failed (재실행 가능)
+  const selectableTargets = deepTargets.filter(t => t.status === 'pending' || t.status === 'failed');
 
   return (
     <MainLayout pageTitle={`모니터링 회차: ${sessionId}`}>
@@ -541,18 +629,18 @@ export default function SessionDetailPage() {
               {deepTargets.length > 0 && (
                 <div>
                   {/* 전체 선택 헤더 */}
-                  {pendingTargets.length > 0 && (
+                  {selectableTargets.length > 0 && (
                     <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-100">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={deepSelectedIds.size === pendingTargets.length && pendingTargets.length > 0}
+                          checked={deepSelectedIds.size === selectableTargets.length && selectableTargets.length > 0}
                           onChange={toggleSelectAll}
                           className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
                           disabled={deepExecuting}
                         />
                         <span className="text-sm text-gray-600">
-                          전체 선택 ({deepSelectedIds.size}/{pendingTargets.length})
+                          전체 선택 ({deepSelectedIds.size}/{selectableTargets.length})
                         </span>
                       </label>
                     </div>
@@ -575,9 +663,9 @@ export default function SessionDetailPage() {
                             : 'border-gray-200 bg-gray-50'
                         }`}
                       >
-                        {/* 체크박스 (pending 상태만) */}
+                        {/* 체크박스 (pending/failed 상태) */}
                         <div className="pt-0.5 flex-shrink-0">
-                          {target.status === 'pending' ? (
+                          {(target.status === 'pending' || target.status === 'failed') ? (
                             <input
                               type="checkbox"
                               checked={deepSelectedIds.has(target.id!)}
@@ -659,6 +747,11 @@ export default function SessionDetailPage() {
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
                         <span>실행 중...</span>
+                      </>
+                    ) : deepTargets.some(t => t.status === 'failed') ? (
+                      <>
+                        <PlayIcon className="w-4 h-4" />
+                        <span>실패 대상 재실행</span>
                       </>
                     ) : (
                       <>
