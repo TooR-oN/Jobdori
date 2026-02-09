@@ -172,7 +172,7 @@ async function createManusTask(prompt: string): Promise<ManusTaskResponse | null
       },
       body: JSON.stringify({
         prompt: prompt,
-        agentProfile: 'manus-1.6',
+        agentProfile: 'manus-1.6-lite',
         projectId: MANUS_PROJECT_ID,
         taskMode: 'agent',
         hideInTaskList: false,  // 프로젝트 Task 목록에 표시
