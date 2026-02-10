@@ -1344,6 +1344,9 @@ export default function SessionDetailPage() {
                   {dmcaReport.excluded_reasons.excluded_url > 0 && (
                     <span>제외URL: {dmcaReport.excluded_reasons.excluded_url}</span>
                   )}
+                  {dmcaReport.excluded_reasons.duplicate_from_previous > 0 && (
+                    <span>이전중복: {dmcaReport.excluded_reasons.duplicate_from_previous}</span>
+                  )}
                 </div>
               </div>
             )}

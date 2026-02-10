@@ -531,14 +531,34 @@ async function registerDeepIllegalUrls(
   const excludedRows = await sql`SELECT url FROM excluded_urls` as any[];
   const excludedUrls = new Set(excludedRows.map((r: any) => r.url));
 
+  // 이전 세션에서 중복 거부된 URL 목록 조회 (벌크)
+  const urlList = illegalResults.map(r => r.url);
+  const duplicateRejectedRows = await sql`
+    SELECT DISTINCT url FROM report_tracking
+    WHERE url = ANY(${urlList})
+      AND session_id != ${sessionId}
+      AND report_status = '거부'
+      AND reason ILIKE '%중복%'
+  ` as any[];
+  const duplicateRejectedUrls = new Set(duplicateRejectedRows.map((r: any) => r.url));
+
   let registered = 0;
   for (const result of illegalResults) {
     try {
       const isExcluded = excludedUrls.has(result.url);
+      const isDuplicateRejected = duplicateRejectedUrls.has(result.url);
+
+      let reason: string | null = null;
       if (isExcluded) {
+        reason = '웹사이트 메인 페이지';
+      } else if (isDuplicateRejected) {
+        reason = '기존 요청과 중복된 요청';
+      }
+
+      if (reason) {
         await sql`
           INSERT INTO report_tracking (session_id, url, domain, title, report_status, reason)
-          VALUES (${sessionId}, ${result.url}, ${result.domain}, ${result.title}, '미신고', '웹사이트 메인 페이지')
+          VALUES (${sessionId}, ${result.url}, ${result.domain}, ${result.title}, '미신고', ${reason})
           ON CONFLICT (session_id, url) DO NOTHING
         `;
       } else {

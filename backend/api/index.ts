@@ -931,11 +931,33 @@ async function registerIllegalUrlsToReportTracking(
   const excludedRows = await query`SELECT url FROM excluded_urls`
   const excludedUrls = new Set(excludedRows.map((r: any) => r.url))
   
+  // 이전 세션에서 중복 거부된 URL 목록 조회 (벌크)
+  const urlList = urls.map(u => u.url)
+  const duplicateRejectedRows = urlList.length > 0
+    ? await query`
+        SELECT DISTINCT url FROM report_tracking
+        WHERE url = ANY(${urlList})
+          AND session_id != ${sessionId}
+          AND report_status = '거부'
+          AND reason ILIKE '%중복%'
+      `
+    : []
+  const duplicateRejectedUrls = new Set(duplicateRejectedRows.map((r: any) => r.url))
+  
   let registered = 0
   for (const item of urls) {
     try {
       // 신고 제외 URL인지 확인 (정확히 일치)
       const isExcluded = excludedUrls.has(item.url)
+      // 이전 세션에서 중복 거부된 URL인지 확인
+      const isDuplicateRejected = duplicateRejectedUrls.has(item.url)
+      
+      let reason: string | undefined = undefined
+      if (isExcluded) {
+        reason = '웹사이트 메인 페이지'
+      } else if (isDuplicateRejected) {
+        reason = '기존 요청과 중복된 요청'
+      }
       
       await createReportTracking({
         session_id: sessionId,
@@ -943,7 +965,7 @@ async function registerIllegalUrlsToReportTracking(
         domain,
         title: item.title,
         report_status: '미신고',
-        reason: isExcluded ? '웹사이트 메인 페이지' : undefined
+        reason
       })
       registered++
     } catch {
@@ -2588,7 +2610,7 @@ async function generateDmcaReport(sessionId: string) {
   }
 
   // 5. 필터링
-  const excluded = { already_blocked: 0, not_indexed: 0, duplicate_rejected: 0, main_page: 0, excluded_url: 0 }
+  const excluded = { already_blocked: 0, not_indexed: 0, duplicate_rejected: 0, main_page: 0, excluded_url: 0, duplicate_from_previous: 0 }
   const includedItems: any[] = []
 
   for (const item of allItems) {
@@ -2604,6 +2626,8 @@ async function generateDmcaReport(sessionId: string) {
     }
     // 제외: 웹사이트 메인 페이지
     if (item.reason === '웹사이트 메인 페이지') { excluded.main_page++; continue }
+    // 제외: 이전 세션 중복 거부 이력으로 자동 설정된 사유
+    if (item.reason === '기존 요청과 중복된 요청') { excluded.duplicate_from_previous++; continue }
 
     includedItems.push(item)
   }
