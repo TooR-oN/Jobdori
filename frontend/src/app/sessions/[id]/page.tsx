@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { MainLayout } from '@/components/layout';
-import { sessionsApi, titlesApi, excludedUrlsApi, deepMonitoringApi } from '@/lib/api';
-import { ArrowLeftIcon, ArrowDownTrayIcon, DocumentDuplicateIcon, CheckIcon, ClipboardIcon, ChevronDownIcon, ChevronUpIcon, MagnifyingGlassIcon, PlayIcon } from '@heroicons/react/24/outline';
+import { sessionsApi, titlesApi, excludedUrlsApi, deepMonitoringApi, dmcaReportApi } from '@/lib/api';
+import { ArrowLeftIcon, ArrowDownTrayIcon, DocumentDuplicateIcon, CheckIcon, ClipboardIcon, ChevronDownIcon, ChevronUpIcon, MagnifyingGlassIcon, PlayIcon, DocumentTextIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 interface Result {
   title: string;
@@ -94,6 +94,14 @@ export default function SessionDetailPage() {
     pending: number;
   } | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // === DMCA Report 상태 ===
+  const [dmcaModalOpen, setDmcaModalOpen] = useState(false);
+  const [dmcaLoading, setDmcaLoading] = useState(false);
+  const [dmcaReport, setDmcaReport] = useState<any>(null);
+  const [dmcaError, setDmcaError] = useState<string | null>(null);
+  const [dmcaCopyStates, setDmcaCopyStates] = useState<Record<string, boolean>>({});
+  const [dmcaExpandedWorks, setDmcaExpandedWorks] = useState<Set<number>>(new Set([0]));
 
   // 타이틀 데이터 로드 (Manta URL 포함)
   useEffect(() => {
@@ -467,6 +475,71 @@ export default function SessionDetailPage() {
     }
   };
 
+  // === DMCA Report 핸들러 ===
+  const handleGenerateDmcaReport = async () => {
+    setDmcaLoading(true);
+    setDmcaError(null);
+    setDmcaReport(null);
+    setDmcaModalOpen(true);
+    try {
+      const res = await dmcaReportApi.generate(sessionId);
+      if (res.success) {
+        setDmcaReport(res.report);
+        setDmcaExpandedWorks(new Set([0]));
+      } else {
+        setDmcaError(res.error || '신고서 생성에 실패했습니다.');
+      }
+    } catch (err: any) {
+      setDmcaError('신고서 생성 중 오류가 발생했습니다.');
+    } finally {
+      setDmcaLoading(false);
+    }
+  };
+
+  const handleDmcaCopy = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setDmcaCopyStates(prev => ({ ...prev, [key]: true }));
+      setTimeout(() => setDmcaCopyStates(prev => ({ ...prev, [key]: false })), 2000);
+    } catch {
+      // fallback: textarea 복사
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setDmcaCopyStates(prev => ({ ...prev, [key]: true }));
+      setTimeout(() => setDmcaCopyStates(prev => ({ ...prev, [key]: false })), 2000);
+    }
+  };
+
+  const handleDmcaCopyAll = async () => {
+    if (dmcaReport?.full_text) {
+      await handleDmcaCopy('all', dmcaReport.full_text);
+    }
+  };
+
+  const handleDmcaDownloadTxt = () => {
+    if (!dmcaReport?.full_text) return;
+    const blob = new Blob([dmcaReport.full_text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    a.href = url;
+    a.download = `DMCA_Report_${sessionId}_${date}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const toggleDmcaWorkExpand = (idx: number) => {
+    setDmcaExpandedWorks(prev => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  };
+
   // 상태 배지
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -544,6 +617,14 @@ export default function SessionDetailPage() {
             )}
           </button>
           
+          <button
+            onClick={handleGenerateDmcaReport}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition"
+          >
+            <DocumentTextIcon className="w-4 h-4" />
+            <span>DMCA 신고서 생성</span>
+          </button>
+
           <button
             onClick={handleDownload}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
@@ -1048,6 +1129,227 @@ export default function SessionDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ============================================ */}
+      {/* DMCA 신고서 모달 */}
+      {/* ============================================ */}
+      {dmcaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* 오버레이 */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setDmcaModalOpen(false)}
+          />
+
+          {/* 모달 본체 */}
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">DMCA 신고서</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {dmcaReport ? (
+                    <>세션: {dmcaReport.session_id} · 작품 {dmcaReport.summary.total_titles}개 · URL {dmcaReport.summary.included_urls}개</>
+                  ) : '생성 중...'}
+                </p>
+              </div>
+              <button
+                onClick={() => setDmcaModalOpen(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <XMarkIcon className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* 모달 액션 바 */}
+            {dmcaReport && dmcaReport.works.length > 0 && (
+              <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-100 bg-gray-50">
+                <button
+                  onClick={handleDmcaCopyAll}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition ${
+                    dmcaCopyStates['all']
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-800 text-white hover:bg-gray-900'
+                  }`}
+                >
+                  {dmcaCopyStates['all'] ? (
+                    <><CheckIcon className="w-4 h-4" /><span>복사됨!</span></>
+                  ) : (
+                    <><ClipboardIcon className="w-4 h-4" /><span>전체 복사</span></>
+                  )}
+                </button>
+                <button
+                  onClick={handleDmcaDownloadTxt}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                >
+                  <ArrowDownTrayIcon className="w-4 h-4" />
+                  <span>TXT 다운로드</span>
+                </button>
+              </div>
+            )}
+
+            {/* 모달 본문 (스크롤) */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {/* 로딩 */}
+              {dmcaLoading && (
+                <div className="flex flex-col items-center justify-center py-16">
+                  <div className="w-8 h-8 border-4 border-orange-200 border-t-orange-500 rounded-full animate-spin mb-4" />
+                  <p className="text-gray-500">신고서를 생성하고 있습니다...</p>
+                </div>
+              )}
+
+              {/* 에러 */}
+              {dmcaError && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                  {dmcaError}
+                </div>
+              )}
+
+              {/* 빈 결과 */}
+              {dmcaReport && dmcaReport.works.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16">
+                  <DocumentTextIcon className="w-12 h-12 text-gray-300 mb-4" />
+                  <p className="text-gray-500 font-medium">{dmcaReport.message || '신고 대상 URL이 없습니다.'}</p>
+                </div>
+              )}
+
+              {/* 작품별 아코디언 */}
+              {dmcaReport && dmcaReport.works.length > 0 && (
+                <div className="space-y-3">
+                  {dmcaReport.works.map((work: any, idx: number) => {
+                    const isExpanded = dmcaExpandedWorks.has(idx);
+                    return (
+                      <div key={idx} className="border border-gray-200 rounded-xl overflow-hidden">
+                        {/* 아코디언 헤더 */}
+                        <button
+                          onClick={() => toggleDmcaWorkExpand(idx)}
+                          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            {isExpanded ? (
+                              <ChevronUpIcon className="w-4 h-4 text-gray-400" />
+                            ) : (
+                              <ChevronDownIcon className="w-4 h-4 text-gray-400" />
+                            )}
+                            <span className="font-semibold text-gray-800">
+                              작품 {idx + 1}: {work.title}
+                            </span>
+                            <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">
+                              {work.url_count}개 URL
+                            </span>
+                          </div>
+                        </button>
+
+                        {/* 아코디언 본문 */}
+                        {isExpanded && (
+                          <div className="divide-y divide-gray-100">
+                            {/* 저작물 설명 */}
+                            <div className="px-4 py-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-orange-600 uppercase tracking-wide">저작물 설명</span>
+                                <button
+                                  onClick={() => handleDmcaCopy(`desc-${idx}`, work.description)}
+                                  className={`text-xs px-2 py-1 rounded transition ${
+                                    dmcaCopyStates[`desc-${idx}`]
+                                      ? 'bg-green-100 text-green-700'
+                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  {dmcaCopyStates[`desc-${idx}`] ? '복사됨 ✓' : '복사'}
+                                </button>
+                              </div>
+                              <div className="text-sm text-gray-700 bg-orange-50 border border-orange-100 rounded-lg p-3 whitespace-pre-line">
+                                {work.description}
+                              </div>
+                            </div>
+
+                            {/* 공인된 저작물 URL */}
+                            <div className="px-4 py-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-blue-600 uppercase tracking-wide">공인된 저작물 URL</span>
+                                <button
+                                  onClick={() => handleDmcaCopy(`manta-${idx}`, work.manta_url || '')}
+                                  disabled={!work.manta_url}
+                                  className={`text-xs px-2 py-1 rounded transition ${
+                                    dmcaCopyStates[`manta-${idx}`]
+                                      ? 'bg-green-100 text-green-700'
+                                      : work.manta_url
+                                        ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        : 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                                  }`}
+                                >
+                                  {dmcaCopyStates[`manta-${idx}`] ? '복사됨 ✓' : '복사'}
+                                </button>
+                              </div>
+                              <div className={`text-sm rounded-lg p-3 border ${
+                                work.manta_url
+                                  ? 'bg-blue-50 border-blue-100 text-blue-700'
+                                  : 'bg-gray-50 border-gray-100 text-gray-400 italic'
+                              }`}>
+                                {work.manta_url || '(등록된 URL 없음)'}
+                              </div>
+                            </div>
+
+                            {/* 침해 URL 목록 */}
+                            <div className="px-4 py-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">
+                                  침해 URL 목록 ({work.url_count}개)
+                                </span>
+                                <button
+                                  onClick={() => handleDmcaCopy(`urls-${idx}`, work.urls.join('\n'))}
+                                  className={`text-xs px-2 py-1 rounded transition ${
+                                    dmcaCopyStates[`urls-${idx}`]
+                                      ? 'bg-green-100 text-green-700'
+                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  {dmcaCopyStates[`urls-${idx}`] ? '복사됨 ✓' : '복사'}
+                                </button>
+                              </div>
+                              <div className="text-sm text-gray-700 bg-red-50 border border-red-100 rounded-lg p-3 max-h-60 overflow-y-auto">
+                                <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed">
+                                  {work.urls.join('\n')}
+                                </pre>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 모달 푸터 - 제외 요약 */}
+            {dmcaReport && dmcaReport.excluded_reasons && (
+              <div className="px-6 py-3 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                  <span className="font-semibold text-gray-700">
+                    제외된 URL: {dmcaReport.summary.excluded_urls}개
+                  </span>
+                  {dmcaReport.excluded_reasons.already_blocked > 0 && (
+                    <span>차단: {dmcaReport.excluded_reasons.already_blocked}</span>
+                  )}
+                  {dmcaReport.excluded_reasons.not_indexed > 0 && (
+                    <span>색인없음: {dmcaReport.excluded_reasons.not_indexed}</span>
+                  )}
+                  {dmcaReport.excluded_reasons.duplicate_rejected > 0 && (
+                    <span>중복거부: {dmcaReport.excluded_reasons.duplicate_rejected}</span>
+                  )}
+                  {dmcaReport.excluded_reasons.main_page > 0 && (
+                    <span>메인페이지: {dmcaReport.excluded_reasons.main_page}</span>
+                  )}
+                  {dmcaReport.excluded_reasons.excluded_url > 0 && (
+                    <span>제외URL: {dmcaReport.excluded_reasons.excluded_url}</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </MainLayout>
   );
 }

@@ -375,4 +375,11 @@ export const deepMonitoringApi = {
   },
 };
 
+export const dmcaReportApi = {
+  generate: async (sessionId: string) => {
+    const res = await api.post(`/api/sessions/${sessionId}/dmca-report/generate`);
+    return res.data;
+  },
+};
+
 export default api;

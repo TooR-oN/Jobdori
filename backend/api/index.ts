@@ -2555,6 +2555,154 @@ app.get('/api/sessions/:id/deep-monitoring/status', async (c) => {
 })
 
 // ============================================
+// API - DMCA Report Generator
+// ============================================
+
+const DMCA_DESCRIPTION_TEMPLATE = (titleName: string) =>
+  `${titleName} is a webtoon(comic, manga, etc.) owned and copyrighted by RIDI Corporation.\nThe whole webtoon is infringed on the pirate sites.`
+
+async function generateDmcaReport(sessionId: string) {
+  // 1. 세션 존재 확인
+  const session = await getSessionById(sessionId)
+  if (!session) throw new Error('Session not found')
+
+  // 2. excluded_urls 조회
+  const excludedRows = await query`SELECT url FROM excluded_urls`
+  const excludedUrls = new Set(excludedRows.map((r: any) => r.url))
+
+  // 3. report_tracking에서 전체 URL 조회
+  const allItems = await query`
+    SELECT id, url, domain, title, report_status, reason
+    FROM report_tracking
+    WHERE session_id = ${sessionId}
+    ORDER BY title ASC, domain ASC, url ASC
+  `
+
+  // 4. titles + manta_url 조회
+  const titlesRows = await query`
+    SELECT name, manta_url FROM titles WHERE is_current = true
+  `
+  const titleMantaMap = new Map<string, string | null>()
+  for (const t of titlesRows) {
+    titleMantaMap.set(t.name, t.manta_url || null)
+  }
+
+  // 5. 필터링
+  const excluded = { already_blocked: 0, not_indexed: 0, duplicate_rejected: 0, main_page: 0, excluded_url: 0 }
+  const includedItems: any[] = []
+
+  for (const item of allItems) {
+    // 제외: excluded_urls
+    if (excludedUrls.has(item.url)) { excluded.excluded_url++; continue }
+    // 제외: 차단
+    if (item.report_status === '차단') { excluded.already_blocked++; continue }
+    // 제외: 색인없음
+    if (item.report_status === '색인없음') { excluded.not_indexed++; continue }
+    // 제외: 중복 거부 (reason에 '중복' 키워드 포함)
+    if (item.report_status === '거부' && item.reason && item.reason.includes('중복')) {
+      excluded.duplicate_rejected++; continue
+    }
+    // 제외: 웹사이트 메인 페이지
+    if (item.reason === '웹사이트 메인 페이지') { excluded.main_page++; continue }
+
+    includedItems.push(item)
+  }
+
+  // 6. 작품별 그룹핑
+  const workMap = new Map<string, { urls: string[], manta_url: string | null }>()
+  for (const item of includedItems) {
+    const title = item.title || '(작품명 없음)'
+    if (!workMap.has(title)) {
+      workMap.set(title, {
+        urls: [],
+        manta_url: titleMantaMap.get(title) || null
+      })
+    }
+    workMap.get(title)!.urls.push(item.url)
+  }
+
+  // 7. works 배열 생성 (작품명 알파벳순)
+  const works = Array.from(workMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([title, data]) => ({
+      title,
+      manta_url: data.manta_url,
+      description: DMCA_DESCRIPTION_TEMPLATE(title),
+      urls: data.urls.sort(),
+      url_count: data.urls.length
+    }))
+
+  // 8. 텍스트 생성 (구글 폼용)
+  const fullTextParts: string[] = []
+  works.forEach((work, idx) => {
+    fullTextParts.push(`=== 작품 ${idx + 1}: ${work.title} ===`)
+    fullTextParts.push('')
+    fullTextParts.push('[저작물 설명]')
+    fullTextParts.push(work.description)
+    fullTextParts.push('')
+    fullTextParts.push('[공인된 저작물 URL]')
+    fullTextParts.push(work.manta_url || '(등록된 URL 없음)')
+    fullTextParts.push('')
+    fullTextParts.push(`[침해 URL 목록] (${work.url_count}개)`)
+    fullTextParts.push(work.urls.join('\n'))
+    fullTextParts.push('')
+    fullTextParts.push('========================================')
+    fullTextParts.push('')
+  })
+
+  // 9. TCRP 텍스트 생성
+  const tcrpParts: string[] = []
+  works.forEach((work) => {
+    const descLines = work.description.split('\n')
+    descLines.forEach(line => tcrpParts.push(`# ${line}`))
+    tcrpParts.push(`# ${work.manta_url || '(등록된 URL 없음)'}`)
+    work.urls.forEach(url => tcrpParts.push(url))
+    tcrpParts.push('')
+  })
+
+  return {
+    session_id: sessionId,
+    generated_at: new Date().toISOString(),
+    summary: {
+      total_titles: works.length,
+      total_urls: allItems.length,
+      excluded_urls: Object.values(excluded).reduce((a, b) => a + b, 0),
+      included_urls: includedItems.length
+    },
+    excluded_reasons: excluded,
+    works,
+    full_text: fullTextParts.join('\n').trim(),
+    tcrp_text: tcrpParts.join('\n').trim()
+  }
+}
+
+app.post('/api/sessions/:id/dmca-report/generate', async (c) => {
+  try {
+    await ensureDbMigration()
+    const sessionId = c.req.param('id')
+    const report = await generateDmcaReport(sessionId)
+
+    if (report.works.length === 0) {
+      return c.json({
+        success: true,
+        report: {
+          ...report,
+          message: '신고 대상 URL이 없습니다.'
+        }
+      })
+    }
+
+    return c.json({ success: true, report })
+  } catch (error: any) {
+    console.error('DMCA report generation error:', error)
+    if (error.message === 'Session not found') {
+      return c.json({ success: false, error: 'Session not found' }, 404)
+    }
+    return c.json({ success: false, error: error.message || '신고서 생성 실패' }, 500)
+  }
+})
+
+// ============================================
 // API - Dashboard
 // ============================================
 
