@@ -101,7 +101,7 @@ export default function SessionDetailPage() {
   const [dmcaReport, setDmcaReport] = useState<any>(null);
   const [dmcaError, setDmcaError] = useState<string | null>(null);
   const [dmcaCopyStates, setDmcaCopyStates] = useState<Record<string, boolean>>({});
-  const [dmcaExpandedWorks, setDmcaExpandedWorks] = useState<Set<number>>(new Set([0]));
+  const [dmcaExpandedWorks, setDmcaExpandedWorks] = useState<Set<number>>(new Set());
 
   // 타이틀 데이터 로드 (Manta URL 포함)
   useEffect(() => {
@@ -485,7 +485,7 @@ export default function SessionDetailPage() {
       const res = await dmcaReportApi.generate(sessionId);
       if (res.success) {
         setDmcaReport(res.report);
-        setDmcaExpandedWorks(new Set([0]));
+        setDmcaExpandedWorks(new Set(res.report.works.map((_: any, i: number) => i)));
       } else {
         setDmcaError(res.error || '신고서 생성에 실패했습니다.');
       }
