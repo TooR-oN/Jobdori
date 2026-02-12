@@ -1008,7 +1008,7 @@ async function recalculateFinalStatus(results: FinalResult[]): Promise<FinalResu
     } else if (r.llm_judgment === 'likely_illegal') {
       newFinalStatus = 'pending' // 아직 검토되지 않은 경우 pending
     } else if (r.llm_judgment === 'likely_legal') {
-      newFinalStatus = 'legal'
+      newFinalStatus = 'pending' // likely_legal도 승인 대기에서 처리 전까지 pending 유지
     } else {
       newFinalStatus = 'pending'
     }
