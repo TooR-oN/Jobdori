@@ -2581,7 +2581,7 @@ app.get('/api/sessions/:id/deep-monitoring/status', async (c) => {
 // ============================================
 
 const DMCA_DESCRIPTION_TEMPLATE = (titleName: string) =>
-  `${titleName} is a webtoon(comic, manga, etc.) owned and copyrighted by RIDI Corporation.\nThe whole webtoon is infringed on the pirate sites.`
+  `<${titleName}> is a webtoon(comic, manga, etc.) owned and copyrighted by RIDI Corporation.\nThe whole webtoon is infringed on the pirate sites.`
 
 async function generateDmcaReport(sessionId: string) {
   // 1. 세션 존재 확인
