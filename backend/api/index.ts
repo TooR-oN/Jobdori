@@ -254,8 +254,61 @@ async function ensureDbMigration() {
       if (!e.message?.includes('already exists')) console.error('Migration: sessions.deep_monitoring_new_urls error:', e.message)
     }
 
+    // domain_analysis_reports 테이블 생성 (월간 불법 도메인 분석 리포트)
+    await db`
+      CREATE TABLE IF NOT EXISTS domain_analysis_reports (
+        id SERIAL PRIMARY KEY,
+        analysis_month VARCHAR(7) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        manus_task_id VARCHAR(100),
+        total_domains INTEGER DEFAULT 0,
+        report_blob_url TEXT,
+        report_markdown TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        completed_at TIMESTAMP WITH TIME ZONE,
+        error_message TEXT,
+        UNIQUE(analysis_month)
+      )
+    `
+
+    // domain_analysis_results 테이블 생성 (도메인별 상세 트래픽 데이터)
+    await db`
+      CREATE TABLE IF NOT EXISTS domain_analysis_results (
+        id SERIAL PRIMARY KEY,
+        report_id INTEGER NOT NULL REFERENCES domain_analysis_reports(id) ON DELETE CASCADE,
+        rank INTEGER NOT NULL,
+        domain VARCHAR(255) NOT NULL,
+        threat_score DECIMAL(5,1) DEFAULT 0,
+        global_rank INTEGER,
+        country VARCHAR(100),
+        country_rank INTEGER,
+        category VARCHAR(255),
+        category_rank INTEGER,
+        total_visits BIGINT,
+        avg_visit_duration VARCHAR(20),
+        visits_change_mom DECIMAL(5,1),
+        rank_change_mom INTEGER,
+        total_backlinks BIGINT,
+        referring_domains INTEGER,
+        top_organic_keywords TEXT,
+        top_referring_domains TEXT,
+        top_anchors TEXT,
+        branded_traffic_ratio DECIMAL(5,1),
+        size_score DECIMAL(5,1),
+        growth_score DECIMAL(5,1),
+        influence_score DECIMAL(5,1),
+        recommendation TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE(report_id, domain)
+      )
+    `
+    await db`
+      CREATE INDEX IF NOT EXISTS idx_domain_analysis_results_report
+      ON domain_analysis_results(report_id, rank)
+    `
+
     dbMigrationDone = true
-    console.log('✅ DB migration completed (including report_tracking & deep_monitoring tables)')
+    console.log('✅ DB migration completed (including report_tracking, deep_monitoring & domain_analysis tables)')
   } catch (error) {
     console.error('DB migration error:', error)
   }
@@ -3099,6 +3152,111 @@ app.get('/api/stats/by-title', async (c) => {
 })
 
 // ============================================
+// API - Domain Stats (도메인별 통계)
+// ============================================
+
+// 도메인별 통계 조회 API
+// 발견: detection_results (final_status='illegal')
+// 신고/차단: report_tracking
+app.get('/api/stats/by-domain', async (c) => {
+  try {
+    await ensureDbMigration()
+    
+    // 기간 필터 파라미터 (YYYY-MM-DD)
+    const startDate = c.req.query('start_date')
+    const endDate = c.req.query('end_date')
+    
+    let stats
+    if (startDate && endDate) {
+      // 기간 필터: session_id에서 날짜 추출하여 필터링
+      stats = await query`
+        WITH detection_stats AS (
+          SELECT domain, COUNT(*) as discovered
+          FROM detection_results
+          WHERE final_status = 'illegal'
+            AND domain IS NOT NULL AND domain != ''
+            AND SUBSTRING(session_id, 1, 10) >= ${startDate}
+            AND SUBSTRING(session_id, 1, 10) <= ${endDate}
+          GROUP BY domain
+        ),
+        report_stats AS (
+          SELECT 
+            domain,
+            COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+            COUNT(*) FILTER (WHERE report_status = '차단') as blocked
+          FROM report_tracking
+          WHERE domain IS NOT NULL AND domain != ''
+            AND SUBSTRING(session_id, 1, 10) >= ${startDate}
+            AND SUBSTRING(session_id, 1, 10) <= ${endDate}
+          GROUP BY domain
+        )
+        SELECT 
+          d.domain,
+          d.discovered,
+          COALESCE(r.reported, 0) as reported,
+          COALESCE(r.blocked, 0) as blocked
+        FROM detection_stats d
+        LEFT JOIN report_stats r ON LOWER(d.domain) = LOWER(r.domain)
+        ORDER BY d.discovered DESC
+      `
+    } else {
+      // 전체 기간
+      stats = await query`
+        WITH detection_stats AS (
+          SELECT domain, COUNT(*) as discovered
+          FROM detection_results
+          WHERE final_status = 'illegal'
+            AND domain IS NOT NULL AND domain != ''
+          GROUP BY domain
+        ),
+        report_stats AS (
+          SELECT 
+            domain,
+            COUNT(*) FILTER (WHERE report_status != '미신고') as reported,
+            COUNT(*) FILTER (WHERE report_status = '차단') as blocked
+          FROM report_tracking
+          WHERE domain IS NOT NULL AND domain != ''
+          GROUP BY domain
+        )
+        SELECT 
+          d.domain,
+          d.discovered,
+          COALESCE(r.reported, 0) as reported,
+          COALESCE(r.blocked, 0) as blocked
+        FROM detection_stats d
+        LEFT JOIN report_stats r ON LOWER(d.domain) = LOWER(r.domain)
+        ORDER BY d.discovered DESC
+      `
+    }
+    
+    // 차단율 계산 및 결과 정리
+    const result = stats.map((s: any) => {
+      const discovered = parseInt(s.discovered) || 0
+      const reported = parseInt(s.reported) || 0
+      const blocked = parseInt(s.blocked) || 0
+      const blockRate = reported > 0 ? Math.round((blocked / reported) * 100 * 10) / 10 : 0
+      
+      return {
+        domain: s.domain,
+        discovered,
+        reported,
+        blocked,
+        blockRate
+      }
+    })
+    
+    return c.json({
+      success: true,
+      stats: result,
+      total: result.length
+    })
+  } catch (error) {
+    console.error('Domain stats error:', error)
+    return c.json({ success: false, error: 'Failed to load domain stats' }, 500)
+  }
+})
+
+// ============================================
 // API - Report Tracking (신고결과 추적)
 // ============================================
 
@@ -3649,6 +3807,516 @@ app.get('/api/report-tracking/:sessionId/export', async (c) => {
   } catch (error) {
     console.error('CSV export error:', error)
     return c.json({ success: false, error: 'Failed to export CSV' }, 500)
+  }
+})
+
+// ============================================
+// API - Domain Analysis (월간 불법 도메인 분석)
+// ============================================
+
+import {
+  buildAnalysisPrompt,
+  createAnalysisTask,
+  getAnalysisTaskStatus,
+  processManusResult,
+  type DomainAnalysisResult,
+  type ManusTaskStatus,
+} from '../scripts/domain-analysis.js'
+
+// 실행 중 상태 관리 (메모리, 중복 실행 방지)
+const domainAnalysisRunning: Record<string, boolean> = {}
+
+// POST /api/domain-analysis/run - 분석 실행
+app.post('/api/domain-analysis/run', async (c) => {
+  let currentStep = '[초기화]'
+  let month = ''
+
+  try {
+    currentStep = '[1/6 DB 마이그레이션]'
+    await ensureDbMigration()
+
+    currentStep = '[2/6 요청 파싱]'
+    const body = await c.req.json().catch(() => ({}))
+    const now = new Date()
+    month = body.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    console.log(`📋 ${currentStep} month: ${month}`)
+
+    // 중복 실행 방지
+    if (domainAnalysisRunning[month]) {
+      return c.json({ success: false, error: `${currentStep} 이미 해당 월(${month})의 분석이 실행 중입니다.` }, 409)
+    }
+
+    // 기존 완료된 보고서 확인
+    currentStep = '[3/6 기존 리포트 확인]'
+    const existing = await query`
+      SELECT id, status FROM domain_analysis_reports WHERE analysis_month = ${month}
+    `
+    if (existing.length > 0 && existing[0].status === 'completed') {
+      return c.json({ success: false, error: `${currentStep} 해당 월(${month})의 분석이 이미 완료되었습니다. 재실행하려면 rerun API를 사용하세요.` }, 409)
+    }
+    if (existing.length > 0 && existing[0].status === 'running') {
+      return c.json({ success: false, error: `${currentStep} 해당 월(${month})의 분석이 이미 실행 중입니다.` }, 409)
+    }
+    console.log(`✅ ${currentStep} 기존 리포트: ${existing.length > 0 ? `ID ${existing[0].id} (${existing[0].status})` : '없음'}`)
+
+    // 상위 50개 불법 도메인 조회 (전체 기간 기준 발견 수)
+    currentStep = '[4/6 불법 도메인 조회]'
+    const topDomains = await query`
+      SELECT domain, COUNT(*) as discovered
+      FROM detection_results
+      WHERE final_status = 'illegal'
+        AND domain IS NOT NULL AND domain != ''
+      GROUP BY domain
+      ORDER BY discovered DESC
+      LIMIT 50
+    `
+
+    if (topDomains.length === 0) {
+      return c.json({ success: false, error: `${currentStep} 분석할 불법 도메인이 없습니다. detection_results 테이블에 illegal 상태의 결과가 있는지 확인하세요.` }, 400)
+    }
+    console.log(`✅ ${currentStep} ${topDomains.length}개 도메인 조회 완료`)
+
+    const domainList = topDomains.map((d: any) => d.domain)
+
+    // 전월 데이터 조회
+    const [prevYear, prevMonth] = month.split('-').map(Number)
+    const prevMonthStr = prevMonth === 1
+      ? `${prevYear - 1}-12`
+      : `${prevYear}-${String(prevMonth - 1).padStart(2, '0')}`
+
+    const prevReport = await query`
+      SELECT id FROM domain_analysis_reports 
+      WHERE analysis_month = ${prevMonthStr} AND status = 'completed'
+    `
+    let previousData: DomainAnalysisResult[] | null = null
+    if (prevReport.length > 0) {
+      const prevResults = await query`
+        SELECT * FROM domain_analysis_results WHERE report_id = ${prevReport[0].id} ORDER BY rank
+      `
+      if (prevResults.length > 0) {
+        previousData = prevResults.map((r: any) => ({
+          rank: r.rank,
+          site_url: r.domain,
+          threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
+          global_rank: r.global_rank,
+          country: r.country,
+          country_rank: r.country_rank,
+          category: r.category,
+          category_rank: r.category_rank,
+          total_visits: r.total_visits ? parseInt(r.total_visits) : null,
+          avg_visit_duration: r.avg_visit_duration,
+          visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
+          rank_change_mom: r.rank_change_mom,
+          total_backlinks: r.total_backlinks ? parseInt(r.total_backlinks) : null,
+          referring_domains: r.referring_domains,
+          top_organic_keywords: r.top_organic_keywords ? JSON.parse(r.top_organic_keywords) : null,
+          top_referring_domains: r.top_referring_domains ? JSON.parse(r.top_referring_domains) : null,
+          top_anchors: r.top_anchors ? JSON.parse(r.top_anchors) : null,
+          branded_traffic_ratio: r.branded_traffic_ratio ? parseFloat(r.branded_traffic_ratio) : null,
+          size_score: r.size_score ? parseFloat(r.size_score) : null,
+          growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
+          influence_score: r.influence_score ? parseFloat(r.influence_score) : null,
+          recommendation: r.recommendation,
+        }))
+      }
+    }
+    console.log(`✅ ${currentStep} 전월(${prevMonthStr}) 데이터: ${previousData ? previousData.length + '건' : '없음'}`)
+
+    // 프롬프트 생성
+    currentStep = '[5/6 Manus Task 생성]'
+    const prompt = buildAnalysisPrompt(domainList, previousData)
+    console.log(`📋 ${currentStep} 프롬프트 생성 완료 (${prompt.length}자), Manus API 호출 중...`)
+
+    // Manus Task 생성
+    const task = await createAnalysisTask(prompt)
+    if (!task) {
+      return c.json({ success: false, error: `${currentStep} Manus Task 생성 실패 — MANUS_API_KEY가 설정되지 않았거나 Manus API가 응답하지 않습니다. 환경변수를 확인하세요.` }, 500)
+    }
+    console.log(`✅ ${currentStep} task_id: ${task.task_id}`)
+
+    // DB에 리포트 레코드 생성/업데이트
+    currentStep = '[6/6 DB 리포트 저장]'
+    let reportId: number
+    if (existing.length > 0) {
+      // failed 상태 레코드 업데이트
+      await query`
+        UPDATE domain_analysis_reports SET
+          status = 'running',
+          manus_task_id = ${task.task_id},
+          total_domains = ${domainList.length},
+          error_message = NULL,
+          created_at = NOW()
+        WHERE analysis_month = ${month}
+      `
+      reportId = existing[0].id
+    } else {
+      const inserted = await query`
+        INSERT INTO domain_analysis_reports (analysis_month, status, manus_task_id, total_domains)
+        VALUES (${month}, 'running', ${task.task_id}, ${domainList.length})
+        RETURNING id
+      `
+      reportId = inserted[0].id
+    }
+
+    domainAnalysisRunning[month] = true
+    console.log(`✅ ${currentStep} report_id: ${reportId}, 분석 시작`)
+
+    return c.json({
+      success: true,
+      data: {
+        report_id: reportId,
+        analysis_month: month,
+        status: 'running',
+        manus_task_id: task.task_id,
+        total_domains: domainList.length,
+      }
+    })
+  } catch (error: any) {
+    const errMsg = `${currentStep} 예기치 않은 오류: ${error.message || error}`
+    console.error(`❌ Domain analysis run error at ${currentStep}:`, error)
+    if (month) domainAnalysisRunning[month] = false
+    return c.json({ success: false, error: errMsg }, 500)
+  }
+})
+
+// GET /api/domain-analysis/status/:month - 상태 조회 (폴링용)
+app.get('/api/domain-analysis/status/:month', async (c) => {
+  try {
+    await ensureDbMigration()
+    const month = c.req.param('month')
+
+    const reports = await query`
+      SELECT * FROM domain_analysis_reports WHERE analysis_month = ${month}
+    `
+    if (reports.length === 0) {
+      return c.json({ success: true, data: null })
+    }
+
+    const report = reports[0]
+    let manusStatus: string | null = null
+
+    // running 상태이면 Manus에서 실시간 상태 확인
+    if (report.status === 'running' && report.manus_task_id) {
+      const taskStatus = await getAnalysisTaskStatus(report.manus_task_id)
+      if (taskStatus) {
+        manusStatus = taskStatus.status
+
+        // Manus가 완료/실패 시 DB 업데이트
+        if (taskStatus.status === 'completed') {
+          // 결과 파싱 후 DB 저장은 process-result API에서 처리
+          manusStatus = 'completed'
+        } else if (taskStatus.status === 'failed') {
+          await query`
+            UPDATE domain_analysis_reports SET
+              status = 'failed',
+              error_message = ${taskStatus.error || 'Manus Task 실패'},
+              completed_at = NOW()
+            WHERE id = ${report.id}
+          `
+          domainAnalysisRunning[month] = false
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        report_id: report.id,
+        analysis_month: report.analysis_month,
+        status: report.status,
+        manus_task_id: report.manus_task_id,
+        manus_status: manusStatus,
+        total_domains: report.total_domains,
+        created_at: report.created_at,
+        completed_at: report.completed_at,
+        error_message: report.error_message,
+      }
+    })
+  } catch (error: any) {
+    console.error('Domain analysis status error:', error)
+    return c.json({ success: false, error: `[상태 조회] 오류: ${error.message || error}` }, 500)
+  }
+})
+
+// POST /api/domain-analysis/process-result - Manus 완료 후 결과 파싱/저장
+app.post('/api/domain-analysis/process-result', async (c) => {
+  let currentStep = '[초기화]'
+  let month = ''
+  let reportId: number | null = null
+
+  try {
+    await ensureDbMigration()
+    currentStep = '[요청 파싱]'
+    const body = await c.req.json().catch(() => ({}))
+    month = body.month
+
+    if (!month) {
+      return c.json({ success: false, error: `${currentStep} month 파라미터가 필요합니다.` }, 400)
+    }
+
+    currentStep = '[DB 리포트 조회]'
+    const reports = await query`
+      SELECT * FROM domain_analysis_reports WHERE analysis_month = ${month}
+    `
+    if (reports.length === 0) {
+      return c.json({ success: false, error: `${currentStep} 해당 월(${month})의 리포트가 없습니다.` }, 404)
+    }
+
+    const report = reports[0]
+    reportId = report.id
+    if (!report.manus_task_id) {
+      return c.json({ success: false, error: `${currentStep} Manus Task ID가 없습니다. (report_id: ${report.id})` }, 400)
+    }
+
+    // Step 1: Manus Task 상태 확인
+    currentStep = '[1/5 Manus 상태 조회]'
+    console.log(`📋 ${currentStep} task_id: ${report.manus_task_id}`)
+    const taskStatus = await getAnalysisTaskStatus(report.manus_task_id)
+    if (!taskStatus) {
+      const errMsg = `${currentStep} Manus API 응답 없음 (task_id: ${report.manus_task_id}). API_KEY 또는 네트워크를 확인하세요.`
+      await query`UPDATE domain_analysis_reports SET status = 'failed', error_message = ${errMsg}, completed_at = NOW() WHERE id = ${report.id}`
+      domainAnalysisRunning[month] = false
+      return c.json({ success: false, error: errMsg }, 500)
+    }
+    if (taskStatus.status !== 'completed') {
+      return c.json({ 
+        success: false, 
+        error: `${currentStep} Manus Task 미완료 (상태: ${taskStatus.status}, task_id: ${report.manus_task_id})` 
+      }, 400)
+    }
+
+    // Step 2: Manus 응답 파싱
+    currentStep = '[2/5 Manus 응답 파싱]'
+    console.log(`📋 ${currentStep} output messages: ${taskStatus.output?.length || 0}개`)
+    const { priorityList, reportMarkdown } = await processManusResult(taskStatus.output || [])
+
+    if (priorityList.length === 0) {
+      const errMsg = `${currentStep} priority_list를 파싱할 수 없습니다. Manus 출력 메시지 ${taskStatus.output?.length || 0}개를 확인했으나 유효한 JSON 배열을 찾지 못했습니다. Manus 콘솔에서 task_id: ${report.manus_task_id}의 출력을 확인하세요.`
+      await query`UPDATE domain_analysis_reports SET status = 'failed', error_message = ${errMsg}, completed_at = NOW() WHERE id = ${report.id}`
+      domainAnalysisRunning[month] = false
+      return c.json({ success: false, error: errMsg }, 500)
+    }
+    console.log(`✅ ${currentStep} priority_list: ${priorityList.length}개, report: ${reportMarkdown ? reportMarkdown.length + '자' : '없음'}`)
+
+    // Step 3: 기존 결과 삭제 + DB 저장
+    currentStep = '[3/5 DB 결과 저장]'
+    console.log(`📋 ${currentStep} ${priorityList.length}건 INSERT 시작`)
+    await query`DELETE FROM domain_analysis_results WHERE report_id = ${report.id}`
+
+    let savedCount = 0
+    for (const item of priorityList) {
+      try {
+        await query`
+          INSERT INTO domain_analysis_results (
+            report_id, rank, domain, threat_score,
+            global_rank, country, country_rank, category, category_rank,
+            total_visits, avg_visit_duration, visits_change_mom, rank_change_mom,
+            total_backlinks, referring_domains, top_organic_keywords,
+            top_referring_domains, top_anchors, branded_traffic_ratio,
+            size_score, growth_score, influence_score, recommendation
+          ) VALUES (
+            ${report.id}, ${item.rank}, ${item.site_url}, ${item.threat_score},
+            ${item.global_rank}, ${item.country}, ${item.country_rank}, ${item.category}, ${item.category_rank},
+            ${item.total_visits}, ${item.avg_visit_duration}, ${item.visits_change_mom}, ${item.rank_change_mom},
+            ${item.total_backlinks}, ${item.referring_domains}, 
+            ${item.top_organic_keywords ? JSON.stringify(item.top_organic_keywords) : null},
+            ${item.top_referring_domains ? JSON.stringify(item.top_referring_domains) : null},
+            ${item.top_anchors ? JSON.stringify(item.top_anchors) : null},
+            ${item.branded_traffic_ratio},
+            ${item.size_score}, ${item.growth_score}, ${item.influence_score}, ${item.recommendation}
+          )
+        `
+        savedCount++
+      } catch (insertErr: any) {
+        console.error(`⚠️ ${currentStep} INSERT 실패 (rank: ${item.rank}, domain: ${item.site_url}):`, insertErr.message)
+        // 개별 INSERT 실패는 건너뛰고 계속 진행
+      }
+    }
+    console.log(`✅ ${currentStep} ${savedCount}/${priorityList.length}건 저장 완료`)
+
+    if (savedCount === 0) {
+      const errMsg = `${currentStep} 모든 결과 INSERT가 실패했습니다. DB 스키마를 확인하세요.`
+      await query`UPDATE domain_analysis_reports SET status = 'failed', error_message = ${errMsg}, completed_at = NOW() WHERE id = ${report.id}`
+      domainAnalysisRunning[month] = false
+      return c.json({ success: false, error: errMsg }, 500)
+    }
+
+    // Step 4: 보고서 마크다운 저장
+    currentStep = '[4/5 보고서 저장]'
+    let reportBlobUrl: string | null = null
+    if (reportMarkdown) {
+      try {
+        const { put } = await import('@vercel/blob')
+        const blob = await put(
+          `domain-analysis/${month}/report.md`,
+          reportMarkdown,
+          { access: 'public', addRandomSuffix: false }
+        )
+        reportBlobUrl = blob.url
+        console.log(`✅ ${currentStep} Blob 업로드: ${reportBlobUrl}`)
+      } catch (blobError: any) {
+        console.warn(`⚠️ ${currentStep} Blob 업로드 실패 (DB 백업으로 대체): ${blobError.message}`)
+        // Blob 실패는 치명적이지 않음 — DB에 마크다운 백업 저장
+      }
+    } else {
+      console.warn(`⚠️ ${currentStep} Manus가 보고서 마크다운을 생성하지 않았습니다.`)
+    }
+
+    // Step 5: 리포트 상태 업데이트
+    currentStep = '[5/5 리포트 완료 처리]'
+    await query`
+      UPDATE domain_analysis_reports SET
+        status = 'completed',
+        report_blob_url = ${reportBlobUrl},
+        report_markdown = ${reportMarkdown || null},
+        completed_at = NOW(),
+        error_message = NULL
+      WHERE id = ${report.id}
+    `
+
+    domainAnalysisRunning[month] = false
+    console.log(`✅ ${currentStep} 월간 도메인 분석 완료 (${month}, ${savedCount}건)`)
+
+    return c.json({
+      success: true,
+      data: {
+        report_id: report.id,
+        results_count: savedCount,
+        total_parsed: priorityList.length,
+        has_report: !!reportMarkdown,
+        report_blob_url: reportBlobUrl,
+      }
+    })
+  } catch (error: any) {
+    const errMsg = `${currentStep} 예기치 않은 오류: ${error.message || error}`
+    console.error(`❌ Domain analysis process-result error at ${currentStep}:`, error)
+    // DB에 에러 기록 시도
+    if (month && reportId) {
+      try {
+        await query`UPDATE domain_analysis_reports SET status = 'failed', error_message = ${errMsg}, completed_at = NOW() WHERE id = ${reportId}`
+      } catch { /* 무시 */ }
+    }
+    if (month) domainAnalysisRunning[month] = false
+    return c.json({ success: false, error: errMsg }, 500)
+  }
+})
+
+// GET /api/domain-analysis/months - 사용 가능한 월 목록
+app.get('/api/domain-analysis/months', async (c) => {
+  try {
+    await ensureDbMigration()
+    const reports = await query`
+      SELECT analysis_month, status FROM domain_analysis_reports
+      ORDER BY analysis_month DESC
+    `
+    return c.json({
+      success: true,
+      months: reports.map((r: any) => ({
+        month: r.analysis_month,
+        status: r.status,
+      }))
+    })
+  } catch (error) {
+    console.error('Domain analysis months error:', error)
+    return c.json({ success: false, error: 'Failed to get months' }, 500)
+  }
+})
+
+// GET /api/domain-analysis/:month - 분석 결과 조회
+app.get('/api/domain-analysis/:month', async (c) => {
+  try {
+    await ensureDbMigration()
+    const month = c.req.param('month')
+
+    // month 형식 검증 (YYYY-MM)
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return c.json({ success: false, error: '월 형식이 올바르지 않습니다. (YYYY-MM)' }, 400)
+    }
+
+    const reports = await query`
+      SELECT * FROM domain_analysis_reports WHERE analysis_month = ${month}
+    `
+    if (reports.length === 0) {
+      return c.json({ success: true, data: null })
+    }
+
+    const report = reports[0]
+    let results: any[] = []
+    if (report.status === 'completed') {
+      results = await query`
+        SELECT * FROM domain_analysis_results 
+        WHERE report_id = ${report.id} 
+        ORDER BY rank ASC
+      `
+      // JSON 문자열 필드를 배열로 파싱
+      results = results.map((r: any) => ({
+        ...r,
+        threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
+        visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
+        total_visits: r.total_visits ? parseInt(r.total_visits) : null,
+        total_backlinks: r.total_backlinks ? parseInt(r.total_backlinks) : null,
+        branded_traffic_ratio: r.branded_traffic_ratio ? parseFloat(r.branded_traffic_ratio) : null,
+        size_score: r.size_score ? parseFloat(r.size_score) : null,
+        growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
+        influence_score: r.influence_score ? parseFloat(r.influence_score) : null,
+        top_organic_keywords: r.top_organic_keywords ? JSON.parse(r.top_organic_keywords) : null,
+        top_referring_domains: r.top_referring_domains ? JSON.parse(r.top_referring_domains) : null,
+        top_anchors: r.top_anchors ? JSON.parse(r.top_anchors) : null,
+      }))
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        report: {
+          id: report.id,
+          analysis_month: report.analysis_month,
+          status: report.status,
+          total_domains: report.total_domains,
+          report_blob_url: report.report_blob_url,
+          report_markdown: report.report_markdown,
+          created_at: report.created_at,
+          completed_at: report.completed_at,
+          error_message: report.error_message,
+        },
+        results,
+      }
+    })
+  } catch (error) {
+    console.error('Domain analysis result error:', error)
+    return c.json({ success: false, error: 'Failed to get analysis result' }, 500)
+  }
+})
+
+// POST /api/domain-analysis/rerun - 재실행
+app.post('/api/domain-analysis/rerun', async (c) => {
+  try {
+    await ensureDbMigration()
+    const body = await c.req.json().catch(() => ({}))
+    const month = body.month
+
+    if (!month) {
+      return c.json({ success: false, error: 'month 파라미터가 필요합니다.' }, 400)
+    }
+
+    // 기존 보고서를 failed로 변경하여 재실행 가능하게
+    await query`
+      UPDATE domain_analysis_reports SET status = 'failed', error_message = '사용자 재실행 요청'
+      WHERE analysis_month = ${month}
+    `
+
+    domainAnalysisRunning[month] = false
+
+    // run API로 위임 (body에 month 포함)
+    // 직접 같은 로직 호출 대신 클라이언트가 run을 다시 호출하도록 안내
+    return c.json({
+      success: true,
+      message: '재실행 준비 완료. /api/domain-analysis/run을 호출하세요.',
+      month,
+    })
+  } catch (error) {
+    console.error('Domain analysis rerun error:', error)
+    return c.json({ success: false, error: 'Failed to prepare rerun' }, 500)
   }
 })
 

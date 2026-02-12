@@ -230,6 +230,10 @@ export const statsApi = {
     const res = await api.get('/api/stats/by-title', { params: { start_date: startDate, end_date: endDate } });
     return res.data;
   },
+  byDomain: async (startDate?: string, endDate?: string) => {
+    const res = await api.get('/api/stats/by-domain', { params: { start_date: startDate, end_date: endDate } });
+    return res.data;
+  },
 };
 
 // ============================================
@@ -378,6 +382,48 @@ export const deepMonitoringApi = {
 export const dmcaReportApi = {
   generate: async (sessionId: string) => {
     const res = await api.post(`/api/sessions/${sessionId}/dmca-report/generate`);
+    return res.data;
+  },
+};
+
+// ============================================
+// Domain Analysis API (월간 불법 도메인 분석)
+// ============================================
+
+export const domainAnalysisApi = {
+  // 분석 실행
+  run: async (month?: string) => {
+    const res = await api.post('/api/domain-analysis/run', { month });
+    return res.data;
+  },
+
+  // 상태 조회 (폴링용)
+  getStatus: async (month: string) => {
+    const res = await api.get(`/api/domain-analysis/status/${month}`);
+    return res.data;
+  },
+
+  // 결과 처리 (Manus 완료 후)
+  processResult: async (month: string) => {
+    const res = await api.post('/api/domain-analysis/process-result', { month });
+    return res.data;
+  },
+
+  // 월 목록 조회
+  getMonths: async () => {
+    const res = await api.get('/api/domain-analysis/months');
+    return res.data;
+  },
+
+  // 분석 결과 조회
+  getResult: async (month: string) => {
+    const res = await api.get(`/api/domain-analysis/${month}`);
+    return res.data;
+  },
+
+  // 재실행
+  rerun: async (month: string) => {
+    const res = await api.post('/api/domain-analysis/rerun', { month });
     return res.data;
   },
 };

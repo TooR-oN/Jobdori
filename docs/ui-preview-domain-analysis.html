@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jobdori - 월간 불법 도메인 분석 UI Preview</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; }
+    .sidebar-item { transition: all 0.15s; }
+    .sidebar-item:hover { background: #f1f5f9; }
+    .sidebar-item.active { background: #eff6ff; color: #2563eb; border-left: 4px solid #2563eb; }
+    .threat-high { background: #fef2f2; color: #dc2626; }
+    .threat-mid { background: #fffbeb; color: #d97706; }
+    .threat-low { background: #f0fdf4; color: #16a34a; }
+    .change-up { color: #dc2626; }
+    .change-down { color: #16a34a; }
+    .rank-up { color: #16a34a; }
+    .rank-down { color: #dc2626; }
+    .tooltip { position: relative; }
+    .tooltip .tooltip-text { visibility: hidden; position: absolute; z-index: 50; bottom: 125%; left: 50%; transform: translateX(-50%); background: #1f2937; color: white; padding: 8px 12px; border-radius: 8px; font-size: 12px; white-space: nowrap; max-width: 300px; white-space: normal; }
+    .tooltip:hover .tooltip-text { visibility: visible; }
+    .report-modal { display: none; }
+    .report-modal.show { display: flex; }
+    table th { position: sticky; top: 0; z-index: 10; }
+  </style>
+</head>
+<body class="bg-gray-50">
+<div class="flex h-screen">
+
+  <!-- Sidebar -->
+  <aside class="w-64 bg-white border-r border-gray-200 flex flex-col h-screen fixed left-0 top-0 overflow-y-auto">
+    <div class="p-6 border-b border-gray-100">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl font-bold text-[#1E9EF4]">RIDI</span>
+        <span class="text-2xl font-bold text-gray-800">Jobdori</span>
+      </div>
+      <p class="text-xs text-gray-500 mt-1">리디 저작권 침해 모니터링</p>
+    </div>
+    <nav class="flex-1 py-4">
+      <div class="space-y-1">
+        <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm text-gray-600 mx-2 rounded-lg">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+          대시보드
+        </a>
+        <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm text-gray-600 mx-2 rounded-lg">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
+          모니터링 작품 관리
+        </a>
+        <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm text-gray-600 mx-2 rounded-lg">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>
+          모니터링 회차
+        </a>
+
+        <!-- 통계 (expanded) -->
+        <div>
+          <div class="flex items-center justify-between px-4 py-3 text-sm text-gray-600 mx-2 rounded-lg cursor-pointer hover:bg-gray-50">
+            <div class="flex items-center gap-3">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z"/></svg>
+              <span>통계</span>
+            </div>
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="ml-4 space-y-1">
+            <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-2 text-xs text-gray-600 mx-2 rounded-lg">작품별 신고/차단 통계</a>
+            <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-2 text-xs text-gray-600 mx-2 rounded-lg">도메인별 신고/차단 통계</a>
+            <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-2 text-xs text-gray-600 mx-2 rounded-lg">Manta 순위 변화</a>
+          </div>
+        </div>
+
+        <!-- Active: 월간 불법 도메인 분석 -->
+        <a href="#" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-sm font-medium mx-2 rounded-lg">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+          월간 불법 도메인 분석
+        </a>
+
+        <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-sm text-gray-600 mx-2 rounded-lg">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418"/></svg>
+          사이트 목록
+        </a>
+      </div>
+    </nav>
+    <div class="border-t border-gray-200 p-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+          <span class="text-blue-600 font-medium text-sm">A</span>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-gray-800">admin</p>
+          <p class="text-xs text-gray-500">Admin</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="flex-1 ml-64 overflow-y-auto">
+    <div class="p-8">
+      <!-- Page Header -->
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-bold text-gray-800">월간 불법 도메인 분석</h1>
+      </div>
+
+      <!-- Controls Bar -->
+      <div class="mb-6 bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <!-- Month Selector -->
+          <div class="flex items-center gap-2">
+            <label class="text-sm text-gray-600 font-medium">분석 월:</label>
+            <select class="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" id="monthSelect">
+              <option value="2026-02" selected>2026년 2월</option>
+              <option value="2026-01">2026년 1월</option>
+            </select>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex items-center gap-2 ml-auto">
+            <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm flex items-center gap-2" id="runBtn" style="display:none;">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728m-9.9-2.829a5 5 0 010-7.07m7.072 0a5 5 0 010 7.07M12 12h.008v.008H12V12z"/></svg>
+              분석 실행
+            </button>
+            <button class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm flex items-center gap-2" onclick="toggleReport()">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+              보고서 보기
+            </button>
+            <button class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition text-sm flex items-center gap-2" onclick="downloadReport()">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+              보고서 다운로드
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status Badge -->
+      <div class="mb-4 flex items-center gap-3">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-700">
+          <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+          분석 완료
+        </span>
+        <span class="text-sm text-gray-500">2026-02-12 완료 | 50개 도메인 분석 | 데이터 기준: 2026년 1월</span>
+      </div>
+
+      <!-- Priority Table -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-gray-800">대응 우선순위 테이블</h2>
+          <span class="text-sm text-gray-500">50개 사이트</span>
+        </div>
+        <div class="overflow-x-auto" style="max-height: 700px; overflow-y: auto;">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th class="px-3 py-3 text-center font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">순위</th>
+                <th class="px-3 py-3 text-left font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">도메인</th>
+                <th class="px-3 py-3 text-center font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">위협 점수</th>
+                <th class="px-3 py-3 text-right font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">글로벌 순위</th>
+                <th class="px-3 py-3 text-right font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">월간 방문수</th>
+                <th class="px-3 py-3 text-center font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">국가</th>
+                <th class="px-3 py-3 text-center font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">카테고리</th>
+                <th class="px-3 py-3 text-center font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">체류시간</th>
+                <th class="px-3 py-3 text-right font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">백링크</th>
+                <th class="px-3 py-3 text-right font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">참조 도메인</th>
+                <th class="px-3 py-3 text-left font-semibold text-gray-600 bg-gray-50 whitespace-nowrap">핵심 키워드</th>
+                <th class="px-3 py-3 text-left font-semibold text-gray-600 bg-gray-50 whitespace-nowrap min-w-[200px]">제언</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <!-- Row 1 -->
+              <tr class="hover:bg-gray-50">
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">1</span>
+                </td>
+                <td class="px-3 py-3 font-medium text-gray-800 whitespace-nowrap">mangakakalot.com</td>
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold threat-high">95.0</span>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">#1,234</div>
+                  <div class="text-xs rank-up">▲ 56</div>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">45.2M</div>
+                  <div class="text-xs change-up">+120.5%</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800">US</div>
+                  <div class="text-xs text-gray-500">#567</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800 tooltip" style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Animation
+                    <span class="tooltip-text">Arts & Entertainment > Animation & Comics (#12)</span>
+                  </div>
+                  <div class="text-xs text-gray-500">#12</div>
+                </td>
+                <td class="px-3 py-3 text-center text-gray-700">03:45</td>
+                <td class="px-3 py-3 text-right text-gray-700">150K</td>
+                <td class="px-3 py-3 text-right text-gray-700">8,500</td>
+                <td class="px-3 py-3">
+                  <div class="flex flex-wrap gap-1">
+                    <span class="inline-block px-1.5 py-0.5 bg-red-50 text-red-600 text-xs rounded">read manga</span>
+                    <span class="inline-block px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">+4</span>
+                  </div>
+                </td>
+                <td class="px-3 py-3">
+                  <div class="text-xs text-gray-700 tooltip" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    즉시 대응: 트래픽 폭증, 특정 작품 핵심 유포지
+                    <span class="tooltip-text">즉시 대응: 트래픽 폭증, 특정 작품 핵심 유포지. 백링크가 광범위하며 커뮤니티를 통한 확산이 활발합니다.</span>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 2 -->
+              <tr class="hover:bg-gray-50">
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold bg-gray-200 text-gray-700">2</span>
+                </td>
+                <td class="px-3 py-3 font-medium text-gray-800 whitespace-nowrap">mangadex.org</td>
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold threat-high">88.0</span>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">#2,456</div>
+                  <div class="text-xs rank-up">▲ 12</div>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">25.1M</div>
+                  <div class="text-xs change-up">+15.3%</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800">US</div>
+                  <div class="text-xs text-gray-500">#1,200</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800 tooltip" style="max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Comics
+                    <span class="tooltip-text">Arts & Entertainment > Comics (#5)</span>
+                  </div>
+                  <div class="text-xs text-gray-500">#5</div>
+                </td>
+                <td class="px-3 py-3 text-center text-gray-700">05:12</td>
+                <td class="px-3 py-3 text-right text-gray-700">1.2M</td>
+                <td class="px-3 py-3 text-right text-gray-700">12,100</td>
+                <td class="px-3 py-3">
+                  <div class="flex flex-wrap gap-1">
+                    <span class="inline-block px-1.5 py-0.5 bg-red-50 text-red-600 text-xs rounded">manga raw</span>
+                    <span class="inline-block px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">+4</span>
+                  </div>
+                </td>
+                <td class="px-3 py-3">
+                  <div class="text-xs text-gray-700 tooltip" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    지속 압박: 규모 1위, 꾸준한 성장세 유지
+                    <span class="tooltip-text">지속 압박: 규모 1위, 꾸준한 성장세 유지. 커뮤니티 기반 강력, 법적 대응 병행 필요.</span>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 3 -->
+              <tr class="hover:bg-gray-50">
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold bg-orange-100 text-orange-700">3</span>
+                </td>
+                <td class="px-3 py-3 font-medium text-gray-800 whitespace-nowrap">newtoki.com</td>
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold threat-high">82.5</span>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">#5,890</div>
+                  <div class="text-xs rank-down">▼ 230</div>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">18.7M</div>
+                  <div class="text-xs change-up">+85.2%</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800">KR</div>
+                  <div class="text-xs text-gray-500">#89</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800">Comics</div>
+                  <div class="text-xs text-gray-500">#3</div>
+                </td>
+                <td class="px-3 py-3 text-center text-gray-700">04:30</td>
+                <td class="px-3 py-3 text-right text-gray-700">89K</td>
+                <td class="px-3 py-3 text-right text-gray-700">4,200</td>
+                <td class="px-3 py-3">
+                  <div class="flex flex-wrap gap-1">
+                    <span class="inline-block px-1.5 py-0.5 bg-red-50 text-red-600 text-xs rounded">웹툰 무료</span>
+                    <span class="inline-block px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">+4</span>
+                  </div>
+                </td>
+                <td class="px-3 py-3">
+                  <div class="text-xs text-gray-700 tooltip" style="max-width:200px;">
+                    확산 차단: 백링크 급증, 타 커뮤니티로 확산 중
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Row 4 - mid threat -->
+              <tr class="hover:bg-gray-50">
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold bg-gray-100 text-gray-600">4</span>
+                </td>
+                <td class="px-3 py-3 font-medium text-gray-800 whitespace-nowrap">toonkor.com</td>
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold threat-mid">65.0</span>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">#12,340</div>
+                  <div class="text-xs rank-up">▲ 890</div>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">8.5M</div>
+                  <div class="text-xs change-up">+42.1%</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800">KR</div>
+                  <div class="text-xs text-gray-500">#245</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800">Webtoon</div>
+                  <div class="text-xs text-gray-500">#8</div>
+                </td>
+                <td class="px-3 py-3 text-center text-gray-700">03:15</td>
+                <td class="px-3 py-3 text-right text-gray-700">45K</td>
+                <td class="px-3 py-3 text-right text-gray-700">2,100</td>
+                <td class="px-3 py-3">
+                  <div class="flex flex-wrap gap-1">
+                    <span class="inline-block px-1.5 py-0.5 bg-red-50 text-red-600 text-xs rounded">무료 웹툰</span>
+                    <span class="inline-block px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">+4</span>
+                  </div>
+                </td>
+                <td class="px-3 py-3">
+                  <div class="text-xs text-gray-700">주의 관찰: 급성장 중, 다음 달 재평가</div>
+                </td>
+              </tr>
+
+              <!-- Row 5 - low threat -->
+              <tr class="hover:bg-gray-50">
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold bg-gray-100 text-gray-600">5</span>
+                </td>
+                <td class="px-3 py-3 font-medium text-gray-800 whitespace-nowrap">kunmanga.com</td>
+                <td class="px-3 py-3 text-center">
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold threat-low">32.0</span>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">#156,000</div>
+                  <div class="text-xs text-gray-400">N/A</div>
+                </td>
+                <td class="px-3 py-3 text-right">
+                  <div class="font-medium text-gray-800">0.5M</div>
+                  <div class="text-xs change-down">-30.2%</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800">JP</div>
+                  <div class="text-xs text-gray-500">#45,000</div>
+                </td>
+                <td class="px-3 py-3 text-center">
+                  <div class="text-xs text-gray-800">Manga</div>
+                  <div class="text-xs text-gray-500">#120</div>
+                </td>
+                <td class="px-3 py-3 text-center text-gray-700">02:10</td>
+                <td class="px-3 py-3 text-right text-gray-700">1.2K</td>
+                <td class="px-3 py-3 text-right text-gray-700">320</td>
+                <td class="px-3 py-3">
+                  <div class="flex flex-wrap gap-1">
+                    <span class="inline-block px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">만화C</span>
+                    <span class="inline-block px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">+4</span>
+                  </div>
+                </td>
+                <td class="px-3 py-3">
+                  <div class="text-xs text-gray-700">순위 관찰: 트래픽 감소, 우선 순위 낮음</div>
+                </td>
+              </tr>
+
+              <!-- ... More rows indicator -->
+              <tr class="bg-gray-50">
+                <td colspan="12" class="px-3 py-2 text-center text-xs text-gray-400">... 45개 사이트 더 보기 ...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Report Modal -->
+<div class="report-modal fixed inset-0 bg-black bg-opacity-50 z-50 items-center justify-center" id="reportModal">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden mx-4">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-bold text-gray-800">월간 해적사이트 분석 보고서 (2026-02)</h2>
+      <div class="flex items-center gap-2">
+        <button class="px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm flex items-center gap-1" onclick="downloadReport()">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+          .md 다운로드
+        </button>
+        <button onclick="toggleReport()" class="p-1 hover:bg-gray-100 rounded-lg">
+          <svg class="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="overflow-y-auto p-6" style="max-height: calc(90vh - 80px);">
+      <div class="prose max-w-none">
+        <h1>월간 해적사이트 분석 보고서 (2026-02)</h1>
+        
+        <h2>1. 종합 요약 및 핵심 동향</h2>
+        <ul>
+          <li><strong>최우선 대응 대상</strong>: mangakakalot.com (위협 점수: 95점) - 트래픽 120% 폭증, 한국 웹툰 콘텐츠 집중 유포</li>
+          <li><strong>주요 동향</strong>: 전반적으로 상위 10개 사이트의 트래픽이 전월 대비 평균 15% 증가했으며, 특히 '특정 웹툰' 관련 키워드 유입이 급증하는 추세입니다. 반면, 지난달 집중 단속했던 'site-X.com'의 순위는 20계단 하락했습니다.</li>
+          <li><strong>신규 위협</strong>: 이번 달 순위권에 새로 진입한 'toonkor.com'이 방문자 수 42% 증가를 보이며 빠르게 성장하고 있어 주목이 필요합니다.</li>
+          <li><strong>단속 효과</strong>: 전월 법적 조치를 진행한 3개 사이트 중 2개에서 트래픽 30% 이상 감소 확인. DMCA 신고 효과가 지속되고 있습니다.</li>
+        </ul>
+
+        <h2>2. 위협 등급별 분류</h2>
+        
+        <h3 style="color: #dc2626;">&#x1F534; 최우선 대응 (threat_score >= 70)</h3>
+        <ul>
+          <li><strong>mangakakalot.com</strong> (95점) - 트래픽 폭증, 백링크 광범위 확산</li>
+          <li><strong>mangadex.org</strong> (88점) - 커뮤니티 기반 최대 규모, 지속 성장</li>
+          <li><strong>newtoki.com</strong> (82.5점) - 한국 시장 핵심 유포지, 백링크 급증</li>
+        </ul>
+
+        <h3 style="color: #d97706;">&#x1F7E1; 주의 관찰 (40~69)</h3>
+        <ul>
+          <li><strong>toonkor.com</strong> (65점) - 급성장 중, 다음 달 재평가 필요</li>
+          <li>외 8개 사이트</li>
+        </ul>
+
+        <h3 style="color: #16a34a;">&#x1F7E2; 저위험 (&lt; 40)</h3>
+        <p>39개 사이트 - 트래픽 소규모이거나 감소 추세. 정기 모니터링으로 충분.</p>
+
+        <h2>3. 전월 대비 주요 변동사항</h2>
+        <p><strong>순위 상승 TOP 3:</strong> toonkor.com (+890), mangakakalot.com (+56), site-D.com (+45)</p>
+        <p><strong>순위 하락 TOP 3:</strong> newtoki.com (-230), site-E.com (-120), site-F.com (-89)</p>
+
+        <h2>4. 종합 제언</h2>
+        <p>mangakakalot.com에 대한 즉각적인 DMCA 신고와 병행하여 mangadex.org의 커뮤니티 확산 경로를 파악할 것을 권고합니다. newtoki.com은 도메인 변경 가능성을 고려하여 변종 도메인 모니터링을 강화해야 합니다. 전반적으로 한국어 키워드 유입이 증가하고 있어 국내 법적 대응 강화가 필요합니다.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleReport() {
+  const modal = document.getElementById('reportModal');
+  modal.classList.toggle('show');
+}
+function downloadReport() {
+  alert('보고서 마크다운 파일(.md)이 다운로드됩니다.');
+}
+</script>
+</body>
+</html>

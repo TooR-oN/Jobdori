@@ -19,6 +19,11 @@ import {
   getTimestamp,
   getCurrentISOTime,
 } from './utils.js';
+import {
+  buildAnalysisPrompt,
+  createAnalysisTask,
+  DomainAnalysisResult,
+} from './domain-analysis.js';
 
 /**
  * DB에서 사이트 목록 로드
@@ -503,6 +508,145 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
 // ============================================
 // 메인 파이프라인
 // ============================================
+// 월간 도메인 분석 자동 실행 (매월 12일 이후)
+// ============================================
+
+async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
+  const today = new Date();
+  const dayOfMonth = today.getDate();
+
+  // 매월 12일 이전이면 스킵
+  if (dayOfMonth < 12) {
+    console.log(`\n📊 월간 도메인 분석: 매월 12일 이후 자동 실행 (현재 ${dayOfMonth}일 → 스킵)`);
+    return;
+  }
+
+  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  console.log(`\n📊 월간 도메인 분석: ${currentMonth} 자동 실행 확인...`);
+
+  try {
+    // 이미 이번 달 분석이 실행/완료되었는지 확인
+    const existingReports: any[] = await sql`
+      SELECT id, status FROM domain_analysis_reports WHERE analysis_month = ${currentMonth}
+    `;
+
+    if (existingReports.length > 0) {
+      const report = existingReports[0];
+      if (report.status === 'completed') {
+        console.log(`✅ ${currentMonth} 분석이 이미 완료되어 있습니다. (report_id: ${report.id})`);
+        return;
+      }
+      if (report.status === 'running') {
+        console.log(`⏳ ${currentMonth} 분석이 이미 실행 중입니다. (report_id: ${report.id})`);
+        return;
+      }
+      // failed 상태면 재시도
+      console.log(`⚠️ ${currentMonth} 이전 분석이 실패(failed)했습니다. 재시도합니다.`);
+    }
+
+    // 상위 50개 불법 도메인 조회
+    const topDomains: any[] = await sql`
+      SELECT domain, COUNT(*) as discovered
+      FROM detection_results
+      WHERE final_status = 'illegal'
+        AND domain IS NOT NULL AND domain != ''
+      GROUP BY domain
+      ORDER BY discovered DESC
+      LIMIT 50
+    `;
+
+    if (topDomains.length === 0) {
+      console.log(`⚠️ 분석할 불법 도메인이 없습니다. 월간 분석을 건너뜁니다.`);
+      return;
+    }
+
+    const domainList = topDomains.map((d: any) => d.domain);
+    console.log(`📋 분석 대상 도메인: ${domainList.length}개`);
+
+    // 전월 데이터 조회
+    const prevMonth = today.getMonth() === 0
+      ? `${today.getFullYear() - 1}-12`
+      : `${today.getFullYear()}-${String(today.getMonth()).padStart(2, '0')}`;
+
+    const prevReport: any[] = await sql`
+      SELECT id FROM domain_analysis_reports
+      WHERE analysis_month = ${prevMonth} AND status = 'completed'
+    `;
+
+    let previousData: DomainAnalysisResult[] | null = null;
+    if (prevReport.length > 0) {
+      const prevResults: any[] = await sql`
+        SELECT * FROM domain_analysis_results WHERE report_id = ${prevReport[0].id} ORDER BY rank
+      `;
+      if (prevResults.length > 0) {
+        previousData = prevResults.map((r: any) => ({
+          rank: r.rank,
+          site_url: r.domain,
+          threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
+          global_rank: r.global_rank,
+          country: r.country,
+          country_rank: r.country_rank,
+          category: r.category,
+          category_rank: r.category_rank,
+          total_visits: r.total_visits ? parseInt(r.total_visits) : null,
+          avg_visit_duration: r.avg_visit_duration,
+          visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
+          rank_change_mom: r.rank_change_mom,
+          total_backlinks: r.total_backlinks ? parseInt(r.total_backlinks) : null,
+          referring_domains: r.referring_domains,
+          top_organic_keywords: r.top_organic_keywords ? JSON.parse(r.top_organic_keywords) : null,
+          top_referring_domains: r.top_referring_domains ? JSON.parse(r.top_referring_domains) : null,
+          top_anchors: r.top_anchors ? JSON.parse(r.top_anchors) : null,
+          branded_traffic_ratio: r.branded_traffic_ratio ? parseFloat(r.branded_traffic_ratio) : null,
+          size_score: r.size_score ? parseFloat(r.size_score) : null,
+          growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
+          influence_score: r.influence_score ? parseFloat(r.influence_score) : null,
+          recommendation: r.recommendation,
+        }));
+        console.log(`📋 전월(${prevMonth}) 데이터: ${previousData!.length}건`);
+      }
+    }
+
+    // 프롬프트 생성 + Manus Task 생성
+    const prompt = buildAnalysisPrompt(domainList, previousData);
+    console.log(`📋 Manus 프롬프트 생성 완료 (${prompt.length}자), Task 생성 중...`);
+
+    const task = await createAnalysisTask(prompt);
+    if (!task) {
+      console.error(`❌ Manus Task 생성 실패 — MANUS_API_KEY를 확인하세요.`);
+      return;
+    }
+    console.log(`✅ Manus Task 생성 완료: ${task.task_id}`);
+
+    // DB에 리포트 레코드 저장
+    if (existingReports.length > 0) {
+      await sql`
+        UPDATE domain_analysis_reports SET
+          status = 'running',
+          manus_task_id = ${task.task_id},
+          total_domains = ${domainList.length},
+          error_message = NULL,
+          created_at = NOW()
+        WHERE analysis_month = ${currentMonth}
+      `;
+    } else {
+      await sql`
+        INSERT INTO domain_analysis_reports (analysis_month, status, manus_task_id, total_domains)
+        VALUES (${currentMonth}, 'running', ${task.task_id}, ${domainList.length})
+      `;
+    }
+
+    console.log(`✅ 월간 도메인 분석 시작됨 (${currentMonth}, ${domainList.length}개 도메인)`);
+    console.log(`   Manus Task ID: ${task.task_id}`);
+    console.log(`   결과는 Manus 완료 후 대시보드에서 자동 처리됩니다.`);
+
+  } catch (error) {
+    console.error(`❌ 월간 도메인 분석 자동 실행 오류:`, error);
+    // 파이프라인 자체는 이미 성공했으므로, 도메인 분석 오류는 경고만 출력
+  }
+}
+
+// ============================================
 
 async function runPipeline() {
   const startTime = Date.now();
@@ -671,6 +815,12 @@ async function runPipeline() {
       pending,
       duration
     });
+
+    // ==========================================
+    // 월간 불법 도메인 트래픽 분석 자동 실행
+    // 매월 12일 이후 파이프라인 실행 시 자동 트리거
+    // ==========================================
+    await runMonthlyDomainAnalysisIfNeeded(sql);
 
     return { success: true, timestamp, blobUrl: blob.url };
 
