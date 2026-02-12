@@ -394,6 +394,7 @@ export default function DomainAnalysisPage() {
               ))}
             </select>
             {statusBadge()}
+            <span className="text-xs text-gray-400">수동 분석 시 선택한 달의 데이터로 분석이 진행됩니다</span>
           </div>
           <div className="flex items-center gap-2">
             <button
