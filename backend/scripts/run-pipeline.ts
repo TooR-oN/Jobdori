@@ -477,6 +477,26 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
   }
   
   console.log(`✅ Manta 순위 ${savedCount}개 작품 업데이트 완료 (히스토리 저장 포함)`);
+  
+  // 모니터링 종료 작품 정리: manta_rankings에서 현재 모니터링 대상이 아닌 작품 삭제
+  // (manta_ranking_history는 유지하여 과거 데이터 조회 가능)
+  try {
+    const deleteResult = await sql`
+      DELETE FROM manta_rankings 
+      WHERE title NOT IN (
+        SELECT name FROM titles WHERE is_current = true
+      )
+      RETURNING title
+    `;
+    
+    if (deleteResult.length > 0) {
+      console.log(`🗑️ 모니터링 종료 작품 ${deleteResult.length}개 정리됨:`);
+      deleteResult.forEach((r: any) => console.log(`   - ${r.title}`));
+    }
+  } catch (error) {
+    console.error('모니터링 종료 작품 정리 중 오류:', error);
+  }
+  
   return savedCount;
 }
 
