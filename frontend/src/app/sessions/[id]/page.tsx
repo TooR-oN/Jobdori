@@ -532,6 +532,39 @@ export default function SessionDetailPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleDmcaDownloadJson = () => {
+    if (!dmcaReport?.works || dmcaReport.works.length === 0) return;
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const chunkSize = 10;
+    const totalChunks = Math.ceil(dmcaReport.works.length / chunkSize);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const chunk = dmcaReport.works.slice(i * chunkSize, (i + 1) * chunkSize);
+      const startNum = i * chunkSize + 1;
+      const endNum = Math.min((i + 1) * chunkSize, dmcaReport.works.length);
+
+      const jsonData = {
+        reports: chunk.map((work: any, idx: number) => ({
+          work_number: startNum + idx,
+          work_title: work.title,
+          description: work.description,
+          authorized_url: work.manta_url || '',
+          infringing_urls: work.urls
+        }))
+      };
+
+      const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = totalChunks === 1
+        ? `DMCA_Report_${sessionId}_${date}.json`
+        : `DMCA_Report_${sessionId}_${date}_${startNum}-${endNum}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
   const toggleDmcaWorkExpand = (idx: number) => {
     setDmcaExpandedWorks(prev => {
       const next = new Set(prev);
@@ -1184,6 +1217,13 @@ export default function SessionDetailPage() {
                 >
                   <ArrowDownTrayIcon className="w-4 h-4" />
                   <span>TXT 다운로드</span>
+                </button>
+                <button
+                  onClick={handleDmcaDownloadJson}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition"
+                >
+                  <ArrowDownTrayIcon className="w-4 h-4" />
+                  <span>JSON 다운로드{dmcaReport.works.length > 10 ? ` (${Math.ceil(dmcaReport.works.length / 10)}파일)` : ''}</span>
                 </button>
               </div>
             )}
