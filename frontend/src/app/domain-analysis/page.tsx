@@ -61,6 +61,12 @@ function getCurrentMonth(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function getPreviousMonth(): string {
+  const now = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function formatMonthLabel(month: string): string {
   const [y, m] = month.split('-');
   return `${y}년 ${parseInt(m)}월`;
@@ -98,7 +104,7 @@ function formatTime(dateStr: string | null): string {
 
 export default function DomainAnalysisPage() {
   // 상태
-  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
+  const [selectedMonth, setSelectedMonth] = useState(getPreviousMonth());
   const [months, setMonths] = useState<MonthItem[]>([]);
   const [report, setReport] = useState<ReportData | null>(null);
   const [results, setResults] = useState<DomainResult[]>([]);

@@ -521,39 +521,56 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
     return;
   }
 
-  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-  console.log(`\n📊 월간 도메인 분석: ${currentMonth} 자동 실행 확인...`);
+  // 분석 대상 = 전월 (예: 3월 12일 실행 → 2월 분석)
+  const targetDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const targetMonth = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+  console.log(`\n📊 월간 도메인 분석: ${targetMonth} 자동 실행 확인...`);
 
   try {
-    // 이미 이번 달 분석이 실행/완료되었는지 확인
+    // 이미 해당 월 분석이 실행/완료되었는지 확인
     const existingReports: any[] = await sql`
-      SELECT id, status FROM domain_analysis_reports WHERE analysis_month = ${currentMonth}
+      SELECT id, status FROM domain_analysis_reports WHERE analysis_month = ${targetMonth}
     `;
 
     if (existingReports.length > 0) {
       const report = existingReports[0];
       if (report.status === 'completed') {
-        console.log(`✅ ${currentMonth} 분석이 이미 완료되어 있습니다. (report_id: ${report.id})`);
+        console.log(`✅ ${targetMonth} 분석이 이미 완료되어 있습니다. (report_id: ${report.id})`);
         return;
       }
       if (report.status === 'running') {
-        console.log(`⏳ ${currentMonth} 분석이 이미 실행 중입니다. (report_id: ${report.id})`);
+        console.log(`⏳ ${targetMonth} 분석이 이미 실행 중입니다. (report_id: ${report.id})`);
         return;
       }
       // failed 상태면 재시도
-      console.log(`⚠️ ${currentMonth} 이전 분석이 실패(failed)했습니다. 재시도합니다.`);
+      console.log(`⚠️ ${targetMonth} 이전 분석이 실패(failed)했습니다. 재시도합니다.`);
     }
 
-    // 상위 50개 불법 도메인 조회
-    const topDomains: any[] = await sql`
+    // 상위 50개 불법 도메인 조회 (분석 대상 월 기준)
+    let topDomains: any[] = await sql`
       SELECT domain, COUNT(*) as discovered
       FROM detection_results
       WHERE final_status = 'illegal'
         AND domain IS NOT NULL AND domain != ''
+        AND SUBSTRING(session_id, 1, 7) = ${targetMonth}
       GROUP BY domain
       ORDER BY discovered DESC
       LIMIT 50
     `;
+
+    // 해당 월 데이터가 없으면 전체 기간으로 fallback
+    if (topDomains.length === 0) {
+      console.log(`⚠️ ${targetMonth} 기간 데이터 없음 — 전체 기간으로 fallback`);
+      topDomains = await sql`
+        SELECT domain, COUNT(*) as discovered
+        FROM detection_results
+        WHERE final_status = 'illegal'
+          AND domain IS NOT NULL AND domain != ''
+        GROUP BY domain
+        ORDER BY discovered DESC
+        LIMIT 50
+      `;
+    }
 
     if (topDomains.length === 0) {
       console.log(`⚠️ 분석할 불법 도메인이 없습니다. 월간 분석을 건너뜁니다.`);
@@ -563,10 +580,9 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
     const domainList = topDomains.map((d: any) => d.domain);
     console.log(`📋 분석 대상 도메인: ${domainList.length}개`);
 
-    // 전월 데이터 조회
-    const prevMonth = today.getMonth() === 0
-      ? `${today.getFullYear() - 1}-12`
-      : `${today.getFullYear()}-${String(today.getMonth()).padStart(2, '0')}`;
+    // 전전월 데이터 조회 (전월 분석 결과 = 비교 기준)
+    const prevDate = new Date(targetDate.getFullYear(), targetDate.getMonth() - 1, 1);
+    const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
 
     const prevReport: any[] = await sql`
       SELECT id FROM domain_analysis_reports
@@ -608,7 +624,7 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
     }
 
     // 프롬프트 생성 + Manus Task 생성
-    const prompt = buildAnalysisPrompt(domainList, previousData);
+    const prompt = buildAnalysisPrompt(domainList, previousData, targetMonth);
     console.log(`📋 Manus 프롬프트 생성 완료 (${prompt.length}자), Task 생성 중...`);
 
     const task = await createAnalysisTask(prompt);
@@ -627,16 +643,16 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
           total_domains = ${domainList.length},
           error_message = NULL,
           created_at = NOW()
-        WHERE analysis_month = ${currentMonth}
+        WHERE analysis_month = ${targetMonth}
       `;
     } else {
       await sql`
         INSERT INTO domain_analysis_reports (analysis_month, status, manus_task_id, total_domains)
-        VALUES (${currentMonth}, 'running', ${task.task_id}, ${domainList.length})
+        VALUES (${targetMonth}, 'running', ${task.task_id}, ${domainList.length})
       `;
     }
 
-    console.log(`✅ 월간 도메인 분석 시작됨 (${currentMonth}, ${domainList.length}개 도메인)`);
+    console.log(`✅ 월간 도메인 분석 시작됨 (${targetMonth}, ${domainList.length}개 도메인)`);
     console.log(`   Manus Task ID: ${task.task_id}`);
     console.log(`   결과는 Manus 완료 후 대시보드에서 자동 처리됩니다.`);
 

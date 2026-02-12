@@ -72,22 +72,42 @@ export interface ManusTaskStatus {
 // ============================================
 
 /**
- * 월간 도메인 분석 프롬프트 생성 (간결하게 - 상세 지침은 프로젝트 Instruction에 있음)
+ * Build monthly domain analysis prompt (concise — detailed instructions are in the project Instruction file)
  */
 export function buildAnalysisPrompt(
   domains: string[],
-  previousData: DomainAnalysisResult[] | null
+  previousData: DomainAnalysisResult[] | null,
+  targetMonth?: string
 ): string {
+  const now = new Date();
+  const month = targetMonth || (() => {
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+  })();
+
   const previousSection = previousData && previousData.length > 0
     ? JSON.stringify(previousData, null, 2)
-    : '첫 분석이므로 전월 데이터 없음';
+    : 'No previous data (first analysis)';
 
-  return `${domains.length}개 사이트를 분석해주세요.
+  return `Analyze the traffic of the following ${domains.length} pirate sites for ${month}.
+Refer to the project instruction file (manus-traffic-analysis-instruction.json) for full data schema, scoring rules, and output format.
+ALL output text (recommendation, report markdown) MUST be written in Korean.
 
-## 대상 도메인
+## Target Month (target_month)
+${month}
+
+## Data Collection Rules (IMPORTANT)
+- SimilarWeb: Collect **only ${month} (1 month)** data per domain (single Overview lookup).
+  - Do NOT collect 12-month time-series data.
+  - Do NOT perform Traffic by Country breakdown.
+  - Required fields: global_rank, country (top 1 by share), country_rank, category, category_rank, total_visits, avg_visit_duration
+- Semrush: Single current snapshot only.
+- MoM change: Compare with the 'Previous Month Data' below. Do NOT fetch additional months from SimilarWeb.
+
+## Target Domains
 ${domains.join('\n')}
 
-## 전월 데이터
+## Previous Month Data (for MoM comparison)
 ${previousSection}`;
 }
 
@@ -117,7 +137,7 @@ export async function createAnalysisTask(prompt: string): Promise<ManusTaskRespo
       },
       body: JSON.stringify({
         prompt: prompt,
-        agentProfile: 'manus-1.6-lite',
+        agentProfile: 'manus-1.6',
         projectId: MANUS_TRAFFIC_PROJECT_ID,
         taskMode: 'agent',
         hideInTaskList: false,
