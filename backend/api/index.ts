@@ -2185,7 +2185,7 @@ async function deepJudgeWithManus(
     const createRes = await fetch(MANUS_API_URL_BASE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'API_KEY': apiKey },
-      body: JSON.stringify({ prompt, agentProfile: 'manus-1.6', projectId: MANUS_PROJECT_ID, taskMode: 'agent', hideInTaskList: false }),
+      body: JSON.stringify({ prompt, agentProfile: 'manus-1.6-lite', projectId: MANUS_PROJECT_ID, taskMode: 'agent', hideInTaskList: false }),
     })
     if (!createRes.ok) throw new Error(`Manus Task 생성 실패: ${createRes.status}`)
     const taskData = await createRes.json()
@@ -3838,7 +3838,13 @@ app.post('/api/domain-analysis/run', async (c) => {
     currentStep = '[2/6 요청 파싱]'
     const body = await c.req.json().catch(() => ({}))
     const now = new Date()
-    month = body.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    // 기본값: 전월 (예: 2월 12일 실행 → 2026-01 분석)
+    if (body.month) {
+      month = body.month
+    } else {
+      const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      month = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`
+    }
     console.log(`📋 ${currentStep} month: ${month}`)
 
     // 중복 실행 방지
@@ -3859,24 +3865,43 @@ app.post('/api/domain-analysis/run', async (c) => {
     }
     console.log(`✅ ${currentStep} 기존 리포트: ${existing.length > 0 ? `ID ${existing[0].id} (${existing[0].status})` : '없음'}`)
 
-    // 상위 50개 불법 도메인 조회 (전체 기간 기준 발견 수)
+    // 상위 50개 불법 도메인 조회 (분석 대상 월 기준 발견 수)
     currentStep = '[4/6 불법 도메인 조회]'
+    const monthPattern = month + '%'
     const topDomains = await query`
       SELECT domain, COUNT(*) as discovered
       FROM detection_results
       WHERE final_status = 'illegal'
         AND domain IS NOT NULL AND domain != ''
+        AND SUBSTRING(session_id, 1, 7) = ${month}
       GROUP BY domain
       ORDER BY discovered DESC
       LIMIT 50
     `
 
+    // 해당 월 데이터가 없으면 전체 기간 기준으로 fallback
+    let usedFallback = false
+    let finalDomains = topDomains
     if (topDomains.length === 0) {
+      console.log(`⚠️ ${currentStep} ${month} 기간 데이터 없음 — 전체 기간으로 fallback`)
+      finalDomains = await query`
+        SELECT domain, COUNT(*) as discovered
+        FROM detection_results
+        WHERE final_status = 'illegal'
+          AND domain IS NOT NULL AND domain != ''
+        GROUP BY domain
+        ORDER BY discovered DESC
+        LIMIT 50
+      `
+      usedFallback = true
+    }
+
+    if (finalDomains.length === 0) {
       return c.json({ success: false, error: `${currentStep} 분석할 불법 도메인이 없습니다. detection_results 테이블에 illegal 상태의 결과가 있는지 확인하세요.` }, 400)
     }
-    console.log(`✅ ${currentStep} ${topDomains.length}개 도메인 조회 완료`)
+    console.log(`✅ ${currentStep} ${finalDomains.length}개 도메인 조회 완료${usedFallback ? ' (전체 기간 fallback)' : ` (${month} 기준)`}`)
 
-    const domainList = topDomains.map((d: any) => d.domain)
+    const domainList = finalDomains.map((d: any) => d.domain)
 
     // 전월 데이터 조회
     const [prevYear, prevMonth] = month.split('-').map(Number)
@@ -3924,7 +3949,7 @@ app.post('/api/domain-analysis/run', async (c) => {
 
     // 프롬프트 생성
     currentStep = '[5/6 Manus Task 생성]'
-    const prompt = buildAnalysisPrompt(domainList, previousData)
+    const prompt = buildAnalysisPrompt(domainList, previousData, month)
     console.log(`📋 ${currentStep} 프롬프트 생성 완료 (${prompt.length}자), Manus API 호출 중...`)
 
     // Manus Task 생성
