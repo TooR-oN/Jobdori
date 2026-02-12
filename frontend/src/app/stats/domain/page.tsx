@@ -4,41 +4,54 @@ import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout';
 import { statsApi } from '@/lib/api';
 
-interface TitleStat {
-  title: string;
+interface DomainStat {
+  domain: string;
   discovered: number;
   reported: number;
   blocked: number;
   blockRate: number;
 }
 
-export default function StatsPage() {
-  const [stats, setStats] = useState<TitleStat[]>([]);
+// 당월 기본 날짜 (YYYY-MM-01 ~ 오늘)
+function getDefaultDates() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return {
+    start: `${year}-${month}-01`,
+    end: `${year}-${month}-${day}`,
+  };
+}
+
+export default function DomainStatsPage() {
+  const defaults = getDefaultDates();
+  const [stats, setStats] = useState<DomainStat[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // 날짜 필터
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // 날짜 필터 (기본값: 당월)
+  const [startDate, setStartDate] = useState(defaults.start);
+  const [endDate, setEndDate] = useState(defaults.end);
   
   // 정렬
-  const [sortField, setSortField] = useState<keyof TitleStat>('discovered');
+  const [sortField, setSortField] = useState<keyof DomainStat>('discovered');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // 데이터 로드
-  const loadStats = async () => {
+  const loadStats = async (start?: string, end?: string) => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const res = await statsApi.byTitle(startDate || undefined, endDate || undefined);
+      const res = await statsApi.byDomain(start || startDate, end || endDate);
       if (res.success) {
         setStats(res.stats || []);
       } else {
         setError('통계를 불러오는데 실패했습니다.');
       }
     } catch (err) {
-      console.error('Failed to load stats:', err);
+      console.error('Failed to load domain stats:', err);
       setError('통계를 불러오는데 실패했습니다.');
     } finally {
       setIsLoading(false);
@@ -46,7 +59,7 @@ export default function StatsPage() {
   };
 
   useEffect(() => {
-    loadStats();
+    loadStats(defaults.start, defaults.end);
   }, []);
 
   // 날짜 필터 적용
@@ -54,15 +67,16 @@ export default function StatsPage() {
     loadStats();
   };
 
-  // 필터 초기화
+  // 필터 초기화 (당월로 리셋)
   const handleReset = () => {
-    setStartDate('');
-    setEndDate('');
-    loadStats();
+    const d = getDefaultDates();
+    setStartDate(d.start);
+    setEndDate(d.end);
+    loadStats(d.start, d.end);
   };
 
   // 정렬 처리
-  const handleSort = (field: keyof TitleStat) => {
+  const handleSort = (field: keyof DomainStat) => {
     if (sortField === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
@@ -83,54 +97,19 @@ export default function StatsPage() {
     return sortOrder === 'asc' ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
   });
 
-  // 합계 계산
-  const totals = stats.reduce(
-    (acc, s) => ({
-      discovered: acc.discovered + s.discovered,
-      reported: acc.reported + s.reported,
-      blocked: acc.blocked + s.blocked,
-    }),
-    { discovered: 0, reported: 0, blocked: 0 }
-  );
-  const totalBlockRate = totals.reported > 0 ? Math.round((totals.blocked / totals.reported) * 100 * 10) / 10 : 0;
-
   // 정렬 아이콘
-  const getSortIcon = (field: keyof TitleStat) => {
-    if (sortField !== field) return '↕️';
-    return sortOrder === 'asc' ? '↑' : '↓';
+  const getSortIcon = (field: keyof DomainStat) => {
+    if (sortField !== field) return '\u2195\uFE0F';
+    return sortOrder === 'asc' ? '\u2191' : '\u2193';
   };
 
   return (
-    <MainLayout pageTitle="작품별 신고/차단 통계">
+    <MainLayout pageTitle="도메인별 신고/차단 통계">
       {error && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
           {error}
         </div>
       )}
-
-      {/* 요약 카드 */}
-      <div className="mb-6 grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-          <p className="text-sm text-gray-500 mb-1">총 작품</p>
-          <p className="text-2xl font-bold text-gray-800">{stats.length}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-          <p className="text-sm text-gray-500 mb-1">총 발견</p>
-          <p className="text-2xl font-bold text-blue-600">{totals.discovered.toLocaleString()}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-          <p className="text-sm text-gray-500 mb-1">총 신고</p>
-          <p className="text-2xl font-bold text-orange-600">{totals.reported.toLocaleString()}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-          <p className="text-sm text-gray-500 mb-1">총 차단</p>
-          <p className="text-2xl font-bold text-green-600">{totals.blocked.toLocaleString()}</p>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-          <p className="text-sm text-gray-500 mb-1">평균 차단율</p>
-          <p className="text-2xl font-bold text-purple-600">{totalBlockRate}%</p>
-        </div>
-      </div>
 
       {/* 필터 */}
       <div className="mb-6 bg-white rounded-xl shadow-sm p-4 border border-gray-100">
@@ -188,9 +167,9 @@ export default function StatsPage() {
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">순위</th>
                   <th 
                     className="px-4 py-3 text-left text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('title')}
+                    onClick={() => handleSort('domain')}
                   >
-                    작품명 {getSortIcon('title')}
+                    도메인 {getSortIcon('domain')}
                   </th>
                   <th 
                     className="px-4 py-3 text-right text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
@@ -220,7 +199,7 @@ export default function StatsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {sortedStats.map((stat, index) => (
-                  <tr key={stat.title} className="hover:bg-gray-50 transition">
+                  <tr key={stat.domain} className="hover:bg-gray-50 transition">
                     <td className="px-4 py-3">
                       <span className={`
                         inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold
@@ -233,7 +212,7 @@ export default function StatsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-sm font-medium text-gray-800">{stat.title}</span>
+                      <span className="text-sm font-medium text-gray-800">{stat.domain}</span>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="text-sm text-blue-600 font-medium">{stat.discovered.toLocaleString()}</span>

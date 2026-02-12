@@ -14,6 +14,7 @@ import {
   UsersIcon,
   ArrowRightOnRectangleIcon,
   XMarkIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 
 interface MobileMenuProps {
@@ -34,7 +35,9 @@ const mainMenuItems: MenuItem[] = [
   { name: '승인 대기', href: '/pending', icon: ClockIcon, adminOnly: true },
   { name: '모니터링 회차', href: '/sessions', icon: ListBulletIcon },
   { name: '신고결과 추적', href: '/report-tracking', icon: DocumentTextIcon },
-  { name: '작품별 통계', href: '/stats', icon: ChartPieIcon },
+  { name: '작품별 신고/차단 통계', href: '/stats', icon: ChartPieIcon },
+  { name: '도메인별 신고/차단 통계', href: '/stats/domain', icon: GlobeAltIcon },
+  { name: '월간 불법 도메인 분석', href: '/domain-analysis', icon: MagnifyingGlassIcon },
   { name: '사이트 목록', href: '/sites', icon: GlobeAltIcon, adminOnly: true },
 ];
 

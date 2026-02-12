@@ -16,6 +16,7 @@ import {
   ArrowRightOnRectangleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 
 // 커스텀 꺾은선 그래프 아이콘
@@ -42,14 +43,16 @@ const mainMenuItems: MenuItem[] = [
   { name: '모니터링 회차', href: '/sessions', icon: ListBulletIcon },
   { name: '신고결과 추적', href: '/report-tracking', icon: DocumentTextIcon },
   { 
-    name: '작품별 통계', 
+    name: '통계', 
     href: '/stats', 
     icon: ChartPieIcon,
     children: [
-      { name: '신고/차단 통계', href: '/stats', icon: ChartPieIcon },
+      { name: '작품별 신고/차단 통계', href: '/stats', icon: ChartPieIcon },
+      { name: '도메인별 신고/차단 통계', href: '/stats/domain', icon: GlobeAltIcon },
       { name: 'Manta 순위 변화', href: '/stats/manta-rankings', icon: LineChartIcon },
     ]
   },
+  { name: '월간 불법 도메인 분석', href: '/domain-analysis', icon: MagnifyingGlassIcon },
   { name: '사이트 목록', href: '/sites', icon: GlobeAltIcon, adminOnly: true },
 ];
 

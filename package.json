@@ -13,5 +13,8 @@
     "build:frontend": "npm run build --workspace=frontend",
     "build:all": "npm run build --workspaces",
     "run-pipeline": "npm run run-pipeline --workspace=backend"
+  },
+  "dependencies": {
+    "playwright": "^1.58.2"
   }
 }
