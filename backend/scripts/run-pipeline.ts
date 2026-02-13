@@ -662,7 +662,10 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
           growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
           type_score: r.type_score ? parseFloat(r.type_score) : null,
           site_type: r.site_type || null,
+          traffic_analysis: r.traffic_analysis || null,
+          traffic_analysis_detail: r.traffic_analysis_detail || null,
           recommendation: r.recommendation,
+          recommendation_detail: r.recommendation_detail || null,
         }));
         console.log(`📋 전월(${prevMonth}) 데이터: ${previousData!.length}건`);
       }

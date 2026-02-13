@@ -31,7 +31,10 @@ export interface DomainAnalysisResult {
   growth_score: number | null;
   type_score: number | null;
   site_type: string | null;
+  traffic_analysis: string | null;
+  traffic_analysis_detail: string | null;
   recommendation: string | null;
+  recommendation_detail: string | null;
 }
 
 export interface DomainWithType {

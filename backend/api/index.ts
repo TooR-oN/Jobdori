@@ -355,6 +355,15 @@ async function ensureDbMigration() {
       console.error('Migration: New metric columns error:', e.message)
     }
 
+    // 트래픽 분석 + 권고 상세 컬럼 추가
+    try {
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS traffic_analysis VARCHAR(50)`
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS traffic_analysis_detail TEXT`
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS recommendation_detail TEXT`
+    } catch (e: any) {
+      console.error('Migration: traffic_analysis/recommendation_detail columns error:', e.message)
+    }
+
     dbMigrationDone = true
     console.log('✅ DB migration completed (including report_tracking, deep_monitoring & domain_analysis tables)')
   } catch (error) {
@@ -4134,7 +4143,10 @@ app.post('/api/domain-analysis/run', async (c) => {
           growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
           type_score: r.type_score ? parseFloat(r.type_score) : null,
           site_type: r.site_type || null,
+          traffic_analysis: r.traffic_analysis || null,
+          traffic_analysis_detail: r.traffic_analysis_detail || null,
           recommendation: r.recommendation,
+          recommendation_detail: r.recommendation_detail || null,
         }))
       }
     }
@@ -4331,14 +4343,18 @@ app.post('/api/domain-analysis/process-result', async (c) => {
             total_visits, avg_visit_duration,
             unique_visitors, bounce_rate, pages_per_visit, page_views,
             visits_change_mom, rank_change_mom,
-            size_score, growth_score, type_score, site_type, recommendation
+            size_score, growth_score, type_score, site_type,
+            traffic_analysis, traffic_analysis_detail,
+            recommendation, recommendation_detail
           ) VALUES (
             ${report.id}, ${item.rank}, ${item.site_url}, ${item.threat_score},
             ${item.global_rank}, ${item.category}, ${item.category_rank},
             ${item.total_visits}, ${item.avg_visit_duration},
             ${item.unique_visitors}, ${item.bounce_rate}, ${item.pages_per_visit}, ${item.page_views},
             ${item.visits_change_mom}, ${item.rank_change_mom},
-            ${item.size_score}, ${item.growth_score}, ${item.type_score}, ${item.site_type}, ${item.recommendation}
+            ${item.size_score}, ${item.growth_score}, ${item.type_score}, ${item.site_type},
+            ${item.traffic_analysis || null}, ${item.traffic_analysis_detail || null},
+            ${item.recommendation}, ${item.recommendation_detail || null}
           )
         `
         savedCount++
@@ -4477,6 +4493,9 @@ app.get('/api/domain-analysis/:month', async (c) => {
         growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
         type_score: r.type_score ? parseFloat(r.type_score) : null,
         site_type: r.site_type || 'unclassified',
+        traffic_analysis: r.traffic_analysis || null,
+        traffic_analysis_detail: r.traffic_analysis_detail || null,
+        recommendation_detail: r.recommendation_detail || null,
       }))
     }
 
