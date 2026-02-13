@@ -281,21 +281,20 @@ async function ensureDbMigration() {
         domain VARCHAR(255) NOT NULL,
         threat_score DECIMAL(5,1) DEFAULT 0,
         global_rank INTEGER,
-        category VARCHAR(255),
-        category_rank INTEGER,
         total_visits BIGINT,
-        avg_visit_duration VARCHAR(20),
         unique_visitors BIGINT,
         bounce_rate DECIMAL(5,4),
-        pages_per_visit DECIMAL(5,1),
-        page_views BIGINT,
-        visits_change_mom DECIMAL(5,1),
+        discovered INTEGER DEFAULT 0,
+        visits_change_mom DECIMAL(7,1),
         rank_change_mom INTEGER,
         size_score DECIMAL(5,1),
         growth_score DECIMAL(5,1),
         type_score DECIMAL(5,1) DEFAULT 0,
         site_type VARCHAR(30),
+        traffic_analysis VARCHAR(50),
+        traffic_analysis_detail TEXT,
         recommendation TEXT,
+        recommendation_detail TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         UNIQUE(report_id, domain)
       )
@@ -345,15 +344,18 @@ async function ensureDbMigration() {
       console.error('Migration: Country column removal error:', e.message)
     }
 
-    // 신규 트래픽 메트릭 컬럼 추가
+    // 공식 SimilarWeb 스킬 미지원 컬럼 제거 (Option B)
     try {
-      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS unique_visitors BIGINT`
-      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS bounce_rate DECIMAL(5,4)`
-      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS pages_per_visit DECIMAL(5,1)`
-      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS page_views BIGINT`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS avg_visit_duration`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS pages_per_visit`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS page_views`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS category`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS category_rank`
     } catch (e: any) {
-      console.error('Migration: New metric columns error:', e.message)
+      console.error('Migration: Unsupported SimilarWeb column removal error:', e.message)
     }
+
+    // (신규 트래픽 메트릭 컬럼은 이제 CREATE TABLE에 포함됨 — 별도 마이그레이션 불필요)
 
     // 트래픽 분석 + 권고 상세 컬럼 추가
     try {
@@ -362,6 +364,20 @@ async function ensureDbMigration() {
       await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS recommendation_detail TEXT`
     } catch (e: any) {
       console.error('Migration: traffic_analysis/recommendation_detail columns error:', e.message)
+    }
+
+    // 발견 수 컬럼 추가 (도메인별 불법 URL 탐지 건수)
+    try {
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS discovered INTEGER DEFAULT 0`
+    } catch (e: any) {
+      console.error('Migration: discovered column error:', e.message)
+    }
+
+    // visits_change_mom DECIMAL 오버플로우 방지 (5,1 → 7,1)
+    try {
+      await db`ALTER TABLE domain_analysis_results ALTER COLUMN visits_change_mom TYPE DECIMAL(7,1)`
+    } catch (e: any) {
+      if (!e.message?.includes('already')) console.error('Migration: visits_change_mom type change error:', e.message)
     }
 
     dbMigrationDone = true
@@ -4006,6 +4022,7 @@ import {
   createAnalysisTask,
   getAnalysisTaskStatus,
   processManusResult,
+  normalizeManusItem,
   type DomainAnalysisResult,
   type DomainWithType,
   type ManusTaskStatus,
@@ -4101,11 +4118,16 @@ app.post('/api/domain-analysis/run', async (c) => {
     for (const st of siteTypes) {
       siteTypeMap[st.domain] = st.site_type
     }
-    // domainList에 type_score 정보 추가
+    // domainList에 type_score + discovered 정보 추가
+    const discoveredMap: Record<string, number> = {}
+    for (const d of finalDomains) {
+      discoveredMap[d.domain.toLowerCase()] = parseInt(d.discovered) || 0
+    }
     const domainWithTypes = domainList.map((d: string) => {
       const siteType = siteTypeMap[d.toLowerCase()] || 'unclassified'
       const typeScore = TYPE_SCORE_MAP[siteType] || 0
-      return { domain: d, site_type: siteType, type_score: typeScore }
+      const discovered = discoveredMap[d.toLowerCase()] || 0
+      return { domain: d, site_type: siteType, type_score: typeScore, discovered }
     })
 
     // 전월 데이터 조회
@@ -4129,14 +4151,10 @@ app.post('/api/domain-analysis/run', async (c) => {
           site_url: r.domain,
           threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
           global_rank: r.global_rank,
-          category: r.category,
-          category_rank: r.category_rank,
           total_visits: r.total_visits ? parseInt(r.total_visits) : null,
-          avg_visit_duration: r.avg_visit_duration,
           unique_visitors: r.unique_visitors ? parseInt(r.unique_visitors) : null,
           bounce_rate: r.bounce_rate ? parseFloat(r.bounce_rate) : null,
-          pages_per_visit: r.pages_per_visit ? parseFloat(r.pages_per_visit) : null,
-          page_views: r.page_views ? parseInt(r.page_views) : null,
+          discovered: r.discovered ? parseInt(r.discovered) : null,
           visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
           rank_change_mom: r.rank_change_mom,
           size_score: r.size_score ? parseFloat(r.size_score) : null,
@@ -4333,33 +4351,40 @@ app.post('/api/domain-analysis/process-result', async (c) => {
     console.log(`📋 ${currentStep} ${priorityList.length}건 INSERT 시작`)
     await query`DELETE FROM domain_analysis_results WHERE report_id = ${report.id}`
 
+    // 디버깅: 첫 번째 항목의 원본 키 확인 (마누스 출력 필드명 진단)
+    if (priorityList.length > 0) {
+      const firstRaw = priorityList[0]
+      console.log(`📋 ${currentStep} 첫 항목 필드 확인: site_url=${firstRaw.site_url}, total_visits=${firstRaw.total_visits}, unique_visitors=${firstRaw.unique_visitors}, bounce_rate=${firstRaw.bounce_rate}, global_rank=${firstRaw.global_rank}`)
+    }
+
     let savedCount = 0
-    for (const item of priorityList) {
+    for (const rawItem of priorityList) {
+      // 안전장치: normalizeManusItem 재적용 (processManusResult에서 이미 정규화되었으나 파일 다운로드 경로 대비)
+      const item = normalizeManusItem(rawItem)
       try {
         await query`
           INSERT INTO domain_analysis_results (
             report_id, rank, domain, threat_score,
-            global_rank, category, category_rank,
-            total_visits, avg_visit_duration,
-            unique_visitors, bounce_rate, pages_per_visit, page_views,
-            visits_change_mom, rank_change_mom,
+            global_rank, total_visits,
+            unique_visitors, bounce_rate,
+            discovered, visits_change_mom, rank_change_mom,
             size_score, growth_score, type_score, site_type,
             traffic_analysis, traffic_analysis_detail,
             recommendation, recommendation_detail
           ) VALUES (
             ${report.id}, ${item.rank}, ${item.site_url}, ${item.threat_score},
-            ${item.global_rank}, ${item.category}, ${item.category_rank},
-            ${item.total_visits}, ${item.avg_visit_duration},
-            ${item.unique_visitors}, ${item.bounce_rate}, ${item.pages_per_visit}, ${item.page_views},
-            ${item.visits_change_mom}, ${item.rank_change_mom},
+            ${item.global_rank}, ${item.total_visits},
+            ${item.unique_visitors}, ${item.bounce_rate},
+            ${item.discovered}, ${item.visits_change_mom}, ${item.rank_change_mom},
             ${item.size_score}, ${item.growth_score}, ${item.type_score}, ${item.site_type},
-            ${item.traffic_analysis || null}, ${item.traffic_analysis_detail || null},
-            ${item.recommendation}, ${item.recommendation_detail || null}
+            ${item.traffic_analysis}, ${item.traffic_analysis_detail},
+            ${item.recommendation}, ${item.recommendation_detail}
           )
         `
         savedCount++
       } catch (insertErr: any) {
         console.error(`⚠️ ${currentStep} INSERT 실패 (rank: ${item.rank}, domain: ${item.site_url}):`, insertErr.message)
+        console.error(`   INSERT 값 디버그: threat_score=${item.threat_score}, total_visits=${item.total_visits}, unique_visitors=${item.unique_visitors}, bounce_rate=${item.bounce_rate}, visits_change_mom=${item.visits_change_mom}`)
         // 개별 INSERT 실패는 건너뛰고 계속 진행
       }
     }
@@ -4487,8 +4512,7 @@ app.get('/api/domain-analysis/:month', async (c) => {
         total_visits: r.total_visits ? parseInt(r.total_visits) : null,
         unique_visitors: r.unique_visitors ? parseInt(r.unique_visitors) : null,
         bounce_rate: r.bounce_rate ? parseFloat(r.bounce_rate) : null,
-        pages_per_visit: r.pages_per_visit ? parseFloat(r.pages_per_visit) : null,
-        page_views: r.page_views ? parseInt(r.page_views) : null,
+        discovered: r.discovered ? parseInt(r.discovered) : null,
         size_score: r.size_score ? parseFloat(r.size_score) : null,
         growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
         type_score: r.type_score ? parseFloat(r.type_score) : null,
