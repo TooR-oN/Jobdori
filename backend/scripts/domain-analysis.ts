@@ -17,12 +17,14 @@ export interface DomainAnalysisResult {
   site_url: string;
   threat_score: number | null;
   global_rank: number | null;
-  country: string | null;
-  country_rank: number | null;
   category: string | null;
   category_rank: number | null;
   total_visits: number | null;
   avg_visit_duration: string | null;
+  unique_visitors: number | null;
+  bounce_rate: number | null;
+  pages_per_visit: number | null;
+  page_views: number | null;
   visits_change_mom: number | null;
   rank_change_mom: number | null;
   size_score: number | null;
@@ -103,9 +105,10 @@ ${month}
 
 ## Data Collection Rules (IMPORTANT)
 - SimilarWeb: Collect **only ${month} (1 month)** data per domain.
+  - Use 4 endpoints: Traffic & Engagement, Page Views, Global Rank, Industry Rank (latest month, no date param).
   - Do NOT collect 12-month time-series data.
-  - Do NOT perform Traffic by Country breakdown.
-  - Required fields: global_rank, country (top 1 by share), country_rank, category, category_rank, total_visits, avg_visit_duration
+  - Do NOT use Traffic by Country, Country Rank, or Traffic Sources endpoints.
+  - Required fields: global_rank, category, category_rank, total_visits, avg_visit_duration, unique_visitors, bounce_rate, pages_per_visit, page_views
 - Do NOT use Semrush. Semrush data is NOT needed.
 - MoM change: Compare with the 'Previous Month Data' below. Do NOT fetch additional months from SimilarWeb.
 

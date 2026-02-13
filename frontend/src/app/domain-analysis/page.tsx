@@ -15,12 +15,14 @@ interface DomainResult {
   domain: string;
   threat_score: number | null;
   global_rank: number | null;
-  country: string | null;
-  country_rank: number | null;
   category: string | null;
   category_rank: number | null;
   total_visits: number | null;
   avg_visit_duration: string | null;
+  unique_visitors: number | null;
+  bounce_rate: number | null;
+  pages_per_visit: number | null;
+  page_views: number | null;
   visits_change_mom: number | null;
   rank_change_mom: number | null;
   size_score: number | null;
@@ -681,7 +683,7 @@ export default function DomainAnalysisPage() {
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">MoM 변화</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">글로벌 순위</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">국가</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">UV</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[120px]">권고사항</th>
                     </tr>
                   </thead>
@@ -739,10 +741,8 @@ export default function DomainAnalysisPage() {
                           <td className="px-4 py-3 text-right">
                             <span className="text-sm text-gray-700">{d.global_rank ? `#${d.global_rank.toLocaleString()}` : '-'}</span>
                           </td>
-                          <td className="px-4 py-3">
-                            {d.country ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">{d.country}</span>
-                            ) : '-'}
+                          <td className="px-4 py-3 text-right">
+                            <span className="text-sm text-gray-700">{d.unique_visitors ? formatVisits(d.unique_visitors) : '-'}</span>
                           </td>
                           <td className="px-4 py-3">
                             {d.recommendation && (
@@ -776,7 +776,7 @@ export default function DomainAnalysisPage() {
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">월간 방문</span> — SimilarWeb 기준 최근 1개월 총 방문 횟수 추정치</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">MoM 변화</span> — 전월 대비 방문 수 변화율 (%). 양수=증가, 음수=감소</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">글로벌 순위</span> — SimilarWeb 전 세계 웹사이트 트래픽 순위</p>
-                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">국가</span> — 해당 사이트의 주요 트래픽 유입 국가</p>
+                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">UV</span> — 순 방문자 (Unique Visitors, 중복 제거)</p>
                     </div>
                   </div>
                   <div>
@@ -874,16 +874,28 @@ export default function DomainAnalysisPage() {
                     <span className="text-sm font-medium">{detailDomain.global_rank ? `#${detailDomain.global_rank.toLocaleString()}` : '-'}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-500">국가 순위 ({detailDomain.country || '-'})</span>
-                    <span className="text-sm font-medium">{detailDomain.country_rank ? `#${detailDomain.country_rank.toLocaleString()}` : '-'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
                     <span className="text-sm text-gray-500">월간 방문</span>
                     <span className="text-sm font-medium text-blue-600">{detailDomain.total_visits ? detailDomain.total_visits.toLocaleString() : '-'}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-500">순 방문자 (UV)</span>
+                    <span className="text-sm font-medium">{detailDomain.unique_visitors ? detailDomain.unique_visitors.toLocaleString() : '-'}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
                     <span className="text-sm text-gray-500">평균 방문시간</span>
                     <span className="text-sm font-medium">{detailDomain.avg_visit_duration || '-'}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-500">이탈률</span>
+                    <span className="text-sm font-medium">{detailDomain.bounce_rate !== null ? `${(detailDomain.bounce_rate * 100).toFixed(1)}%` : '-'}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-500">페이지/방문</span>
+                    <span className="text-sm font-medium">{detailDomain.pages_per_visit !== null ? detailDomain.pages_per_visit.toFixed(1) : '-'}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-500">총 페이지뷰</span>
+                    <span className="text-sm font-medium">{detailDomain.page_views ? detailDomain.page_views.toLocaleString() : '-'}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-gray-100">
                     <span className="text-sm text-gray-500">방문 변화 (MoM)</span>

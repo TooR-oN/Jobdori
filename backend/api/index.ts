@@ -281,12 +281,14 @@ async function ensureDbMigration() {
         domain VARCHAR(255) NOT NULL,
         threat_score DECIMAL(5,1) DEFAULT 0,
         global_rank INTEGER,
-        country VARCHAR(100),
-        country_rank INTEGER,
         category VARCHAR(255),
         category_rank INTEGER,
         total_visits BIGINT,
         avg_visit_duration VARCHAR(20),
+        unique_visitors BIGINT,
+        bounce_rate DECIMAL(5,4),
+        pages_per_visit DECIMAL(5,1),
+        page_views BIGINT,
         visits_change_mom DECIMAL(5,1),
         rank_change_mom INTEGER,
         size_score DECIMAL(5,1),
@@ -333,6 +335,24 @@ async function ensureDbMigration() {
       await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS influence_score`
     } catch (e: any) {
       console.error('Migration: Semrush column removal error:', e.message)
+    }
+
+    // Country 컬럼 제거 (SimilarWeb 스킬에서 country 관련 API 제외)
+    try {
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS country`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS country_rank`
+    } catch (e: any) {
+      console.error('Migration: Country column removal error:', e.message)
+    }
+
+    // 신규 트래픽 메트릭 컬럼 추가
+    try {
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS unique_visitors BIGINT`
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS bounce_rate DECIMAL(5,4)`
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS pages_per_visit DECIMAL(5,1)`
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS page_views BIGINT`
+    } catch (e: any) {
+      console.error('Migration: New metric columns error:', e.message)
     }
 
     dbMigrationDone = true
@@ -4065,12 +4085,14 @@ app.post('/api/domain-analysis/run', async (c) => {
           site_url: r.domain,
           threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
           global_rank: r.global_rank,
-          country: r.country,
-          country_rank: r.country_rank,
           category: r.category,
           category_rank: r.category_rank,
           total_visits: r.total_visits ? parseInt(r.total_visits) : null,
           avg_visit_duration: r.avg_visit_duration,
+          unique_visitors: r.unique_visitors ? parseInt(r.unique_visitors) : null,
+          bounce_rate: r.bounce_rate ? parseFloat(r.bounce_rate) : null,
+          pages_per_visit: r.pages_per_visit ? parseFloat(r.pages_per_visit) : null,
+          page_views: r.page_views ? parseInt(r.page_views) : null,
           visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
           rank_change_mom: r.rank_change_mom,
           size_score: r.size_score ? parseFloat(r.size_score) : null,
@@ -4270,13 +4292,17 @@ app.post('/api/domain-analysis/process-result', async (c) => {
         await query`
           INSERT INTO domain_analysis_results (
             report_id, rank, domain, threat_score,
-            global_rank, country, country_rank, category, category_rank,
-            total_visits, avg_visit_duration, visits_change_mom, rank_change_mom,
+            global_rank, category, category_rank,
+            total_visits, avg_visit_duration,
+            unique_visitors, bounce_rate, pages_per_visit, page_views,
+            visits_change_mom, rank_change_mom,
             size_score, growth_score, type_score, site_type, recommendation
           ) VALUES (
             ${report.id}, ${item.rank}, ${item.site_url}, ${item.threat_score},
-            ${item.global_rank}, ${item.country}, ${item.country_rank}, ${item.category}, ${item.category_rank},
-            ${item.total_visits}, ${item.avg_visit_duration}, ${item.visits_change_mom}, ${item.rank_change_mom},
+            ${item.global_rank}, ${item.category}, ${item.category_rank},
+            ${item.total_visits}, ${item.avg_visit_duration},
+            ${item.unique_visitors}, ${item.bounce_rate}, ${item.pages_per_visit}, ${item.page_views},
+            ${item.visits_change_mom}, ${item.rank_change_mom},
             ${item.size_score}, ${item.growth_score}, ${item.type_score}, ${item.site_type}, ${item.recommendation}
           )
         `
@@ -4408,6 +4434,10 @@ app.get('/api/domain-analysis/:month', async (c) => {
         threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
         visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
         total_visits: r.total_visits ? parseInt(r.total_visits) : null,
+        unique_visitors: r.unique_visitors ? parseInt(r.unique_visitors) : null,
+        bounce_rate: r.bounce_rate ? parseFloat(r.bounce_rate) : null,
+        pages_per_visit: r.pages_per_visit ? parseFloat(r.pages_per_visit) : null,
+        page_views: r.page_views ? parseInt(r.page_views) : null,
         size_score: r.size_score ? parseFloat(r.size_score) : null,
         growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
         type_score: r.type_score ? parseFloat(r.type_score) : null,

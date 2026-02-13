@@ -14,11 +14,39 @@
     "critical": "You MUST follow the rules below strictly. Excessive data collection wastes credits.",
     "similarweb": {
       "period": "Collect only 1 month of data for the target_month specified in the prompt.",
-      "scope": "One Overview lookup per domain is sufficient. Do NOT perform detailed Traffic by Country analysis.",
-      "fields_per_domain": "global_rank, country (top 1 by share), country_rank, category, category_rank, total_visits, avg_visit_duration — collect only these 7 fields",
+      "scope": "Use the 4 endpoints below per domain. Do NOT use Traffic by Country or Traffic Sources (too expensive).",
+      "endpoints": [
+        {
+          "name": "Traffic & Engagement",
+          "api": "SimilarWeb/similarweb_get_traffic_and_engagement",
+          "fields": ["visits (total_visits)", "unique_visitors", "bounce_rate", "pages_per_visit", "avg_visit_duration"],
+          "credits": "~20"
+        },
+        {
+          "name": "Page Views",
+          "api": "SimilarWeb/similarweb_get_page_views",
+          "fields": ["page_views"],
+          "credits": "4"
+        },
+        {
+          "name": "Global Rank",
+          "api": "SimilarWeb/similarweb_get_global_rank",
+          "fields": ["global_rank"],
+          "credits": "4"
+        },
+        {
+          "name": "Industry Rank",
+          "api": "SimilarWeb/similarweb_get_industry_rank",
+          "fields": ["category", "category_rank"],
+          "credits": "8",
+          "note": "Returns latest month data only. No date parameter needed."
+        }
+      ],
+      "fields_per_domain": "global_rank, category, category_rank, total_visits, avg_visit_duration, unique_visitors, bounce_rate, pages_per_visit, page_views — collect these 9 fields",
       "do_not": [
         "Do NOT collect 12-month time-series data",
         "Do NOT perform Traffic by Country breakdown",
+        "Do NOT use Country Rank endpoint (requires specific country code)",
         "Do NOT analyze marketing channel traffic sources",
         "Do NOT analyze sub-pages or subdomains"
       ]
@@ -33,18 +61,20 @@
   },
 
   "data_schema": {
-    "total_fields": 16,
+    "total_fields": 18,
     "sources": {
       "similarweb": {
-        "description": "Collected from SimilarWeb (7 fields) — target_month only",
+        "description": "Collected from SimilarWeb (9 fields) — target_month only",
         "fields": [
           { "key": "global_rank",        "type": "integer",  "description": "Global traffic rank" },
-          { "key": "country",            "type": "string",   "description": "Top traffic country (highest share)" },
-          { "key": "country_rank",       "type": "integer",  "description": "Rank within that country" },
           { "key": "category",           "type": "string",   "description": "Site category", "example": "Arts & Entertainment > Animation & Comics" },
           { "key": "category_rank",      "type": "integer",  "description": "Rank within category" },
           { "key": "total_visits",       "type": "integer",  "description": "Total visits for target_month (1 month)" },
-          { "key": "avg_visit_duration", "type": "string",   "description": "Average visit duration", "format": "HH:MM:SS" }
+          { "key": "avg_visit_duration", "type": "string",   "description": "Average visit duration", "format": "HH:MM:SS" },
+          { "key": "unique_visitors",    "type": "integer",  "description": "Unique visitors (deduplicated)" },
+          { "key": "bounce_rate",        "type": "number",   "description": "Bounce rate (0~1, e.g. 0.45 = 45%)" },
+          { "key": "pages_per_visit",    "type": "number",   "description": "Average pages viewed per visit" },
+          { "key": "page_views",         "type": "integer",  "description": "Total page views" }
         ]
       },
       "user_provided": {
@@ -122,12 +152,14 @@
           "site_url": "example.com",
           "threat_score": 85.0,
           "global_rank": 1234,
-          "country": "United States",
-          "country_rank": 567,
           "category": "Arts & Entertainment > Animation & Comics",
           "category_rank": 12,
           "total_visits": 45000000,
           "avg_visit_duration": "00:03:45",
+          "unique_visitors": 12000000,
+          "bounce_rate": 0.42,
+          "pages_per_visit": 4.3,
+          "page_views": 193500000,
           "visits_change_mom": 12.5,
           "rank_change_mom": 20,
           "site_type": "scanlation_group",
@@ -149,13 +181,14 @@
   "cautions": [
     "Collect ONLY 1 month of SimilarWeb data for target_month. NEVER collect 12 months.",
     "Do NOT fetch additional months from SimilarWeb to calculate MoM. Use the previous data provided in the prompt.",
-    "Do NOT perform Traffic by Country analysis. country and country_rank are available from the Overview page.",
+    "Do NOT use Traffic by Country, Country Rank, or Traffic Sources endpoints.",
     "Do NOT use Semrush. Semrush data is NOT needed for this analysis.",
     "type_score is pre-assigned by the user. Use the exact value provided in the prompt. Do NOT calculate it.",
     "If SimilarWeb data for target_month is not yet available, note at the top of the report in Korean: '⚠️ {month}월 데이터 미반영. {prev_month}월 기준 분석'",
     "Always state the data reference month clearly.",
     "Use real SimilarWeb data. If estimates are used, label them clearly.",
     "MUST include both JSON priority_list and Markdown report in the output.",
-    "ALL output text (recommendation, report) MUST be in Korean."
+    "ALL output text (recommendation, report) MUST be in Korean.",
+    "Industry Rank endpoint returns latest month data only — no date parameter needed."
   ]
 }
