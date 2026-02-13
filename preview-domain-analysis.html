@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>월간 불법 도메인 분석 - 테이블 프리뷰</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fb; }
+  .modal-backdrop { background: rgba(0,0,0,0.5); }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- 사이드바 모의 -->
+<div class="flex">
+  <aside class="w-56 bg-white border-r border-gray-200 min-h-screen p-4 hidden lg:block">
+    <div class="text-lg font-bold text-gray-800 mb-6 px-2">Jobdori</div>
+    <nav class="space-y-1">
+      <a class="block px-3 py-2 text-sm text-gray-500 rounded-lg hover:bg-gray-50">대시보드</a>
+      <a class="block px-3 py-2 text-sm text-gray-500 rounded-lg hover:bg-gray-50">세션 & 결과</a>
+      <a class="block px-3 py-2 text-sm text-gray-500 rounded-lg hover:bg-gray-50">도메인별 통계</a>
+      <a class="block px-3 py-2 text-sm bg-blue-50 text-blue-700 rounded-lg font-medium">월간 도메인 분석</a>
+      <a class="block px-3 py-2 text-sm text-gray-500 rounded-lg hover:bg-gray-50">사이트 분류</a>
+    </nav>
+  </aside>
+
+  <main class="flex-1 p-6 max-w-[1440px]">
+    <!-- 페이지 헤더 -->
+    <h1 class="text-xl font-bold text-gray-900 mb-1">월간 불법 도메인 분석</h1>
+    <p class="text-sm text-gray-500 mb-4">Manus AI를 활용한 해적사이트 트래픽 분석 리포트</p>
+
+    <!-- 컨트롤 바 -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <label class="text-sm font-medium text-gray-600">분석 월:</label>
+          <select class="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[160px]">
+            <option selected>2026년 1월</option>
+            <option>2025년 12월</option>
+          </select>
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">완료</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition text-sm font-medium flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            재분석 실행
+          </button>
+          <button class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition text-sm font-medium flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            보고서 다운로드
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <p class="text-xs text-gray-500 mb-1">분석 도메인</p>
+        <p class="text-2xl font-bold text-gray-900">48</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <p class="text-xs text-gray-500 mb-1">고위험 (70+)</p>
+        <p class="text-2xl font-bold text-red-600">8</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <p class="text-xs text-gray-500 mb-1">평균 위협 점수</p>
+        <p class="text-2xl font-bold text-yellow-600">42.3</p>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <p class="text-xs text-gray-500 mb-1">분석 완료</p>
+        <p class="text-2xl font-bold text-green-600">2026-02-12</p>
+      </div>
+    </div>
+
+    <!-- 탭 -->
+    <div class="flex border-b border-gray-200 bg-white rounded-t-xl px-1 pt-1">
+      <button class="px-4 py-2.5 text-sm font-medium border-b-2 border-blue-500 text-blue-600 bg-white rounded-t-lg">분석 테이블</button>
+      <button class="px-4 py-2.5 text-sm font-medium text-gray-500 hover:text-gray-700">분석 보고서</button>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- 새로운 테이블 레이아웃 -->
+    <!-- ============================================ -->
+    <div class="bg-white rounded-b-xl shadow-sm border border-gray-100 border-t-0">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[1200px]">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-12">#</th>
+              <th class="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[180px]">도메인</th>
+              <th class="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">분류</th>
+              <th class="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-[140px]">위협 점수</th>
+              <th class="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
+              <th class="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">글로벌 순위</th>
+              <th class="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Unique Visitors</th>
+              <th class="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">카테고리</th>
+              <th class="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-24">카테고리 순위</th>
+              <th class="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[110px]">권고사항</th>
+              <th class="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-24">트래픽 분석</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100" id="tableBody">
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 푸터 -->
+      <div class="px-4 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-sm text-gray-500">
+        <span>총 <span id="totalCount">0</span>개 사이트</span>
+        <span>데이터 기준: 2026년 1월 (SimilarWeb)</span>
+      </div>
+
+      <!-- 범례 -->
+      <div class="px-5 py-4 border-t border-gray-100 bg-white rounded-b-xl">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-1">
+          <div>
+            <p class="text-[11px] font-semibold text-gray-500 mb-1.5 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block"></span>
+              SimilarWeb 데이터
+            </p>
+            <div class="space-y-0.5 pl-3">
+              <p class="text-[10px] text-gray-400"><span class="text-gray-500 font-medium">월간 방문</span> — 최근 1개월 총 방문 횟수 (MoM 변화율 포함)</p>
+              <p class="text-[10px] text-gray-400"><span class="text-gray-500 font-medium">글로벌 순위</span> — SimilarWeb 전 세계 웹사이트 트래픽 순위</p>
+              <p class="text-[10px] text-gray-400"><span class="text-gray-500 font-medium">Unique Visitors</span> — 순 방문자 (중복 제거)</p>
+              <p class="text-[10px] text-gray-400"><span class="text-gray-500 font-medium">카테고리 / 순위</span> — SimilarWeb 분류 카테고리 내 순위</p>
+              <p class="text-[10px] text-gray-400"><span class="text-gray-500 font-medium">트래픽 분석</span> — 상세 모달 (체류시간, 이탈률, 페이지/방문, 페이지뷰 등)</p>
+            </div>
+          </div>
+          <div>
+            <p class="text-[11px] font-semibold text-gray-500 mb-1.5 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-purple-400 inline-block"></span>
+              AI 분석
+            </p>
+            <div class="space-y-0.5 pl-3">
+              <p class="text-[10px] text-gray-400"><span class="text-gray-500 font-medium">위협 점수</span> — 규모(35) + 성장(30) + 분류(35) = 종합 위험도 (0~100)</p>
+              <p class="text-[10px] text-gray-400"><span class="text-gray-500 font-medium">트래픽 분석</span> — 트래픽 수치와 MoM 변화 기반 AI 동향 판단 (행 클릭 시 상세 근거 확인)</p>
+              <p class="text-[10px] text-gray-400"><span class="text-gray-500 font-medium">권고사항</span> — 트래픽 분석 + 위협 점수 + 분류를 종합한 대응 권고 (행 클릭 시 상세 근거 확인)</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- 모달 -->
+<div id="modal" class="fixed inset-0 modal-backdrop z-50 flex items-center justify-center hidden" onclick="if(event.target===this)closeModal()">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+    <div class="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 rounded-t-2xl flex items-center justify-between z-10">
+      <h2 class="text-lg font-bold text-gray-900" id="modalDomain">example.com</h2>
+      <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+    <div class="p-6 space-y-6" id="modalContent">
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================
+// 더미 데이터
+// ============================================
+const SITE_TYPE_LABELS = {
+  scanlation_group: { label: 'Scanlation', color: 'bg-red-100 text-red-700' },
+  aggregator: { label: 'Aggregator', color: 'bg-orange-100 text-orange-700' },
+  clone: { label: 'Clone', color: 'bg-yellow-100 text-yellow-700' },
+  blog: { label: 'Blog', color: 'bg-blue-100 text-blue-700' },
+  unclassified: { label: '미분류', color: 'bg-gray-100 text-gray-500' },
+};
+
+const sampleData = [
+  { rank: 1, domain: 'toonkor.com', site_type: 'aggregator', threat_score: 89, total_visits: 82500000, visits_change_mom: 12.3, global_rank: 1245, unique_visitors: 34200000, category: 'Arts & Entertainment > Animation and Comics', category_rank: 15, avg_visit_duration: '00:08:42', bounce_rate: 0.3215, pages_per_visit: 8.3, page_views: 684750000, rank_change_mom: -120, size_score: 35, growth_score: 20, type_score: 20, traffic_analysis: '전월대비 급격한 성장', traffic_analysis_detail: '월간 방문수 8,250만으로 전월 대비 12.3% 증가했으며, UV 3,420만 명으로 실사용자도 동반 상승했습니다. 이탈률 32.2%로 양호하고 페이지/방문 8.3회로 콘텐츠 소비가 매우 활발합니다.', recommendation: '즉시 법적 조치 권고', recommendation_detail: '위협 점수 89점(규모 35 + 성장 20 + 분류 20)의 최우선 대응 대상입니다. 글로벌 1,245위의 초대형 해적사이트로 트래픽이 전월 대비 12.3% 급증하고 있어 피해 규모가 확대되고 있습니다. 즉각적인 법적 조치와 ISP 차단 요청이 필요합니다.' },
+  { rank: 2, domain: 'newtoki.com', site_type: 'aggregator', threat_score: 85, total_visits: 56000000, visits_change_mom: 8.7, global_rank: 2103, unique_visitors: 21500000, category: 'Arts & Entertainment > Animation and Comics', category_rank: 28, avg_visit_duration: '00:07:15', bounce_rate: 0.3580, pages_per_visit: 7.1, page_views: 397600000, rank_change_mom: -85, size_score: 35, growth_score: 15, type_score: 20, traffic_analysis: '안정적 성장세', traffic_analysis_detail: '월간 방문수 5,600만으로 전월 대비 8.7% 증가, UV 2,150만 명이며 이탈률 35.8%로 안정적입니다. 페이지/방문 7.1회로 콘텐츠 소비력이 높습니다.', recommendation: '즉시 법적 조치 권고', recommendation_detail: '위협 점수 85점의 최우선 대상입니다. 안정적인 성장세와 높은 사용자 참여도를 보이며, aggregator 유형으로 다수 작품을 동시 침해하고 있습니다. 법적 대응과 DMCA 병행이 필요합니다.' },
+  { rank: 3, domain: 'manatoki.com', site_type: 'scanlation_group', threat_score: 82, total_visits: 31200000, visits_change_mom: -2.4, global_rank: 4520, unique_visitors: 12800000, category: 'Arts & Entertainment > Animation and Comics', category_rank: 45, avg_visit_duration: '00:09:30', bounce_rate: 0.2890, pages_per_visit: 9.7, page_views: 302640000, rank_change_mom: 310, size_score: 30, growth_score: 2, type_score: 35, traffic_analysis: '소폭 하락 후 안정', traffic_analysis_detail: '방문수 3,120만으로 전월 대비 2.4% 소폭 감소했으나, 이탈률 28.9%와 페이지/방문 9.7회로 사용자 참여도는 여전히 매우 높습니다. 일시적 하락으로 보입니다.', recommendation: '즉시 법적 조치 권고', recommendation_detail: '위협 점수 82점, 스캔레이션 그룹(분류 35점)으로 직접 번역/업로드하는 최고위험 유형입니다. 트래픽은 소폭 하락했으나 여전히 3,120만 방문의 대형 사이트이며, 페이지/방문 9.7회로 콘텐츠 소비가 매우 깊습니다.' },
+  { rank: 4, domain: 'funbe.net', site_type: 'scanlation_group', threat_score: 76, total_visits: 14800000, visits_change_mom: 22.5, global_rank: 8910, unique_visitors: 6200000, category: 'Arts & Entertainment > Animation and Comics', category_rank: 78, avg_visit_duration: '00:06:48', bounce_rate: 0.4120, pages_per_visit: 5.8, page_views: 85840000, rank_change_mom: -1200, size_score: 25, growth_score: 20, type_score: 35, traffic_analysis: '전월대비 폭발적 성장', traffic_analysis_detail: '방문수 1,480만으로 전월 대비 22.5% 폭증했습니다. 글로벌 순위가 1,200계단 상승하며 빠르게 성장 중입니다. 이탈률 41.2%는 다소 높으나 UV 620만 명으로 실사용자 기반이 탄탄합니다.', recommendation: '긴급 DMCA 강화', recommendation_detail: '위협 점수 76점이며 스캔레이션 그룹 유형입니다. 22.5%의 폭발적 성장세가 가장 우려되는 부분으로, 현재 추세가 지속되면 2~3개월 내 상위권 진입이 예상됩니다. 즉각적인 DMCA 집중 대응이 필요합니다.' },
+  { rank: 5, domain: 'copytoon.com', site_type: 'clone', threat_score: 58, total_visits: 8200000, visits_change_mom: 36.2, global_rank: 15340, unique_visitors: 3800000, category: 'Arts & Entertainment > Comics', category_rank: 112, avg_visit_duration: '00:05:12', bounce_rate: 0.4580, pages_per_visit: 4.3, page_views: 35260000, rank_change_mom: -3200, size_score: 20, growth_score: 25, type_score: 10, traffic_analysis: '전월대비 폭발적 성장', traffic_analysis_detail: '방문수 820만으로 전월 대비 36.2% 급증, 순위도 3,200계단 상승했습니다. 클론 사이트 특성상 다른 사이트 차단 시 트래픽이 유입되는 풍선효과로 분석됩니다.', recommendation: 'DMCA 강화', recommendation_detail: '위협 점수 58점의 주의 관찰 대상이나, 36.2%의 폭발적 성장세가 우려됩니다. 클론 사이트(분류 10점)로 기존 사이트 차단 시 풍선효과로 급성장 가능성이 있어 DMCA 강화가 필요합니다.' },
+  { rank: 6, domain: 'wolftoon.net', site_type: 'scanlation_group', threat_score: 55, total_visits: 5100000, visits_change_mom: 14.1, global_rank: 24500, unique_visitors: 2100000, category: 'Arts & Entertainment > Animation and Comics', category_rank: 156, avg_visit_duration: '00:07:55', bounce_rate: 0.3710, pages_per_visit: 6.5, page_views: 33150000, rank_change_mom: -890, size_score: 20, growth_score: 15, type_score: 35, traffic_analysis: '꾸준한 성장세', traffic_analysis_detail: '방문수 510만으로 전월 대비 14.1% 상승, 이탈률 37.1%로 양호합니다. 중견 스캔레이션 사이트로 꾸준히 성장 중입니다.', recommendation: 'DMCA 강화', recommendation_detail: '스캔레이션 그룹(분류 35점)으로 직접 번역 업로드하는 위험 유형이며, 14.1% 성장세가 지속되고 있어 DMCA 집중 대응이 필요합니다.' },
+  { rank: 7, domain: 'mangabuddy.com', site_type: 'aggregator', threat_score: 52, total_visits: 12500000, visits_change_mom: 3.2, global_rank: 9800, unique_visitors: 5400000, category: 'Arts & Entertainment > Comics', category_rank: 85, avg_visit_duration: '00:04:35', bounce_rate: 0.5010, pages_per_visit: 3.8, page_views: 47500000, rank_change_mom: 120, size_score: 25, growth_score: 5, type_score: 20, traffic_analysis: '안정적 유지', traffic_analysis_detail: '방문수 1,250만으로 전월 대비 3.2% 미세 상승, 안정적으로 유지되고 있습니다. 이탈률 50.1%로 다소 높고 페이지/방문 3.8회로 평균적입니다.', recommendation: 'DMCA 강화', recommendation_detail: '위협 점수 52점, aggregator로 다수 작품 침해 중이나 성장세는 정체 상태입니다. 정기적 DMCA를 통해 콘텐츠 제거를 지속하는 것이 적절합니다.' },
+  { rank: 8, domain: 'readmanga.live', site_type: 'aggregator', threat_score: 47, total_visits: 6800000, visits_change_mom: -5.3, global_rank: 18200, unique_visitors: 2900000, category: 'Arts & Entertainment > Animation and Comics', category_rank: 135, avg_visit_duration: '00:03:48', bounce_rate: 0.5340, pages_per_visit: 3.2, page_views: 21760000, rank_change_mom: 450, size_score: 20, growth_score: 2, type_score: 20, traffic_analysis: '하락세 지속', traffic_analysis_detail: '방문수 680만으로 전월 대비 5.3% 감소하고, 글로벌 순위도 450계단 하락했습니다. 이탈률 53.4%로 높아 사용자 이탈이 진행 중으로 보입니다.', recommendation: '모니터링 강화', recommendation_detail: '위협 점수 47점으로 주의 관찰 등급이나, 트래픽 하락세가 뚜렷합니다. 기존 단속 효과가 나타나고 있을 가능성이 있어 모니터링하며 추이를 지켜볼 필요가 있습니다.' },
+  { rank: 9, domain: 'tooniverse.xyz', site_type: 'clone', threat_score: 38, total_visits: 1200000, visits_change_mom: 52.8, global_rank: 89500, unique_visitors: 480000, category: 'Arts & Entertainment > Comics', category_rank: 420, avg_visit_duration: '00:02:45', bounce_rate: 0.6120, pages_per_visit: 2.8, page_views: 3360000, rank_change_mom: -12000, size_score: 15, growth_score: 30, type_score: 10, traffic_analysis: '폭발적 급성장', traffic_analysis_detail: '방문수 120만으로 전월 대비 52.8% 폭증, 순위 12,000계단 상승의 급성장 사이트입니다. 다만 이탈률 61.2%, 페이지/방문 2.8회로 사용자 정착도는 낮습니다.', recommendation: '모니터링 강화', recommendation_detail: '위협 점수 38점의 저위험이나 52.8% 성장률이 매우 높습니다. 현재 규모는 작지만 성장 추세가 지속되면 위험 등급 상향 가능성이 있어 주의 관찰이 필요합니다.' },
+  { rank: 10, domain: 'webtoon-pirate.blog', site_type: 'blog', threat_score: 25, total_visits: 350000, visits_change_mom: -12.4, global_rank: 320000, unique_visitors: 150000, category: 'Arts & Entertainment > Animation and Comics', category_rank: 890, avg_visit_duration: '00:01:55', bounce_rate: 0.7200, pages_per_visit: 1.8, page_views: 630000, rank_change_mom: 8500, size_score: 5, growth_score: 2, type_score: 5, traffic_analysis: '급격한 하락세', traffic_analysis_detail: '방문수 35만으로 전월 대비 12.4% 하락하고, 순위도 8,500계단 떨어졌습니다. 이탈률 72%로 매우 높아 사이트 활성도가 크게 저하되었습니다.', recommendation: '모니터링', recommendation_detail: '위협 점수 25점의 저위험 블로그형 사이트입니다. 트래픽 하락세가 뚜렷하며 규모도 소형이라 별도 법적 조치보다는 정기 모니터링으로 충분합니다.' },
+  { rank: 11, domain: 'comics-free.org', site_type: 'unclassified', threat_score: 18, total_visits: 95000, visits_change_mom: null, global_rank: 580000, unique_visitors: 42000, category: 'Arts & Entertainment', category_rank: 2100, avg_visit_duration: '00:01:12', bounce_rate: 0.7850, pages_per_visit: 1.4, page_views: 133000, rank_change_mom: null, size_score: 0, growth_score: 0, type_score: 0, traffic_analysis: '소규모 신생 사이트', traffic_analysis_detail: '방문수 9.5만으로 매우 소규모이며, 전월 비교 데이터가 없는 신규 사이트입니다. 이탈률 78.5%로 매우 높아 아직 콘텐츠 확보가 부족한 것으로 보입니다.', recommendation: '모니터링', recommendation_detail: '위협 점수 18점의 저위험 미분류 사이트입니다. 규모가 매우 작고 전월 데이터가 없어 추세 파악이 불가합니다. 분류 후 재평가가 필요하며 현 시점에서는 모니터링으로 충분합니다.' },
+  { rank: 12, domain: 'manga-raw.club', site_type: 'aggregator', threat_score: 45, total_visits: 3800000, visits_change_mom: 7.8, global_rank: 32100, unique_visitors: 1600000, category: 'Arts & Entertainment > Comics', category_rank: 198, avg_visit_duration: '00:04:02', bounce_rate: 0.4920, pages_per_visit: 3.5, page_views: 13300000, rank_change_mom: -540, size_score: 15, growth_score: 15, type_score: 20, traffic_analysis: '완만한 성장세', traffic_analysis_detail: '방문수 380만으로 전월 대비 7.8% 상승, 순위도 540계단 올랐습니다. 이탈률 49.2%로 보통 수준이며 점진적으로 성장 중입니다.', recommendation: 'DMCA 강화', recommendation_detail: '위협 점수 45점의 주의 관찰 대상, aggregator로 다수 작품 침해 중입니다. 7.8%의 완만한 성장세가 지속되고 있어 정기 DMCA를 통한 콘텐츠 제거가 필요합니다.' },
+];
+
+function formatVisits(num) {
+  if (num === null || num === undefined) return '-';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+  return num.toLocaleString();
+}
+
+function recBadgeColor(rec) {
+  if (!rec) return 'bg-gray-100 text-gray-600';
+  if (rec.includes('즉시')) return 'bg-red-100 text-red-700';
+  if (rec.includes('긴급')) return 'bg-orange-100 text-orange-700';
+  if (rec.includes('법적')) return 'bg-orange-100 text-orange-700';
+  if (rec.includes('DMCA')) return 'bg-blue-100 text-blue-700';
+  if (rec.includes('모니터링 강화')) return 'bg-yellow-100 text-yellow-700';
+  return 'bg-gray-100 text-gray-600';
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  document.getElementById('totalCount').textContent = sampleData.length;
+
+  tbody.innerHTML = sampleData.map(d => {
+    const ts = d.threat_score || 0;
+    const threatColor = ts >= 70 ? 'bg-red-500' : ts >= 40 ? 'bg-yellow-500' : 'bg-green-500';
+    const threatTextColor = ts >= 70 ? 'text-red-600' : ts >= 40 ? 'text-yellow-600' : 'text-green-600';
+    const mom = d.visits_change_mom;
+    const momColor = mom !== null && mom > 0 ? 'text-red-500' : mom !== null && mom < 0 ? 'text-green-500' : 'text-gray-400';
+    const momIcon = mom !== null && mom > 0 ? '&#9650;' : mom !== null && mom < 0 ? '&#9660;' : '';
+    const momText = mom !== null ? `${momIcon} ${Math.abs(mom).toFixed(1)}%` : '';
+
+    const st = SITE_TYPE_LABELS[d.site_type || 'unclassified'] || SITE_TYPE_LABELS.unclassified;
+
+    const rankBg = d.rank <= 3 ? 'bg-red-100 text-red-700' : d.rank <= 10 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600';
+
+    // 카테고리 짧게 (마지막 부분만)
+    const catShort = d.category ? d.category.split(' > ').pop() : '-';
+
+    return `
+      <tr class="hover:bg-blue-50/50 transition cursor-pointer" onclick='openModal(${JSON.stringify(d).replace(/'/g, "&#39;")})'>
+        <td class="px-3 py-3">
+          <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${rankBg}">${d.rank}</span>
+        </td>
+        <td class="px-3 py-3">
+          <span class="font-medium text-gray-900 text-sm">${d.domain}</span>
+        </td>
+        <td class="px-3 py-3 text-center">
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${st.color}">${st.label}</span>
+        </td>
+        <td class="px-3 py-3">
+          <div class="flex items-center gap-2">
+            <div class="flex-1">
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="h-2 rounded-full transition-all ${threatColor}" style="width:${ts}%"></div>
+              </div>
+            </div>
+            <span class="text-sm font-bold ${threatTextColor} w-10 text-right">${d.threat_score ?? '-'}</span>
+          </div>
+        </td>
+        <td class="px-3 py-3 text-right">
+          <div>
+            <span class="text-sm font-medium text-gray-900">${formatVisits(d.total_visits)}</span>
+            ${mom !== null ? `<div class="text-[11px] ${momColor} leading-tight">(${momText})</div>` : ''}
+          </div>
+        </td>
+        <td class="px-3 py-3 text-right">
+          <span class="text-sm text-gray-700">${d.global_rank ? '#' + d.global_rank.toLocaleString() : '-'}</span>
+        </td>
+        <td class="px-3 py-3 text-right">
+          <span class="text-sm text-gray-700">${d.unique_visitors ? formatVisits(d.unique_visitors) : '-'}</span>
+        </td>
+        <td class="px-3 py-3">
+          <span class="text-xs text-gray-600 truncate block max-w-[160px]" title="${d.category || ''}">${catShort}</span>
+        </td>
+        <td class="px-3 py-3 text-right">
+          <span class="text-sm text-gray-700">${d.category_rank ? '#' + d.category_rank.toLocaleString() : '-'}</span>
+        </td>
+        <td class="px-3 py-3">
+          <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${recBadgeColor(d.recommendation)}">${d.recommendation || '-'}</span>
+        </td>
+        <td class="px-3 py-3 text-center">
+          ${d.traffic_analysis 
+            ? `<span class="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-700">${d.traffic_analysis}</span>`
+            : `<button class="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition" onclick="event.stopPropagation(); openModal(${JSON.stringify(d).replace(/'/g, '&#39;')})">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            상세
+          </button>`
+          }
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openModal(d) {
+  const modal = document.getElementById('modal');
+  document.getElementById('modalDomain').textContent = d.domain;
+
+  const ts = d.threat_score || 0;
+  const tsColor = ts >= 70 ? 'text-red-600' : ts >= 40 ? 'text-yellow-600' : 'text-green-600';
+  const recBg = ts >= 70 ? 'bg-red-50 border border-red-200' : ts >= 40 ? 'bg-yellow-50 border border-yellow-200' : 'bg-green-50 border border-green-200';
+  const recTitleColor = ts >= 70 ? 'text-red-700' : ts >= 40 ? 'text-yellow-700' : 'text-green-700';
+  const recTextColor = ts >= 70 ? 'text-red-600' : ts >= 40 ? 'text-yellow-600' : 'text-green-600';
+
+  const mom = d.visits_change_mom;
+  const momColor = mom !== null && mom > 0 ? 'text-red-600' : mom !== null && mom < 0 ? 'text-green-600' : '';
+  const momText = mom !== null ? `${mom > 0 ? '+' : ''}${mom}%` : '-';
+
+  const rankMom = d.rank_change_mom;
+  const rankMomText = rankMom !== null ? (rankMom > 0 ? `+${rankMom}` : rankMom.toString()) : '-';
+
+  const st = SITE_TYPE_LABELS[d.site_type || 'unclassified'] || SITE_TYPE_LABELS.unclassified;
+
+  document.getElementById('modalContent').innerHTML = `
+    <!-- 위협 점수 -->
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-sm font-medium text-gray-600">종합 위협 점수</span>
+        <span class="text-2xl font-bold ${tsColor}">${d.threat_score ?? '-'} / 100</span>
+      </div>
+      <div class="grid grid-cols-3 gap-4">
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500 mb-1">규모 점수</p>
+          <p class="text-lg font-bold text-blue-600">${d.size_score ?? '-'} <span class="text-xs text-gray-400">/ 35</span></p>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500 mb-1">성장 점수</p>
+          <p class="text-lg font-bold text-green-600">${d.growth_score ?? '-'} <span class="text-xs text-gray-400">/ 30</span></p>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500 mb-1">분류 점수</p>
+          <p class="text-lg font-bold text-purple-600">${d.type_score ?? '-'} <span class="text-xs text-gray-400">/ 35</span></p>
+          <p class="text-[10px] text-gray-400 mt-0.5">${st.label}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 트래픽 데이터 -->
+    <div>
+      <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block"></span>
+        트래픽 데이터 (SimilarWeb)
+      </h3>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">글로벌 순위</span>
+          <span class="text-sm font-medium">${d.global_rank ? '#' + d.global_rank.toLocaleString() : '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">월간 방문</span>
+          <span class="text-sm font-medium text-blue-600">${d.total_visits ? d.total_visits.toLocaleString() : '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">순 방문자 (UV)</span>
+          <span class="text-sm font-medium">${d.unique_visitors ? d.unique_visitors.toLocaleString() : '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">평균 방문시간</span>
+          <span class="text-sm font-medium">${d.avg_visit_duration || '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">이탈률</span>
+          <span class="text-sm font-medium">${d.bounce_rate !== null ? (d.bounce_rate * 100).toFixed(1) + '%' : '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">페이지/방문</span>
+          <span class="text-sm font-medium">${d.pages_per_visit !== null ? d.pages_per_visit.toFixed(1) : '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">총 페이지뷰</span>
+          <span class="text-sm font-medium">${d.page_views ? d.page_views.toLocaleString() : '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">카테고리</span>
+          <span class="text-sm font-medium">${d.category || '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">카테고리 순위</span>
+          <span class="text-sm font-medium">${d.category_rank ? '#' + d.category_rank : '-'}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">방문 변화 (MoM)</span>
+          <span class="text-sm font-medium ${momColor}">${momText}</span>
+        </div>
+        <div class="flex justify-between py-2 border-b border-gray-100">
+          <span class="text-sm text-gray-500">순위 변화 (MoM)</span>
+          <span class="text-sm font-medium">${rankMomText}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 트래픽 분석 (AI) -->
+    ${(d.traffic_analysis || d.traffic_analysis_detail) ? `
+    <div class="rounded-lg p-4 bg-indigo-50 border border-indigo-200">
+      <h3 class="text-sm font-semibold text-indigo-700 mb-2 flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        트래픽 분석
+        ${d.traffic_analysis ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-100 text-indigo-800 ml-1">${d.traffic_analysis}</span>` : ''}
+      </h3>
+      ${d.traffic_analysis_detail ? `<p class="text-sm text-indigo-600 leading-relaxed">${d.traffic_analysis_detail}</p>` : ''}
+    </div>
+    ` : ''}
+
+    <!-- 권고사항 -->
+    ${d.recommendation ? `
+    <div class="${recBg} rounded-lg p-4">
+      <h3 class="text-sm font-semibold mb-2 ${recTitleColor}">권고사항: ${d.recommendation}</h3>
+      <p class="text-sm leading-relaxed ${recTextColor}">${d.recommendation_detail || d.recommendation}</p>
+    </div>
+    ` : ''}
+  `;
+
+  modal.classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+}
+
+// ESC 키로 모달 닫기
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+
+// 렌더링
+renderTable();
+</script>
+</body>
+</html>
