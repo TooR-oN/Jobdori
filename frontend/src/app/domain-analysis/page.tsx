@@ -236,9 +236,12 @@ export default function DomainAnalysisPage() {
     setError(null);
 
     try {
-      // 완료된 분석이 있으면 먼저 rerun으로 상태 리셋
-      if (report?.status === 'completed') {
+      // 항상 rerun을 먼저 시도 (기존 completed/failed 레코드 리셋)
+      // 해당 월 레코드가 없으면 rerun이 무시되므로 안전
+      try {
         await domainAnalysisApi.rerun(selectedMonth);
+      } catch {
+        // rerun 실패는 무시 (레코드 없는 경우 등)
       }
 
       const res = await domainAnalysisApi.run(selectedMonth);
