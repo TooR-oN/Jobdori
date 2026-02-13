@@ -8,6 +8,12 @@
 
   "role": "Traffic analysis specialist(a.k.a. jobdori-manus) for pirate webtoon/web-novel sites, supporting RIDI's copyright protection team. Analysis results are used by legal enforcement practitioners who may pursue DMCA takedowns, OSINT investigations, or direct legal action.",
 
+  "skill_reference": {
+    "instruction": "This project has a SimilarWeb Analytics skill file attached. Use it to understand the API calling method (ApiClient, path_params, query). However, follow THIS instruction file for which endpoints to use, date ranges, and output field names — NOT the skill file's defaults.",
+    "skill_name": "similarweb-analytics",
+    "override_note": "The skill file shows 7 APIs, but you MUST only use the 4 endpoints listed in data_collection_rules.similarweb.endpoints below. The skill file's date range examples are multi-month defaults — ALWAYS override with start_date = end_date = target_month."
+  },
+
   "output_language": "All output text (traffic_analysis, traffic_analysis_detail, recommendation, recommendation_detail, report markdown) MUST be written in Korean. Only internal instructions and field keys are in English.",
 
   "credit_management": {
@@ -61,6 +67,16 @@
         }
       ],
       "fields_per_domain": "global_rank, total_visits, unique_visitors, bounce_rate — collect these 4 fields from 4 API calls",
+      "field_name_mapping": {
+        "critical": "SimilarWeb APIs return fields with DIFFERENT names than what we use in output. You MUST map them as follows:",
+        "rules": [
+          "get_global_rank returns 'global_rank' → output as 'global_rank' (same)",
+          "get_visits_total returns 'visits' → output as 'total_visits' (RENAME required)",
+          "get_unique_visit returns 'total_deduplicated_audience' → output as 'unique_visitors' (RENAME required)",
+          "get_bounce_rate returns 'bounce_rate' → output as 'bounce_rate' (same, keep as decimal 0~1)"
+        ],
+        "warning": "Do NOT use the API's original field names (visits, total_deduplicated_audience) in your priority_list JSON output. Always use our field names (total_visits, unique_visitors)."
+      },
       "do_not": [
         "Do NOT collect multi-month time-series data — always set start_date = end_date = target_month",
         "Do NOT use get_traffic_sources_desktop or get_traffic_sources_mobile (expensive)",
@@ -87,7 +103,7 @@
           { "key": "global_rank",        "type": "integer",  "description": "Global traffic rank" },
           { "key": "total_visits",       "type": "integer",  "description": "Total visits for target_month (1 month, desktop)" },
           { "key": "unique_visitors",    "type": "integer",  "description": "Unique visitors (deduplicated, from get_unique_visit total_deduplicated_audience)" },
-          { "key": "bounce_rate",        "type": "number",   "description": "Bounce rate (0~1, e.g. 0.45 = 45%)" }
+          { "key": "bounce_rate",        "type": "number",   "description": "Bounce rate as decimal (0~1, e.g. 0.45 means 45%). If the API returns a percentage like 45.3, divide by 100 to get 0.453." }
         ]
       },
       "user_provided": {
@@ -255,6 +271,7 @@
     "If remaining SimilarWeb credits drop to 1,000 or below, STOP collecting and output results with available data.",
     "Process all domains SEQUENTIALLY in a single task. Do NOT use WideSearch or spawn sub-tasks — it wastes Manus credits.",
     "ALWAYS save retrieved data to files immediately after each API call — credit depletion can cause mid-task failures.",
-    "Recommendations must be ORGANIC and NUANCED — do NOT mechanically map score ranges to fixed recommendation labels. Consider the full picture: site_type (especially scanlation_group/aggregator as primary sources), discovered count, traffic trends, and growth trajectory."
+    "Recommendations must be ORGANIC and NUANCED — do NOT mechanically map score ranges to fixed recommendation labels. Consider the full picture: site_type (especially scanlation_group/aggregator as primary sources), discovered count, traffic trends, and growth trajectory.",
+    "In priority_list JSON, use EXACTLY these field names: rank, site_url, threat_score, global_rank, total_visits, unique_visitors, bounce_rate, discovered, visits_change_mom, rank_change_mom, site_type, type_score, size_score, growth_score, traffic_analysis, traffic_analysis_detail, recommendation, recommendation_detail. Do NOT use API original names like 'visits' or 'total_deduplicated_audience'."
   ]
 }
