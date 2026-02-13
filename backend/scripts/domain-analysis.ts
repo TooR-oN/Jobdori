@@ -25,16 +25,17 @@ export interface DomainAnalysisResult {
   avg_visit_duration: string | null;
   visits_change_mom: number | null;
   rank_change_mom: number | null;
-  total_backlinks: number | null;
-  referring_domains: number | null;
-  top_organic_keywords: string[] | null;
-  top_referring_domains: string[] | null;
-  top_anchors: string[] | null;
-  branded_traffic_ratio: number | null;
   size_score: number | null;
   growth_score: number | null;
-  influence_score: number | null;
+  type_score: number | null;
+  site_type: string | null;
   recommendation: string | null;
+}
+
+export interface DomainWithType {
+  domain: string;
+  site_type: string;
+  type_score: number;
 }
 
 interface ManusTaskResponse {
@@ -75,7 +76,7 @@ export interface ManusTaskStatus {
  * Build monthly domain analysis prompt (concise — detailed instructions are in the project Instruction file)
  */
 export function buildAnalysisPrompt(
-  domains: string[],
+  domains: DomainWithType[],
   previousData: DomainAnalysisResult[] | null,
   targetMonth?: string
 ): string {
@@ -89,6 +90,10 @@ export function buildAnalysisPrompt(
     ? JSON.stringify(previousData, null, 2)
     : 'No previous data (first analysis)';
 
+  const domainListSection = domains.map(d => 
+    `${d.domain} | ${d.site_type} | ${d.type_score}`
+  ).join('\n');
+
   return `Analyze the traffic of the following ${domains.length} pirate sites for ${month}.
 Refer to the project instruction file (manus-traffic-analysis-instruction.json) for full data schema, scoring rules, and output format.
 ALL output text (recommendation, report markdown) MUST be written in Korean.
@@ -97,15 +102,19 @@ ALL output text (recommendation, report markdown) MUST be written in Korean.
 ${month}
 
 ## Data Collection Rules (IMPORTANT)
-- SimilarWeb: Collect **only ${month} (1 month)** data per domain (single Overview lookup).
+- SimilarWeb: Collect **only ${month} (1 month)** data per domain.
   - Do NOT collect 12-month time-series data.
   - Do NOT perform Traffic by Country breakdown.
   - Required fields: global_rank, country (top 1 by share), country_rank, category, category_rank, total_visits, avg_visit_duration
-- Semrush: Single current snapshot only.
+- Do NOT use Semrush. Semrush data is NOT needed.
 - MoM change: Compare with the 'Previous Month Data' below. Do NOT fetch additional months from SimilarWeb.
 
-## Target Domains
-${domains.join('\n')}
+## Scoring Rules
+threat_score = size_score (max 35) + growth_score (max 30) + type_score (from the list below)
+type_score is pre-assigned by the user for each domain. Use the exact value provided.
+
+## Target Domains (domain | site_type | type_score)
+${domainListSection}
 
 ## Previous Month Data (for MoM comparison)
 ${previousSection}`;

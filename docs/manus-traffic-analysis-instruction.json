@@ -23,10 +23,7 @@
         "Do NOT analyze sub-pages or subdomains"
       ]
     },
-    "semrush": {
-      "period": "Single current snapshot (no time-series needed)",
-      "fields_per_domain": "total_backlinks, referring_domains, top_organic_keywords (5), top_referring_domains (5), top_anchors (5), branded_traffic_ratio"
-    },
+    "semrush": "NOT USED. Do NOT collect any Semrush data.",
     "mom_comparison": {
       "instruction": "Calculate MoM change rates by comparing the values you collect this month with the 'Previous Month Data' section provided in the prompt. Do NOT fetch additional months from SimilarWeb.",
       "visits_change_mom": "(this_month total_visits - previous_data total_visits) / previous_data total_visits * 100",
@@ -36,7 +33,7 @@
   },
 
   "data_schema": {
-    "total_fields": 22,
+    "total_fields": 16,
     "sources": {
       "similarweb": {
         "description": "Collected from SimilarWeb (7 fields) — target_month only",
@@ -50,26 +47,22 @@
           { "key": "avg_visit_duration", "type": "string",   "description": "Average visit duration", "format": "HH:MM:SS" }
         ]
       },
-      "semrush": {
-        "description": "Collected from Semrush (6 fields) — current snapshot",
+      "user_provided": {
+        "description": "Provided in the prompt by the system (2 fields) — do NOT collect these",
         "fields": [
-          { "key": "total_backlinks",        "type": "integer",    "description": "Total backlink count" },
-          { "key": "referring_domains",      "type": "integer",    "description": "Number of referring domains" },
-          { "key": "top_organic_keywords",   "type": "string[]",  "description": "Top 5 organic keywords", "max_items": 5 },
-          { "key": "top_referring_domains",  "type": "string[]",  "description": "Top 5 referring domains", "max_items": 5 },
-          { "key": "top_anchors",            "type": "string[]",  "description": "Top 5 anchor texts", "max_items": 5 },
-          { "key": "branded_traffic_ratio",  "type": "number",    "description": "Branded search traffic ratio (%)", "precision": 1 }
+          { "key": "site_type",  "type": "string",  "description": "Site classification (scanlation_group, aggregator, clone, blog, unclassified)" },
+          { "key": "type_score", "type": "number",  "description": "Pre-assigned score based on site_type. Use the exact value from the prompt." }
         ]
       },
       "analyst_computed": {
-        "description": "Computed by analyst (7 fields) — based on SimilarWeb data + provided previous month data",
+        "description": "Computed by analyst (7 fields) — based on SimilarWeb data + provided previous month data + user-provided type_score",
         "fields": [
-          { "key": "visits_change_mom",  "type": "number|null",  "description": "Visits MoM change (%)", "formula": "(this_month total_visits - prev total_visits) / prev total_visits * 100", "data_source": "This month: SimilarWeb, Previous: provided in prompt", "null_condition": "No previous data provided" },
-          { "key": "rank_change_mom",    "type": "integer|null", "description": "Rank MoM change (positive = improved)", "formula": "prev global_rank - this_month global_rank", "data_source": "This month: SimilarWeb, Previous: provided in prompt", "null_condition": "No previous data provided" },
-          { "key": "threat_score",       "type": "number",       "description": "Threat score (0-100)", "formula": "size_score + growth_score + influence_score", "precision": 1 },
-          { "key": "size_score",         "type": "number",       "description": "Size score (0-40)", "precision": 1 },
-          { "key": "growth_score",       "type": "number",       "description": "Growth score (0-40)", "precision": 1, "null_condition_value": 0 },
-          { "key": "influence_score",    "type": "number",       "description": "Influence score (0-20)", "precision": 1 },
+          { "key": "visits_change_mom",  "type": "number|null",  "description": "Visits MoM change (%)", "null_condition": "No previous data provided" },
+          { "key": "rank_change_mom",    "type": "integer|null", "description": "Rank MoM change (positive = improved)", "null_condition": "No previous data provided" },
+          { "key": "threat_score",       "type": "number",       "description": "Threat score (0-100)", "formula": "size_score + growth_score + type_score", "precision": 1 },
+          { "key": "size_score",         "type": "number",       "description": "Size score (0-35)", "precision": 1 },
+          { "key": "growth_score",       "type": "number",       "description": "Growth score (0-30)", "precision": 1, "null_condition_value": 0 },
+          { "key": "type_score",         "type": "number",       "description": "Type score (0-35) — use the value provided in the prompt", "precision": 1 },
           { "key": "recommendation",     "type": "string",       "description": "Action recommendation — MUST be written in Korean, 1-2 sentences, from legal enforcement perspective" }
         ]
       }
@@ -78,61 +71,42 @@
 
   "scoring_rules": {
     "size_score": {
-      "max": 40,
+      "max": 35,
       "base_rules": [
-        { "condition": "total_visits >= 50000000", "score": 40 },
-        { "condition": "total_visits >= 10000000", "score": 30 },
-        { "condition": "total_visits >= 1000000",  "score": 20 },
-        { "condition": "total_visits >= 100000",   "score": 10 },
-        { "condition": "else",                     "score": 5 }
+        { "condition": "total_visits >= 50000000", "score": 35 },
+        { "condition": "total_visits >= 30000000", "score": 30 },
+        { "condition": "total_visits >= 10000000", "score": 25 },
+        { "condition": "total_visits >= 5000000",  "score": 20 },
+        { "condition": "total_visits >= 1000000",  "score": 15 },
+        { "condition": "total_visits >= 500000",   "score": 10 },
+        { "condition": "total_visits >= 100000",   "score": 5 },
+        { "condition": "else",                     "score": 0 }
       ],
-      "bonus": { "condition": "global_rank <= 1000", "bonus": 5, "cap": 40 }
+      "bonus": { "condition": "global_rank <= 1000", "bonus": 5, "cap": 35 }
     },
     "growth_score": {
-      "max": 40,
+      "max": 30,
       "no_previous_data": 0,
       "rules": [
-        { "condition": "visits_change_mom >= 50",  "score": 40 },
-        { "condition": "visits_change_mom >= 20",  "score": 30 },
-        { "condition": "visits_change_mom >= 5",   "score": 20 },
-        { "condition": "visits_change_mom >= 0",   "score": 10 },
-        { "condition": "visits_change_mom < 0",    "score": 5 }
+        { "condition": "visits_change_mom >= 50",  "score": 30 },
+        { "condition": "visits_change_mom >= 35",  "score": 25 },
+        { "condition": "visits_change_mom >= 20",  "score": 20 },
+        { "condition": "visits_change_mom >= 13",  "score": 15 },
+        { "condition": "visits_change_mom >= 5",   "score": 10 },
+        { "condition": "visits_change_mom >= 0",   "score": 5 },
+        { "condition": "visits_change_mom < 0",    "score": 2 }
       ]
     },
-    "influence_score": {
-      "max": 20,
-      "components": [
-        {
-          "field": "referring_domains",
-          "max_component": 10,
-          "rules": [
-            { "condition": ">= 10000", "score": 10 },
-            { "condition": ">= 1000",  "score": 7 },
-            { "condition": ">= 100",   "score": 4 },
-            { "condition": "else",      "score": 2 }
-          ]
-        },
-        {
-          "field": "total_backlinks",
-          "max_component": 5,
-          "rules": [
-            { "condition": ">= 1000000", "score": 5 },
-            { "condition": ">= 100000",  "score": 3 },
-            { "condition": ">= 10000",   "score": 2 },
-            { "condition": "else",        "score": 1 }
-          ]
-        },
-        {
-          "field": "branded_traffic_ratio",
-          "max_component": 5,
-          "rules": [
-            { "condition": ">= 50", "score": 5 },
-            { "condition": ">= 30", "score": 3 },
-            { "condition": ">= 10", "score": 2 },
-            { "condition": "else",   "score": 1 }
-          ]
-        }
-      ]
+    "type_score": {
+      "max": 35,
+      "instruction": "Use the type_score value provided in the prompt for each domain. Do NOT calculate this yourself.",
+      "mapping": {
+        "scanlation_group": 35,
+        "aggregator": 20,
+        "clone": 10,
+        "blog": 5,
+        "unclassified": 0
+      }
     }
   },
 
@@ -156,23 +130,18 @@
           "avg_visit_duration": "00:03:45",
           "visits_change_mom": 12.5,
           "rank_change_mom": 20,
-          "total_backlinks": 150000,
-          "referring_domains": 8500,
-          "top_organic_keywords": ["read manga online", "manga raw", "free webtoon", "웹툰 무료", "manhwa online"],
-          "top_referring_domains": ["reddit.com", "twitter.com", "discord.com", "forum.com", "blog.com"],
-          "top_anchors": ["read manga online", "manga raw", "웹툰 무료", "free manhwa", "漫画"],
-          "branded_traffic_ratio": 45.2,
+          "site_type": "scanlation_group",
+          "type_score": 35.0,
           "size_score": 30.0,
-          "growth_score": 30.0,
-          "influence_score": 15.0,
-          "recommendation": "최우선 대응 대상. 트래픽 급증세이며 백링크가 광범위합니다."
+          "growth_score": 20.0,
+          "recommendation": "최우선 대응 대상. 스캔레이션 그룹으로 직접 번역/업로드 중이며 트래픽이 급증하고 있습니다."
         }
       },
       {
         "name": "report",
         "format": "Markdown",
         "instruction": "Follow the template structure below exactly. The entire report MUST be written in Korean.",
-        "template": "# 월간 해적사이트 분석 보고서 (YYYY-MM)\n\n## 1. 종합 요약 및 핵심 동향\n\n- **최우선 대응 대상**: [1위 사이트 URL] (위협 점수: [X]점) - [핵심 사유 요약]\n- **주요 동향**: (전체 트래픽 트렌드, 주목할 변화 2~3개를 구체적 수치와 함께 서술)\n- **신규 위협**: (이번 달 새로 순위권에 진입하거나 급성장한 사이트. 해당 없으면 생략)\n- **단속 효과**: (전월 대비 순위 하락 또는 트래픽 감소 사이트. 해당 없으면 생략)\n\n## 2. 대응 우선순위 종합 테이블\n\n| 순위 | 사이트 URL | 위협 점수 | 규모 (방문수/순위) | 성장성 (방문자 증감) | 위협 신호 (백링크/핵심키워드) | 제언 |\n|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n| 1 | site-A.com | 95 | 15.2M / 5,500위 | +120% | 5.2k / '웹툰A 1화' | 즉시 대응: 트래픽 폭증 |\n\n(상위 10개만 테이블에 포함)\n\n## 3. 위협 등급별 분류\n\n### 🔴 최우선 대응 (threat_score >= 70)\n- 해당 사이트 목록과 핵심 위협 요인 1줄 요약\n\n### 🟡 주의 관찰 (40~69)\n- 해당 사이트 목록과 관찰 포인트\n\n### 🟢 저위험 (< 40)\n- 해당 사이트 수와 간략 요약\n\n## 4. 전월 대비 주요 변동사항\n(전월 데이터 있는 경우에만 작성)\n- 순위 상승 TOP 3\n- 순위 하락 TOP 3\n- 트래픽 급증/급감 사이트\n\n## 5. 종합 제언\n(저작권 보호 전략 관점: 법적 조치, 신고 우선순위, 모니터링 강화 대상)"
+        "template": "# 월간 해적사이트 분석 보고서 (YYYY-MM)\n\n## 1. 종합 요약 및 핵심 동향\n\n- **최우선 대응 대상**: [1위 사이트 URL] (위협 점수: [X]점) - [핵심 사유 요약]\n- **주요 동향**: (전체 트래픽 트렌드, 주목할 변화 2~3개를 구체적 수치와 함께 서술)\n- **신규 위협**: (이번 달 새로 순위권에 진입하거나 급성장한 사이트. 해당 없으면 생략)\n- **단속 효과**: (전월 대비 순위 하락 또는 트래픽 감소 사이트. 해당 없으면 생략)\n\n## 2. 대응 우선순위 종합 테이블\n\n| 순위 | 사이트 URL | 위협 점수 | 분류 | 규모 (방문수/순위) | 성장성 (방문자 증감) | 제언 |\n|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n| 1 | site-A.com | 95 | Scanlation | 15.2M / 5,500위 | +120% | 즉시 대응: 트래픽 폭증 |\n\n(상위 10개만 테이블에 포함)\n\n## 3. 위협 등급별 분류\n\n### 🔴 최우선 대응 (threat_score >= 70)\n- 해당 사이트 목록과 핵심 위협 요인 1줄 요약\n\n### 🟡 주의 관찰 (40~69)\n- 해당 사이트 목록과 관찰 포인트\n\n### 🟢 저위험 (< 40)\n- 해당 사이트 수와 간략 요약\n\n## 4. 전월 대비 주요 변동사항\n(전월 데이터 있는 경우에만 작성)\n- 순위 상승 TOP 3\n- 순위 하락 TOP 3\n- 트래픽 급증/급감 사이트\n\n## 5. 종합 제언\n(저작권 보호 전략 관점: 법적 조치, 신고 우선순위, 모니터링 강화 대상)"
       }
     ]
   },
@@ -181,9 +150,11 @@
     "Collect ONLY 1 month of SimilarWeb data for target_month. NEVER collect 12 months.",
     "Do NOT fetch additional months from SimilarWeb to calculate MoM. Use the previous data provided in the prompt.",
     "Do NOT perform Traffic by Country analysis. country and country_rank are available from the Overview page.",
+    "Do NOT use Semrush. Semrush data is NOT needed for this analysis.",
+    "type_score is pre-assigned by the user. Use the exact value provided in the prompt. Do NOT calculate it.",
     "If SimilarWeb data for target_month is not yet available, note at the top of the report in Korean: '⚠️ {month}월 데이터 미반영. {prev_month}월 기준 분석'",
     "Always state the data reference month clearly.",
-    "Use real SimilarWeb/Semrush data. If estimates are used, label them clearly.",
+    "Use real SimilarWeb data. If estimates are used, label them clearly.",
     "MUST include both JSON priority_list and Markdown report in the output.",
     "ALL output text (recommendation, report) MUST be in Korean."
   ]

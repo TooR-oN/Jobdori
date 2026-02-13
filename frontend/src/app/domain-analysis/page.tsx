@@ -23,17 +23,20 @@ interface DomainResult {
   avg_visit_duration: string | null;
   visits_change_mom: number | null;
   rank_change_mom: number | null;
-  total_backlinks: number | null;
-  referring_domains: number | null;
-  top_organic_keywords: string[] | null;
-  top_referring_domains: string[] | null;
-  top_anchors: string[] | null;
-  branded_traffic_ratio: number | null;
   size_score: number | null;
   growth_score: number | null;
-  influence_score: number | null;
+  type_score: number | null;
+  site_type: string | null;
   recommendation: string | null;
 }
+
+const SITE_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  scanlation_group: { label: 'Scanlation', color: 'bg-red-100 text-red-700' },
+  aggregator: { label: 'Aggregator', color: 'bg-orange-100 text-orange-700' },
+  clone: { label: 'Clone', color: 'bg-yellow-100 text-yellow-700' },
+  blog: { label: 'Blog', color: 'bg-blue-100 text-blue-700' },
+  unclassified: { label: '\uBBF8\uBD84\uB958', color: 'bg-gray-100 text-gray-500' },
+};
 
 interface ReportData {
   id: number;
@@ -73,13 +76,6 @@ function formatMonthLabel(month: string): string {
 }
 
 function formatVisits(num: number | null): string {
-  if (num === null || num === undefined) return '-';
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
-  if (num >= 1_000) return (num / 1_000).toFixed(0) + 'K';
-  return num.toLocaleString();
-}
-
-function formatNumber(num: number | null): string {
   if (num === null || num === undefined) return '-';
   if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
   if (num >= 1_000) return (num / 1_000).toFixed(0) + 'K';
@@ -675,19 +671,17 @@ export default function DomainAnalysisPage() {
           {activeTab === 'table' && (
             <div className="bg-white rounded-b-xl shadow-sm border border-gray-100 border-t-0 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1200px]">
+                <table className="w-full min-w-[1000px]">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-12">#</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[180px]">도메인</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">분류</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-[140px]">위협 점수</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">MoM 변화</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">글로벌 순위</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">국가</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">백링크</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">참조 도메인</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[200px]">주요 키워드</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[120px]">권고사항</th>
                     </tr>
                   </thead>
@@ -713,6 +707,16 @@ export default function DomainAnalysisPage() {
                           </td>
                           <td className="px-4 py-3">
                             <span className="font-medium text-gray-900 text-sm">{d.domain}</span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {(() => {
+                              const st = SITE_TYPE_LABELS[d.site_type || 'unclassified'] || SITE_TYPE_LABELS.unclassified;
+                              return (
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${st.color}`}>
+                                  {st.label}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
@@ -740,22 +744,6 @@ export default function DomainAnalysisPage() {
                               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">{d.country}</span>
                             ) : '-'}
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <span className="text-sm text-gray-700">{formatNumber(d.total_backlinks)}</span>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <span className="text-sm text-gray-700">{d.referring_domains ? d.referring_domains.toLocaleString() : '-'}</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1">
-                              {(d.top_organic_keywords || []).slice(0, 3).map((k, ki) => (
-                                <span key={ki} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded text-xs truncate max-w-[80px]" title={k}>{k}</span>
-                              ))}
-                              {d.top_organic_keywords && d.top_organic_keywords.length > 3 && (
-                                <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">+{d.top_organic_keywords.length - 3}</span>
-                              )}
-                            </div>
-                          </td>
                           <td className="px-4 py-3">
                             {d.recommendation && (
                               <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${recBadgeColor(d.recommendation)}`}>
@@ -773,7 +761,7 @@ export default function DomainAnalysisPage() {
               {/* 푸터 정보 */}
               <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-sm text-gray-500">
                 <span>총 {results.length}개 사이트</span>
-                <span>데이터 기준: {formatMonthLabel(selectedMonth)} (SimilarWeb + Semrush)</span>
+                <span>데이터 기준: {formatMonthLabel(selectedMonth)} (SimilarWeb)</span>
               </div>
 
               {/* 컬럼 범례 */}
@@ -785,22 +773,20 @@ export default function DomainAnalysisPage() {
                       SimilarWeb 데이터
                     </p>
                     <div className="space-y-0.5 pl-3">
-                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">위협 점수</span> — 규모(40) + 성장(40) + 영향력(20)으로 산출된 종합 위험도 (0~100)</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">월간 방문</span> — SimilarWeb 기준 최근 1개월 총 방문 횟수 추정치</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">MoM 변화</span> — 전월 대비 방문 수 변화율 (%). 양수=증가, 음수=감소</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">글로벌 순위</span> — SimilarWeb 전 세계 웹사이트 트래픽 순위</p>
-                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">국가</span> — 해당 사이트의 주요 트래픽 유입 국가 (ISO 코드)</p>
+                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">국가</span> — 해당 사이트의 주요 트래픽 유입 국가</p>
                     </div>
                   </div>
                   <div>
                     <p className="text-[11px] font-semibold text-gray-500 mb-1.5 flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block"></span>
-                      Semrush 데이터
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 inline-block"></span>
+                      점수 체계
                     </p>
                     <div className="space-y-0.5 pl-3">
-                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">백링크</span> — 외부에서 이 사이트로 연결되는 총 링크 수. 많을수록 검색 노출이 높음</p>
-                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">참조 도메인</span> — 백링크를 제공하는 고유 도메인 수. DMCA 대응 범위 판단에 활용</p>
-                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">주요 키워드</span> — 검색 유입이 가장 많은 상위 5개 오가닉 키워드. 디인덱싱 대응에 활용</p>
+                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">위협 점수</span> — 규모(35) + 성장(30) + 분류(35)으로 산출된 종합 위험도 (0~100)</p>
+                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">분류</span> — Scanlation(35), Aggregator(20), Clone(10), Blog(5), 미분류(0)</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">권고사항</span> — 위협 점수 및 성장 추이 기반 대응 우선순위 (즉시 법적조치 / DMCA 강화 / 모니터링)</p>
                     </div>
                   </div>
@@ -858,15 +844,20 @@ export default function DomainAnalysisPage() {
                 <div className="grid grid-cols-3 gap-4">
                   <div className="bg-gray-50 rounded-lg p-3 text-center">
                     <p className="text-xs text-gray-500 mb-1">규모 점수</p>
-                    <p className="text-lg font-bold text-blue-600">{detailDomain.size_score ?? '-'} <span className="text-xs text-gray-400">/ 40</span></p>
+                    <p className="text-lg font-bold text-blue-600">{detailDomain.size_score ?? '-'} <span className="text-xs text-gray-400">/ 35</span></p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3 text-center">
                     <p className="text-xs text-gray-500 mb-1">성장 점수</p>
-                    <p className="text-lg font-bold text-green-600">{detailDomain.growth_score ?? '-'} <span className="text-xs text-gray-400">/ 40</span></p>
+                    <p className="text-lg font-bold text-green-600">{detailDomain.growth_score ?? '-'} <span className="text-xs text-gray-400">/ 30</span></p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3 text-center">
-                    <p className="text-xs text-gray-500 mb-1">영향력 점수</p>
-                    <p className="text-lg font-bold text-purple-600">{detailDomain.influence_score ?? '-'} <span className="text-xs text-gray-400">/ 20</span></p>
+                    <p className="text-xs text-gray-500 mb-1">분류 점수</p>
+                    <p className="text-lg font-bold text-purple-600">{detailDomain.type_score ?? '-'} <span className="text-xs text-gray-400">/ 35</span></p>
+                    {detailDomain.site_type && (
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        {SITE_TYPE_LABELS[detailDomain.site_type]?.label || detailDomain.site_type}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -918,58 +909,6 @@ export default function DomainAnalysisPage() {
                     <span className="text-sm font-medium">{detailDomain.category_rank ? `#${detailDomain.category_rank}` : '-'}</span>
                   </div>
                 </div>
-              </div>
-
-              {/* Semrush SEO */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block"></span>
-                  SEO 데이터 (Semrush)
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-500">총 백링크</span>
-                    <span className="text-sm font-medium">{detailDomain.total_backlinks ? detailDomain.total_backlinks.toLocaleString() : '-'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-500">참조 도메인</span>
-                    <span className="text-sm font-medium">{detailDomain.referring_domains ? detailDomain.referring_domains.toLocaleString() : '-'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100 col-span-2">
-                    <span className="text-sm text-gray-500">브랜드 트래픽 비율</span>
-                    <span className="text-sm font-medium">{detailDomain.branded_traffic_ratio !== null ? `${detailDomain.branded_traffic_ratio}%` : '-'}</span>
-                  </div>
-                </div>
-                {detailDomain.top_organic_keywords && detailDomain.top_organic_keywords.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs text-gray-500 mb-2">상위 오가닉 키워드:</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {detailDomain.top_organic_keywords.map((k, i) => (
-                        <span key={i} className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">{k}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {detailDomain.top_referring_domains && detailDomain.top_referring_domains.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs text-gray-500 mb-2">주요 참조 도메인:</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {detailDomain.top_referring_domains.map((d, i) => (
-                        <span key={i} className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">{d}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {detailDomain.top_anchors && detailDomain.top_anchors.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs text-gray-500 mb-2">주요 앵커 텍스트:</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {detailDomain.top_anchors.map((a, i) => (
-                        <span key={i} className="px-2 py-1 bg-purple-50 text-purple-600 rounded text-xs">{a}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* 권고사항 */}

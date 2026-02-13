@@ -23,6 +23,7 @@ import {
   buildAnalysisPrompt,
   createAnalysisTask,
   DomainAnalysisResult,
+  DomainWithType,
 } from './domain-analysis.js';
 
 /**
@@ -580,6 +581,30 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
     const domainList = topDomains.map((d: any) => d.domain);
     console.log(`📋 분석 대상 도메인: ${domainList.length}개`);
 
+    // 각 도메인의 site_type 조회
+    const TYPE_SCORE_MAP: Record<string, number> = {
+      'scanlation_group': 35,
+      'aggregator': 20,
+      'clone': 10,
+      'blog': 5,
+      'unclassified': 0,
+    };
+
+    const siteTypes: any[] = await sql`
+      SELECT LOWER(domain) as domain, COALESCE(site_type, 'unclassified') as site_type
+      FROM sites
+      WHERE type = 'illegal' AND LOWER(domain) = ANY(${domainList.map((d: string) => d.toLowerCase())})
+    `;
+    const siteTypeMap: Record<string, string> = {};
+    for (const st of siteTypes) {
+      siteTypeMap[st.domain] = st.site_type;
+    }
+    const domainWithTypes: DomainWithType[] = domainList.map((d: string) => {
+      const siteType = siteTypeMap[d.toLowerCase()] || 'unclassified';
+      const typeScore = TYPE_SCORE_MAP[siteType] || 0;
+      return { domain: d, site_type: siteType, type_score: typeScore };
+    });
+
     // 전전월 데이터 조회 (전월 분석 결과 = 비교 기준)
     const prevDate = new Date(targetDate.getFullYear(), targetDate.getMonth() - 1, 1);
     const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
@@ -608,15 +633,10 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
           avg_visit_duration: r.avg_visit_duration,
           visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
           rank_change_mom: r.rank_change_mom,
-          total_backlinks: r.total_backlinks ? parseInt(r.total_backlinks) : null,
-          referring_domains: r.referring_domains,
-          top_organic_keywords: r.top_organic_keywords ? JSON.parse(r.top_organic_keywords) : null,
-          top_referring_domains: r.top_referring_domains ? JSON.parse(r.top_referring_domains) : null,
-          top_anchors: r.top_anchors ? JSON.parse(r.top_anchors) : null,
-          branded_traffic_ratio: r.branded_traffic_ratio ? parseFloat(r.branded_traffic_ratio) : null,
           size_score: r.size_score ? parseFloat(r.size_score) : null,
           growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
-          influence_score: r.influence_score ? parseFloat(r.influence_score) : null,
+          type_score: r.type_score ? parseFloat(r.type_score) : null,
+          site_type: r.site_type || null,
           recommendation: r.recommendation,
         }));
         console.log(`📋 전월(${prevMonth}) 데이터: ${previousData!.length}건`);
@@ -624,7 +644,7 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
     }
 
     // 프롬프트 생성 + Manus Task 생성
-    const prompt = buildAnalysisPrompt(domainList, previousData, targetMonth);
+    const prompt = buildAnalysisPrompt(domainWithTypes, previousData, targetMonth);
     console.log(`📋 Manus 프롬프트 생성 완료 (${prompt.length}자), Task 생성 중...`);
 
     const task = await createAnalysisTask(prompt);
