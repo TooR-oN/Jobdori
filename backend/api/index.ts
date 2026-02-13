@@ -1498,10 +1498,16 @@ app.post('/api/review', requireAdmin(), async (c) => {
       
       // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록 (title 포함)
       if (item.session_id && item.urls && Array.isArray(item.urls)) {
-        // urls와 titles를 매핑하여 등록
-        const urlsWithTitles = item.urls.map((url: string, idx: number) => ({
+        // detection_results에서 URL별 실제 title 조회 (인덱스 매핑 버그 수정)
+        const urlTitleRows = await query`
+          SELECT DISTINCT url, title FROM detection_results
+          WHERE session_id = ${item.session_id} AND url = ANY(${item.urls})
+        `
+        const urlTitleMap = new Map(urlTitleRows.map((r: any) => [r.url, r.title]))
+        
+        const urlsWithTitles = item.urls.map((url: string) => ({
           url,
-          title: item.titles && Array.isArray(item.titles) ? item.titles[idx] : null
+          title: urlTitleMap.get(url) || null
         }))
         const registeredCount = await registerIllegalUrlsToReportTracking(
           item.session_id,
@@ -1563,9 +1569,16 @@ app.post('/api/review/bulk', requireAdmin(), async (c) => {
           
           // ✅ 불법 승인 시 report_tracking 테이블에 자동 등록 (title 포함)
           if (item.session_id && item.urls && Array.isArray(item.urls)) {
-            const urlsWithTitles = item.urls.map((url: string, idx: number) => ({
+            // detection_results에서 URL별 실제 title 조회 (인덱스 매핑 버그 수정)
+            const urlTitleRows = await query`
+              SELECT DISTINCT url, title FROM detection_results
+              WHERE session_id = ${item.session_id} AND url = ANY(${item.urls})
+            `
+            const urlTitleMap = new Map(urlTitleRows.map((r: any) => [r.url, r.title]))
+            
+            const urlsWithTitles = item.urls.map((url: string) => ({
               url,
-              title: item.titles && Array.isArray(item.titles) ? item.titles[idx] : null
+              title: urlTitleMap.get(url) || null
             }))
             const registeredCount = await registerIllegalUrlsToReportTracking(
               item.session_id,
@@ -2700,6 +2713,28 @@ async function generateDmcaReport(sessionId: string) {
     WHERE session_id = ${sessionId}
     ORDER BY title ASC, domain ASC, url ASC
   `
+
+  // 3-1. title이 NULL인 항목을 detection_results에서 보충 (기존 데이터 대응)
+  const nullTitleItems = allItems.filter((item: any) => !item.title)
+  if (nullTitleItems.length > 0) {
+    const nullTitleUrls = nullTitleItems.map((item: any) => item.url)
+    const titleLookupRows = await query`
+      SELECT DISTINCT url, title FROM detection_results
+      WHERE session_id = ${sessionId} AND url = ANY(${nullTitleUrls}) AND title IS NOT NULL
+    `
+    const titleLookupMap = new Map(titleLookupRows.map((r: any) => [r.url, r.title]))
+    
+    for (const item of allItems) {
+      if (!item.title && titleLookupMap.has(item.url)) {
+        item.title = titleLookupMap.get(item.url)
+        // DB도 업데이트하여 다음 조회 시 정상 반영
+        await query`
+          UPDATE report_tracking SET title = ${item.title}, updated_at = NOW()
+          WHERE id = ${item.id}
+        `
+      }
+    }
+  }
 
   // 4. titles + manta_url 조회
   const titlesRows = await query`
