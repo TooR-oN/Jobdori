@@ -237,6 +237,28 @@ export const statsApi = {
 };
 
 // ============================================
+// Site Classification API
+// ============================================
+
+export const siteClassifyApi = {
+  classify: async (domain: string, site_type: string) => {
+    const res = await api.patch('/api/sites/classify', { domain, site_type });
+    return res.data;
+  },
+};
+
+// ============================================
+// Notification API
+// ============================================
+
+export const notificationApi = {
+  getUnclassifiedCount: async () => {
+    const res = await api.get('/api/notifications/unclassified-count');
+    return res.data;
+  },
+};
+
+// ============================================
 // Manta Rankings API
 // ============================================
 

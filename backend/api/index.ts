@@ -272,6 +272,7 @@ async function ensureDbMigration() {
     `
 
     // domain_analysis_results 테이블 생성 (도메인별 상세 트래픽 데이터)
+    // Semrush 제거됨 — size_score + growth_score + type_score 체계로 변경
     await db`
       CREATE TABLE IF NOT EXISTS domain_analysis_results (
         id SERIAL PRIMARY KEY,
@@ -280,23 +281,20 @@ async function ensureDbMigration() {
         domain VARCHAR(255) NOT NULL,
         threat_score DECIMAL(5,1) DEFAULT 0,
         global_rank INTEGER,
-        country VARCHAR(100),
-        country_rank INTEGER,
         category VARCHAR(255),
         category_rank INTEGER,
         total_visits BIGINT,
         avg_visit_duration VARCHAR(20),
+        unique_visitors BIGINT,
+        bounce_rate DECIMAL(5,4),
+        pages_per_visit DECIMAL(5,1),
+        page_views BIGINT,
         visits_change_mom DECIMAL(5,1),
         rank_change_mom INTEGER,
-        total_backlinks BIGINT,
-        referring_domains INTEGER,
-        top_organic_keywords TEXT,
-        top_referring_domains TEXT,
-        top_anchors TEXT,
-        branded_traffic_ratio DECIMAL(5,1),
         size_score DECIMAL(5,1),
         growth_score DECIMAL(5,1),
-        influence_score DECIMAL(5,1),
+        type_score DECIMAL(5,1) DEFAULT 0,
+        site_type VARCHAR(30),
         recommendation TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         UNIQUE(report_id, domain)
@@ -306,6 +304,56 @@ async function ensureDbMigration() {
       CREATE INDEX IF NOT EXISTS idx_domain_analysis_results_report
       ON domain_analysis_results(report_id, rank)
     `
+
+    // sites 테이블에 site_type 컬럼 추가 (사이트 분류: scanlation_group, aggregator, clone, blog, unclassified)
+    try {
+      await db`ALTER TABLE sites ADD COLUMN IF NOT EXISTS site_type VARCHAR(30) DEFAULT 'unclassified'`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: sites.site_type error:', e.message)
+    }
+
+    // domain_analysis_results에 site_type, type_score 컬럼 추가
+    try {
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS site_type VARCHAR(30)`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: domain_analysis_results.site_type error:', e.message)
+    }
+    try {
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS type_score DECIMAL(5,1) DEFAULT 0`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: domain_analysis_results.type_score error:', e.message)
+    }
+
+    // Semrush 컬럼 제거 (더 이상 사용하지 않음)
+    try {
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS total_backlinks`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS referring_domains`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS top_organic_keywords`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS top_referring_domains`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS top_anchors`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS branded_traffic_ratio`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS influence_score`
+    } catch (e: any) {
+      console.error('Migration: Semrush column removal error:', e.message)
+    }
+
+    // Country 컬럼 제거 (SimilarWeb 스킬에서 country 관련 API 제외)
+    try {
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS country`
+      await db`ALTER TABLE domain_analysis_results DROP COLUMN IF EXISTS country_rank`
+    } catch (e: any) {
+      console.error('Migration: Country column removal error:', e.message)
+    }
+
+    // 신규 트래픽 메트릭 컬럼 추가
+    try {
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS unique_visitors BIGINT`
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS bounce_rate DECIMAL(5,4)`
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS pages_per_visit DECIMAL(5,1)`
+      await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS page_views BIGINT`
+    } catch (e: any) {
+      console.error('Migration: New metric columns error:', e.message)
+    }
 
     dbMigrationDone = true
     console.log('✅ DB migration completed (including report_tracking, deep_monitoring & domain_analysis tables)')
@@ -3168,7 +3216,6 @@ app.get('/api/stats/by-domain', async (c) => {
     
     let stats
     if (startDate && endDate) {
-      // 기간 필터: session_id에서 날짜 추출하여 필터링
       stats = await query`
         WITH detection_stats AS (
           SELECT domain, COUNT(*) as discovered
@@ -3194,13 +3241,14 @@ app.get('/api/stats/by-domain', async (c) => {
           d.domain,
           d.discovered,
           COALESCE(r.reported, 0) as reported,
-          COALESCE(r.blocked, 0) as blocked
+          COALESCE(r.blocked, 0) as blocked,
+          COALESCE(s.site_type, 'unclassified') as site_type
         FROM detection_stats d
         LEFT JOIN report_stats r ON LOWER(d.domain) = LOWER(r.domain)
+        LEFT JOIN sites s ON LOWER(d.domain) = LOWER(s.domain) AND s.type = 'illegal'
         ORDER BY d.discovered DESC
       `
     } else {
-      // 전체 기간
       stats = await query`
         WITH detection_stats AS (
           SELECT domain, COUNT(*) as discovered
@@ -3222,9 +3270,11 @@ app.get('/api/stats/by-domain', async (c) => {
           d.domain,
           d.discovered,
           COALESCE(r.reported, 0) as reported,
-          COALESCE(r.blocked, 0) as blocked
+          COALESCE(r.blocked, 0) as blocked,
+          COALESCE(s.site_type, 'unclassified') as site_type
         FROM detection_stats d
         LEFT JOIN report_stats r ON LOWER(d.domain) = LOWER(r.domain)
+        LEFT JOIN sites s ON LOWER(d.domain) = LOWER(s.domain) AND s.type = 'illegal'
         ORDER BY d.discovered DESC
       `
     }
@@ -3238,6 +3288,7 @@ app.get('/api/stats/by-domain', async (c) => {
       
       return {
         domain: s.domain,
+        site_type: s.site_type || 'unclassified',
         discovered,
         reported,
         blocked,
@@ -3253,6 +3304,98 @@ app.get('/api/stats/by-domain', async (c) => {
   } catch (error) {
     console.error('Domain stats error:', error)
     return c.json({ success: false, error: 'Failed to load domain stats' }, 500)
+  }
+})
+
+// ============================================
+// API - 사이트 분류 (site_type) 관리
+// ============================================
+
+const TYPE_SCORE_MAP: Record<string, number> = {
+  'scanlation_group': 35,
+  'aggregator': 20,
+  'clone': 10,
+  'blog': 5,
+  'unclassified': 0,
+}
+
+// 사이트 분류 업데이트
+app.patch('/api/sites/classify', async (c) => {
+  try {
+    await ensureDbMigration()
+    const { domain, site_type } = await c.req.json()
+    
+    if (!domain || !site_type) {
+      return c.json({ success: false, error: 'domain과 site_type은 필수입니다.' }, 400)
+    }
+    
+    const validTypes = Object.keys(TYPE_SCORE_MAP)
+    if (!validTypes.includes(site_type)) {
+      return c.json({ success: false, error: `유효하지 않은 site_type입니다. 가능한 값: ${validTypes.join(', ')}` }, 400)
+    }
+    
+    const lowerDomain = domain.toLowerCase()
+    
+    // sites 테이블에 해당 도메인이 있는지 확인
+    const existing = await query`
+      SELECT id FROM sites WHERE LOWER(domain) = ${lowerDomain} AND type = 'illegal'
+    `
+    
+    if (existing.length > 0) {
+      // 업데이트
+      await query`
+        UPDATE sites SET site_type = ${site_type} WHERE LOWER(domain) = ${lowerDomain} AND type = 'illegal'
+      `
+    } else {
+      // 자동 추가 (illegal 사이트로)
+      await query`
+        INSERT INTO sites (domain, type, site_type)
+        VALUES (${lowerDomain}, 'illegal', ${site_type})
+        ON CONFLICT (domain, type) DO UPDATE SET site_type = ${site_type}
+      `
+    }
+    
+    return c.json({
+      success: true,
+      domain: lowerDomain,
+      site_type,
+      type_score: TYPE_SCORE_MAP[site_type] || 0
+    })
+  } catch (error) {
+    console.error('Site classify error:', error)
+    return c.json({ success: false, error: 'Failed to classify site' }, 500)
+  }
+})
+
+// 미분류 도메인 수 조회 (알림용)
+app.get('/api/notifications/unclassified-count', async (c) => {
+  try {
+    await ensureDbMigration()
+    
+    // detection_results에서 illegal 도메인 중 sites 테이블에 분류가 없거나 unclassified인 도메인 수
+    const result = await query`
+      WITH illegal_domains AS (
+        SELECT DISTINCT LOWER(domain) as domain
+        FROM detection_results
+        WHERE final_status = 'illegal'
+          AND domain IS NOT NULL AND domain != ''
+      )
+      SELECT COUNT(*) as count
+      FROM illegal_domains d
+      LEFT JOIN sites s ON d.domain = LOWER(s.domain) AND s.type = 'illegal'
+      WHERE s.site_type IS NULL OR s.site_type = 'unclassified'
+    `
+    
+    const count = parseInt(result[0]?.count) || 0
+    
+    return c.json({
+      success: true,
+      count,
+      message: count > 0 ? `${count}개 불법 도메인의 사이트 분류가 필요합니다.` : null
+    })
+  } catch (error) {
+    console.error('Unclassified count error:', error)
+    return c.json({ success: false, error: 'Failed to get unclassified count' }, 500)
   }
 })
 
@@ -3820,6 +3963,7 @@ import {
   getAnalysisTaskStatus,
   processManusResult,
   type DomainAnalysisResult,
+  type DomainWithType,
   type ManusTaskStatus,
 } from '../scripts/domain-analysis.js'
 
@@ -3903,6 +4047,23 @@ app.post('/api/domain-analysis/run', async (c) => {
 
     const domainList = finalDomains.map((d: any) => d.domain)
 
+    // 각 도메인의 site_type 조회
+    const siteTypes = await query`
+      SELECT LOWER(domain) as domain, COALESCE(site_type, 'unclassified') as site_type
+      FROM sites
+      WHERE type = 'illegal' AND LOWER(domain) = ANY(${domainList.map((d: string) => d.toLowerCase())})
+    `
+    const siteTypeMap: Record<string, string> = {}
+    for (const st of siteTypes) {
+      siteTypeMap[st.domain] = st.site_type
+    }
+    // domainList에 type_score 정보 추가
+    const domainWithTypes = domainList.map((d: string) => {
+      const siteType = siteTypeMap[d.toLowerCase()] || 'unclassified'
+      const typeScore = TYPE_SCORE_MAP[siteType] || 0
+      return { domain: d, site_type: siteType, type_score: typeScore }
+    })
+
     // 전월 데이터 조회
     const [prevYear, prevMonth] = month.split('-').map(Number)
     const prevMonthStr = prevMonth === 1
@@ -3924,23 +4085,20 @@ app.post('/api/domain-analysis/run', async (c) => {
           site_url: r.domain,
           threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
           global_rank: r.global_rank,
-          country: r.country,
-          country_rank: r.country_rank,
           category: r.category,
           category_rank: r.category_rank,
           total_visits: r.total_visits ? parseInt(r.total_visits) : null,
           avg_visit_duration: r.avg_visit_duration,
+          unique_visitors: r.unique_visitors ? parseInt(r.unique_visitors) : null,
+          bounce_rate: r.bounce_rate ? parseFloat(r.bounce_rate) : null,
+          pages_per_visit: r.pages_per_visit ? parseFloat(r.pages_per_visit) : null,
+          page_views: r.page_views ? parseInt(r.page_views) : null,
           visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
           rank_change_mom: r.rank_change_mom,
-          total_backlinks: r.total_backlinks ? parseInt(r.total_backlinks) : null,
-          referring_domains: r.referring_domains,
-          top_organic_keywords: r.top_organic_keywords ? JSON.parse(r.top_organic_keywords) : null,
-          top_referring_domains: r.top_referring_domains ? JSON.parse(r.top_referring_domains) : null,
-          top_anchors: r.top_anchors ? JSON.parse(r.top_anchors) : null,
-          branded_traffic_ratio: r.branded_traffic_ratio ? parseFloat(r.branded_traffic_ratio) : null,
           size_score: r.size_score ? parseFloat(r.size_score) : null,
           growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
-          influence_score: r.influence_score ? parseFloat(r.influence_score) : null,
+          type_score: r.type_score ? parseFloat(r.type_score) : null,
+          site_type: r.site_type || null,
           recommendation: r.recommendation,
         }))
       }
@@ -3949,7 +4107,7 @@ app.post('/api/domain-analysis/run', async (c) => {
 
     // 프롬프트 생성
     currentStep = '[5/6 Manus Task 생성]'
-    const prompt = buildAnalysisPrompt(domainList, previousData, month)
+    const prompt = buildAnalysisPrompt(domainWithTypes, previousData, month)
     console.log(`📋 ${currentStep} 프롬프트 생성 완료 (${prompt.length}자), Manus API 호출 중...`)
 
     // Manus Task 생성
@@ -4134,21 +4292,18 @@ app.post('/api/domain-analysis/process-result', async (c) => {
         await query`
           INSERT INTO domain_analysis_results (
             report_id, rank, domain, threat_score,
-            global_rank, country, country_rank, category, category_rank,
-            total_visits, avg_visit_duration, visits_change_mom, rank_change_mom,
-            total_backlinks, referring_domains, top_organic_keywords,
-            top_referring_domains, top_anchors, branded_traffic_ratio,
-            size_score, growth_score, influence_score, recommendation
+            global_rank, category, category_rank,
+            total_visits, avg_visit_duration,
+            unique_visitors, bounce_rate, pages_per_visit, page_views,
+            visits_change_mom, rank_change_mom,
+            size_score, growth_score, type_score, site_type, recommendation
           ) VALUES (
             ${report.id}, ${item.rank}, ${item.site_url}, ${item.threat_score},
-            ${item.global_rank}, ${item.country}, ${item.country_rank}, ${item.category}, ${item.category_rank},
-            ${item.total_visits}, ${item.avg_visit_duration}, ${item.visits_change_mom}, ${item.rank_change_mom},
-            ${item.total_backlinks}, ${item.referring_domains}, 
-            ${item.top_organic_keywords ? JSON.stringify(item.top_organic_keywords) : null},
-            ${item.top_referring_domains ? JSON.stringify(item.top_referring_domains) : null},
-            ${item.top_anchors ? JSON.stringify(item.top_anchors) : null},
-            ${item.branded_traffic_ratio},
-            ${item.size_score}, ${item.growth_score}, ${item.influence_score}, ${item.recommendation}
+            ${item.global_rank}, ${item.category}, ${item.category_rank},
+            ${item.total_visits}, ${item.avg_visit_duration},
+            ${item.unique_visitors}, ${item.bounce_rate}, ${item.pages_per_visit}, ${item.page_views},
+            ${item.visits_change_mom}, ${item.rank_change_mom},
+            ${item.size_score}, ${item.growth_score}, ${item.type_score}, ${item.site_type}, ${item.recommendation}
           )
         `
         savedCount++
@@ -4279,14 +4434,14 @@ app.get('/api/domain-analysis/:month', async (c) => {
         threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
         visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
         total_visits: r.total_visits ? parseInt(r.total_visits) : null,
-        total_backlinks: r.total_backlinks ? parseInt(r.total_backlinks) : null,
-        branded_traffic_ratio: r.branded_traffic_ratio ? parseFloat(r.branded_traffic_ratio) : null,
+        unique_visitors: r.unique_visitors ? parseInt(r.unique_visitors) : null,
+        bounce_rate: r.bounce_rate ? parseFloat(r.bounce_rate) : null,
+        pages_per_visit: r.pages_per_visit ? parseFloat(r.pages_per_visit) : null,
+        page_views: r.page_views ? parseInt(r.page_views) : null,
         size_score: r.size_score ? parseFloat(r.size_score) : null,
         growth_score: r.growth_score ? parseFloat(r.growth_score) : null,
-        influence_score: r.influence_score ? parseFloat(r.influence_score) : null,
-        top_organic_keywords: r.top_organic_keywords ? JSON.parse(r.top_organic_keywords) : null,
-        top_referring_domains: r.top_referring_domains ? JSON.parse(r.top_referring_domains) : null,
-        top_anchors: r.top_anchors ? JSON.parse(r.top_anchors) : null,
+        type_score: r.type_score ? parseFloat(r.type_score) : null,
+        site_type: r.site_type || 'unclassified',
       }))
     }
 

@@ -17,24 +17,27 @@ export interface DomainAnalysisResult {
   site_url: string;
   threat_score: number | null;
   global_rank: number | null;
-  country: string | null;
-  country_rank: number | null;
   category: string | null;
   category_rank: number | null;
   total_visits: number | null;
   avg_visit_duration: string | null;
+  unique_visitors: number | null;
+  bounce_rate: number | null;
+  pages_per_visit: number | null;
+  page_views: number | null;
   visits_change_mom: number | null;
   rank_change_mom: number | null;
-  total_backlinks: number | null;
-  referring_domains: number | null;
-  top_organic_keywords: string[] | null;
-  top_referring_domains: string[] | null;
-  top_anchors: string[] | null;
-  branded_traffic_ratio: number | null;
   size_score: number | null;
   growth_score: number | null;
-  influence_score: number | null;
+  type_score: number | null;
+  site_type: string | null;
   recommendation: string | null;
+}
+
+export interface DomainWithType {
+  domain: string;
+  site_type: string;
+  type_score: number;
 }
 
 interface ManusTaskResponse {
@@ -75,7 +78,7 @@ export interface ManusTaskStatus {
  * Build monthly domain analysis prompt (concise — detailed instructions are in the project Instruction file)
  */
 export function buildAnalysisPrompt(
-  domains: string[],
+  domains: DomainWithType[],
   previousData: DomainAnalysisResult[] | null,
   targetMonth?: string
 ): string {
@@ -89,23 +92,18 @@ export function buildAnalysisPrompt(
     ? JSON.stringify(previousData, null, 2)
     : 'No previous data (first analysis)';
 
-  return `Analyze the traffic of the following ${domains.length} pirate sites for ${month}.
-Refer to the project instruction file (manus-traffic-analysis-instruction.json) for full data schema, scoring rules, and output format.
-ALL output text (recommendation, report markdown) MUST be written in Korean.
+  const domainListSection = domains.map(d => 
+    `${d.domain} | ${d.site_type} | ${d.type_score}`
+  ).join('\n');
 
-## Target Month (target_month)
+  return `Analyze the traffic of the following ${domains.length} pirate sites for ${month}.
+Follow the project instruction file and skill file for all rules.
+
+## target_month
 ${month}
 
-## Data Collection Rules (IMPORTANT)
-- SimilarWeb: Collect **only ${month} (1 month)** data per domain (single Overview lookup).
-  - Do NOT collect 12-month time-series data.
-  - Do NOT perform Traffic by Country breakdown.
-  - Required fields: global_rank, country (top 1 by share), country_rank, category, category_rank, total_visits, avg_visit_duration
-- Semrush: Single current snapshot only.
-- MoM change: Compare with the 'Previous Month Data' below. Do NOT fetch additional months from SimilarWeb.
-
-## Target Domains
-${domains.join('\n')}
+## Target Domains (domain | site_type | type_score)
+${domainListSection}
 
 ## Previous Month Data (for MoM comparison)
 ${previousSection}`;
