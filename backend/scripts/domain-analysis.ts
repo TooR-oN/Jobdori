@@ -97,24 +97,10 @@ export function buildAnalysisPrompt(
   ).join('\n');
 
   return `Analyze the traffic of the following ${domains.length} pirate sites for ${month}.
-Refer to the project instruction file (manus-traffic-analysis-instruction.json) for full data schema, scoring rules, and output format.
-ALL output text (recommendation, report markdown) MUST be written in Korean.
+Follow the project instruction file and skill file for all rules.
 
-## Target Month (target_month)
+## target_month
 ${month}
-
-## Data Collection Rules (IMPORTANT)
-- SimilarWeb: Collect **only ${month} (1 month)** data per domain.
-  - Use 4 endpoints: Traffic & Engagement, Page Views, Global Rank, Industry Rank (latest month, no date param).
-  - Do NOT collect 12-month time-series data.
-  - Do NOT use Traffic by Country, Country Rank, or Traffic Sources endpoints.
-  - Required fields: global_rank, category, category_rank, total_visits, avg_visit_duration, unique_visitors, bounce_rate, pages_per_visit, page_views
-- Do NOT use Semrush. Semrush data is NOT needed.
-- MoM change: Compare with the 'Previous Month Data' below. Do NOT fetch additional months from SimilarWeb.
-
-## Scoring Rules
-threat_score = size_score (max 35) + growth_score (max 30) + type_score (from the list below)
-type_score is pre-assigned by the user for each domain. Use the exact value provided.
 
 ## Target Domains (domain | site_type | type_score)
 ${domainListSection}
