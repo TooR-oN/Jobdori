@@ -15,14 +15,10 @@ interface DomainResult {
   domain: string;
   threat_score: number | null;
   global_rank: number | null;
-  category: string | null;
-  category_rank: number | null;
   total_visits: number | null;
-  avg_visit_duration: string | null;
   unique_visitors: number | null;
   bounce_rate: number | null;
-  pages_per_visit: number | null;
-  page_views: number | null;
+  discovered: number | null;
   visits_change_mom: number | null;
   rank_change_mom: number | null;
   size_score: number | null;
@@ -679,18 +675,17 @@ export default function DomainAnalysisPage() {
           {activeTab === 'table' && (
             <div className="bg-white rounded-b-xl shadow-sm border border-gray-100 border-t-0 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1200px]">
+                <table className="w-full min-w-[1100px]">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-12">#</th>
                       <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[180px]">도메인</th>
                       <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">분류</th>
                       <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-[140px]">위협 점수</th>
+                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">발견 수</th>
                       <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
                       <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">글로벌 순위</th>
                       <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Unique Visitors</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">카테고리</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-24">카테고리 순위</th>
                       <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[110px]">권고사항</th>
                       <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">트래픽 분석</th>
                     </tr>
@@ -703,7 +698,6 @@ export default function DomainAnalysisPage() {
                       const mom = d.visits_change_mom;
                       const momColor = mom !== null && mom > 0 ? 'text-red-500' : mom !== null && mom < 0 ? 'text-green-500' : 'text-gray-400';
                       const momIcon = mom !== null && mom > 0 ? '\u25B2' : mom !== null && mom < 0 ? '\u25BC' : '';
-                      const catShort = d.category ? d.category.split(' > ').pop() : '-';
 
                       return (
                         <tr
@@ -740,6 +734,9 @@ export default function DomainAnalysisPage() {
                             </div>
                           </td>
                           <td className="px-3 py-3 text-right">
+                            <span className="text-sm font-medium text-gray-700">{d.discovered ?? '-'}</span>
+                          </td>
+                          <td className="px-3 py-3 text-right">
                             <div>
                               <span className="text-sm font-medium text-gray-900">{formatVisits(d.total_visits)}</span>
                               {mom !== null && (
@@ -752,14 +749,6 @@ export default function DomainAnalysisPage() {
                           </td>
                           <td className="px-3 py-3 text-right">
                             <span className="text-sm text-gray-700">{d.unique_visitors ? formatVisits(d.unique_visitors) : '-'}</span>
-                          </td>
-                          <td className="px-3 py-3">
-                            <span className="text-xs text-gray-600 truncate block max-w-[160px]" title={d.category || ''}>
-                              {catShort}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 text-right">
-                            <span className="text-sm text-gray-700">{d.category_rank ? `#${d.category_rank.toLocaleString()}` : '-'}</span>
                           </td>
                           <td className="px-3 py-3">
                             {d.recommendation && (
@@ -805,10 +794,11 @@ export default function DomainAnalysisPage() {
                       SimilarWeb 데이터
                     </p>
                     <div className="space-y-0.5 pl-3">
+                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">발견 수</span> — 해당 도메인에서 탐지된 불법 URL 건수 (Jobdori 모니터링 기준)</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">월간 방문</span> — 최근 1개월 총 방문 횟수 (MoM 변화율 포함)</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">글로벌 순위</span> — SimilarWeb 전 세계 웹사이트 트래픽 순위</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">Unique Visitors</span> — 순 방문자 (중복 제거)</p>
-                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">카테고리 / 순위</span> — SimilarWeb 분류 카테고리 내 순위</p>
+                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">이탈률</span> — 이탈률 (모달에서 확인)</p>
                     </div>
                   </div>
                   <div>
@@ -914,28 +904,8 @@ export default function DomainAnalysisPage() {
                     <span className="text-sm font-medium">{detailDomain.unique_visitors ? detailDomain.unique_visitors.toLocaleString() : '-'}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-500">평균 방문시간</span>
-                    <span className="text-sm font-medium">{detailDomain.avg_visit_duration || '-'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
                     <span className="text-sm text-gray-500">이탈률</span>
                     <span className="text-sm font-medium">{detailDomain.bounce_rate !== null ? `${(detailDomain.bounce_rate * 100).toFixed(1)}%` : '-'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-500">페이지/방문</span>
-                    <span className="text-sm font-medium">{detailDomain.pages_per_visit !== null ? detailDomain.pages_per_visit.toFixed(1) : '-'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-500">총 페이지뷰</span>
-                    <span className="text-sm font-medium">{detailDomain.page_views ? detailDomain.page_views.toLocaleString() : '-'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-500">카테고리</span>
-                    <span className="text-sm font-medium">{detailDomain.category || '-'}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-500">카테고리 순위</span>
-                    <span className="text-sm font-medium">{detailDomain.category_rank ? `#${detailDomain.category_rank}` : '-'}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-gray-100">
                     <span className="text-sm text-gray-500">방문 변화 (MoM)</span>
@@ -950,6 +920,26 @@ export default function DomainAnalysisPage() {
                     <span className="text-sm text-gray-500">순위 변화 (MoM)</span>
                     <span className="text-sm font-medium">
                       {detailDomain.rank_change_mom !== null ? (detailDomain.rank_change_mom > 0 ? `+${detailDomain.rank_change_mom}` : detailDomain.rank_change_mom.toString()) : '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 발견 데이터 (Jobdori) */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 inline-block"></span>
+                  모니터링 데이터 (Jobdori)
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-500">불법 URL 발견 수</span>
+                    <span className="text-sm font-bold text-orange-600">{detailDomain.discovered ?? '-'}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-500">사이트 분류</span>
+                    <span className="text-sm font-medium">
+                      {detailDomain.site_type ? (SITE_TYPE_LABELS[detailDomain.site_type]?.label || detailDomain.site_type) : '-'}
                     </span>
                   </div>
                 </div>

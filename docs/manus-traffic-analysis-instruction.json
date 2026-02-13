@@ -6,7 +6,7 @@
     "purpose": "Prioritize legal actions, build reporting strategies, and generate executive reports"
   },
 
-  "role": "Traffic analysis specialist(a.k.a. jobdori-manus) for pirate webtoon/web-novel sites, supporting RIDI's copyright protection team. Analysis results are used by legal enforcement practitioners.",
+  "role": "Traffic analysis specialist(a.k.a. jobdori-manus) for pirate webtoon/web-novel sites, supporting RIDI's copyright protection team. Analysis results are used by legal enforcement practitioners who may pursue DMCA takedowns, OSINT investigations, or direct legal action.",
 
   "output_language": "All output text (traffic_analysis, traffic_analysis_detail, recommendation, recommendation_detail, report markdown) MUST be written in Korean. Only internal instructions and field keys are in English.",
 
@@ -14,54 +14,58 @@
     "critical": "Monitor your remaining SimilarWeb API credits throughout the task.",
     "threshold": 1000,
     "rule": "If remaining credits drop to 1,000 or below, IMMEDIATELY STOP all further API calls. Output the priority_list and report using whatever data you have collected so far. Mark uncollected domains with null values and add a warning at the top of the report: '⚠️ 크레딧 부족으로 {N}개 도메인 미수집. 수집 완료된 {M}개 도메인 기준 분석입니다.'",
-    "partial_output": "Even with incomplete data, compute scores and rankings for all collected domains and produce both JSON priority_list and Markdown report."
+    "partial_output": "Even with incomplete data, compute scores and rankings for all collected domains and produce both JSON priority_list and Markdown report.",
+    "save_immediately": "ALWAYS save all retrieved data to files immediately after each API call. API calls may fail mid-execution due to credit depletion — saving prevents data loss and redundant API calls."
   },
 
   "execution_strategy": {
     "method": "sequential",
     "critical": "Process domains ONE BY ONE within a single task. Do NOT use WideSearch or create sub-tasks per domain. This saves significant Manus credits.",
-    "workflow": "For each domain: call all 4 SimilarWeb endpoints → store result → move to the next domain. After all domains are collected, compute scores and generate output.",
+    "workflow": "For each domain: call all 4 SimilarWeb endpoints → save results to file → move to the next domain. After all domains are collected, compute scores and generate output.",
     "reason": "WideSearch creates 50 sub-tasks with duplicated context/tool overhead. Sequential processing in 1 task is far more credit-efficient."
   },
 
   "data_collection_rules": {
     "critical": "You MUST follow the rules below strictly. Excessive data collection wastes credits.",
     "similarweb": {
-      "period": "Collect only 1 month of data for the target_month specified in the prompt.",
-      "scope": "Use the 4 endpoints below per domain. Do NOT use Traffic by Country or Traffic Sources (too expensive).",
+      "period_rule": "Collect ONLY 1 month of data. Set both start_date AND end_date to the SAME target_month value (e.g., start_date='2026-01', end_date='2026-01'). This ensures only 1 month of data is returned regardless of the API's default range. This rule applies to EVERY analysis run, not just this one — always use start_date = end_date = target_month.",
+      "scope": "Use the 4 official endpoints below per domain. Do NOT use Traffic Sources or Traffic by Country (expensive and not needed).",
       "endpoints": [
         {
-          "name": "Traffic & Engagement",
-          "api": "SimilarWeb/similarweb_get_traffic_and_engagement",
-          "fields": ["visits (total_visits)", "unique_visitors", "bounce_rate", "pages_per_visit", "avg_visit_duration"],
-          "credits": "~20"
-        },
-        {
-          "name": "Page Views",
-          "api": "SimilarWeb/similarweb_get_page_views",
-          "fields": ["page_views"],
-          "credits": "4"
-        },
-        {
           "name": "Global Rank",
-          "api": "SimilarWeb/similarweb_get_global_rank",
+          "api": "SimilarWeb/get_global_rank",
+          "call_example": "client.call_api('SimilarWeb/get_global_rank', path_params={'domain': 'example.com'}, query={'start_date': '{target_month}', 'end_date': '{target_month}'})",
           "fields": ["global_rank"],
-          "credits": "4"
+          "credits": "~4"
         },
         {
-          "name": "Industry Rank",
-          "api": "SimilarWeb/similarweb_get_industry_rank",
-          "fields": ["category", "category_rank"],
-          "credits": "8",
-          "note": "Returns latest month data only. No date parameter needed."
+          "name": "Visits Total",
+          "api": "SimilarWeb/get_visits_total",
+          "call_example": "client.call_api('SimilarWeb/get_visits_total', path_params={'domain': 'example.com'}, query={'country': 'world', 'granularity': 'monthly', 'start_date': '{target_month}', 'end_date': '{target_month}', 'main_domain_only': 'false'})",
+          "fields": ["visits (total_visits)"],
+          "credits": "~4"
+        },
+        {
+          "name": "Unique Visit",
+          "api": "SimilarWeb/get_unique_visit",
+          "call_example": "client.call_api('SimilarWeb/get_unique_visit', path_params={'domain': 'example.com'}, query={'start_date': '{target_month}', 'end_date': '{target_month}'})",
+          "fields": ["total_deduplicated_audience (unique_visitors)"],
+          "credits": "~4"
+        },
+        {
+          "name": "Bounce Rate",
+          "api": "SimilarWeb/get_bounce_rate",
+          "call_example": "client.call_api('SimilarWeb/get_bounce_rate', path_params={'domain': 'example.com'}, query={'country': 'world', 'granularity': 'monthly', 'start_date': '{target_month}', 'end_date': '{target_month}', 'main_domain_only': 'false'})",
+          "fields": ["bounce_rate"],
+          "credits": "~4"
         }
       ],
-      "fields_per_domain": "global_rank, category, category_rank, total_visits, avg_visit_duration, unique_visitors, bounce_rate, pages_per_visit, page_views — collect these 9 fields",
+      "fields_per_domain": "global_rank, total_visits, unique_visitors, bounce_rate — collect these 4 fields from 4 API calls",
       "do_not": [
-        "Do NOT collect 12-month time-series data",
-        "Do NOT perform Traffic by Country breakdown",
-        "Do NOT use Country Rank endpoint (requires specific country code)",
-        "Do NOT analyze marketing channel traffic sources",
+        "Do NOT collect multi-month time-series data — always set start_date = end_date = target_month",
+        "Do NOT use get_traffic_sources_desktop or get_traffic_sources_mobile (expensive)",
+        "Do NOT use get_total_traffic_by_country (expensive)",
+        "Do NOT use any Semrush endpoints",
         "Do NOT analyze sub-pages or subdomains"
       ]
     },
@@ -75,31 +79,27 @@
   },
 
   "data_schema": {
-    "total_fields": 21,
+    "total_fields": 17,
     "sources": {
       "similarweb": {
-        "description": "Collected from SimilarWeb (9 fields) — target_month only",
+        "description": "Collected from SimilarWeb official skills (4 fields) — target_month only",
         "fields": [
           { "key": "global_rank",        "type": "integer",  "description": "Global traffic rank" },
-          { "key": "category",           "type": "string",   "description": "Site category", "example": "Arts & Entertainment > Animation & Comics" },
-          { "key": "category_rank",      "type": "integer",  "description": "Rank within category" },
-          { "key": "total_visits",       "type": "integer",  "description": "Total visits for target_month (1 month)" },
-          { "key": "avg_visit_duration", "type": "string",   "description": "Average visit duration", "format": "HH:MM:SS" },
-          { "key": "unique_visitors",    "type": "integer",  "description": "Unique visitors (deduplicated)" },
-          { "key": "bounce_rate",        "type": "number",   "description": "Bounce rate (0~1, e.g. 0.45 = 45%)" },
-          { "key": "pages_per_visit",    "type": "number",   "description": "Average pages viewed per visit" },
-          { "key": "page_views",         "type": "integer",  "description": "Total page views" }
+          { "key": "total_visits",       "type": "integer",  "description": "Total visits for target_month (1 month, desktop)" },
+          { "key": "unique_visitors",    "type": "integer",  "description": "Unique visitors (deduplicated, from get_unique_visit total_deduplicated_audience)" },
+          { "key": "bounce_rate",        "type": "number",   "description": "Bounce rate (0~1, e.g. 0.45 = 45%)" }
         ]
       },
       "user_provided": {
-        "description": "Provided in the prompt by the system (2 fields) — do NOT collect these",
+        "description": "Provided in the prompt by the system (3 fields) — do NOT collect these",
         "fields": [
-          { "key": "site_type",  "type": "string",  "description": "Site classification (scanlation_group, aggregator, clone, blog, unclassified)" },
-          { "key": "type_score", "type": "number",  "description": "Pre-assigned score based on site_type. Use the exact value from the prompt." }
+          { "key": "site_type",   "type": "string",  "description": "Site classification (scanlation_group, aggregator, clone, blog, unclassified)" },
+          { "key": "type_score",  "type": "number",  "description": "Pre-assigned score based on site_type. Use the exact value from the prompt." },
+          { "key": "discovered",  "type": "integer", "description": "Number of illegal URLs discovered for this domain in the analysis month. Higher = more active infringement. Use this as an additional signal for threat assessment and recommendations." }
         ]
       },
       "analyst_computed": {
-        "description": "Computed by analyst (10 fields) — based on SimilarWeb data + provided previous month data + user-provided type_score",
+        "description": "Computed by analyst (10 fields) — based on SimilarWeb data + provided previous month data + user-provided data",
         "fields": [
           { "key": "visits_change_mom",         "type": "number|null",  "description": "Visits MoM change (%)", "null_condition": "No previous data provided" },
           { "key": "rank_change_mom",           "type": "integer|null", "description": "Rank MoM change (positive = improved)", "null_condition": "No previous data provided" },
@@ -107,10 +107,10 @@
           { "key": "size_score",                "type": "number",       "description": "Size score (0-35)", "precision": 1 },
           { "key": "growth_score",              "type": "number",       "description": "Growth score (0-30)", "precision": 1, "null_condition_value": 0 },
           { "key": "type_score",                "type": "number",       "description": "Type score (0-35) — use the value provided in the prompt", "precision": 1 },
-          { "key": "traffic_analysis",          "type": "string",       "description": "Short traffic trend tag in Korean (e.g. '전월대비 폭발적 성장', '안정적 유지', '하락세 지속'). Max 15 characters. Based on traffic data and MoM changes ONLY." },
-          { "key": "traffic_analysis_detail",   "type": "string",       "description": "Detailed traffic analysis in Korean (2-3 sentences). Analyze all 9 SimilarWeb metrics and MoM changes. Describe traffic volume, quality (bounce rate, pages/visit, duration), and growth trend. Do NOT mention site_type or threat_score here — only traffic facts." },
-          { "key": "recommendation",            "type": "string",       "description": "Short action recommendation tag in Korean (e.g. '즉시 법적 조치 권고', 'DMCA 강화', '모니터링 강화'). Max 15 characters." },
-          { "key": "recommendation_detail",     "type": "string",       "description": "Detailed recommendation rationale in Korean (2-4 sentences). Explain WHY this recommendation was made by referencing: traffic_analysis result, threat_score breakdown (size/growth/type), site classification, and overall trend." }
+          { "key": "traffic_analysis",          "type": "string",       "description": "Short traffic trend tag in Korean (max 15 chars). Based on traffic data and MoM changes ONLY. Examples: '전월대비 폭발적 성장', '안정적 유지', '하락세 지속'" },
+          { "key": "traffic_analysis_detail",   "type": "string",       "description": "Detailed traffic analysis in Korean (2-3 sentences). Analyze the 4 SimilarWeb metrics (total_visits, unique_visitors, bounce_rate, global_rank), MoM changes, and discovered count. Do NOT mention site_type or threat_score here — only traffic facts and discovered count context." },
+          { "key": "recommendation",            "type": "string",       "description": "Short action recommendation tag in Korean (max 15 chars). Must be an organic, context-aware judgment — NOT mechanical classification." },
+          { "key": "recommendation_detail",     "type": "string",       "description": "Detailed recommendation rationale in Korean (2-4 sentences). Explain WHY this recommendation was made by referencing: traffic_analysis, threat_score breakdown, site classification, discovered count, and overall trend." }
         ]
       }
     }
@@ -120,20 +120,43 @@
     "description": "Analysis MUST follow this 2-step process for each domain. Step 1 feeds into Step 2.",
     "step_1": {
       "name": "Traffic Analysis (트래픽 분석)",
-      "input": "All 9 SimilarWeb fields + visits_change_mom + rank_change_mom",
-      "task": "Analyze ONLY the traffic data. Consider volume (total_visits, unique_visitors, page_views), quality (bounce_rate, pages_per_visit, avg_visit_duration), position (global_rank, category_rank), and month-over-month changes.",
+      "input": "4 SimilarWeb fields (global_rank, total_visits, unique_visitors, bounce_rate) + visits_change_mom + rank_change_mom + discovered count",
+      "task": "Analyze ONLY the traffic data and discovered count. Consider volume (total_visits, unique_visitors), quality (bounce_rate), position (global_rank), month-over-month changes, and how actively this domain is distributing illegal content (discovered count).",
       "output": {
-        "traffic_analysis": "Short Korean tag (max 15 chars). Examples: '전월대비 폭발적 성장', '대규모 트래픽 안정 유지', '급격한 하락세', '소규모 신생 사이트', '반등 조짐', '트래픽 정체'",
-        "traffic_analysis_detail": "Korean prose (2-3 sentences) explaining the traffic situation with specific numbers."
+        "traffic_analysis": "Short Korean tag (max 15 chars). Examples: '전월대비 폭발적 성장', '대규모 트래픽 안정 유지', '급격한 하락세', '소규모 신생 사이트', '반등 조짐', '트래픽 정체', '발견 다수/트래픽 소규모'",
+        "traffic_analysis_detail": "Korean prose (2-3 sentences) explaining the traffic situation with specific numbers. Include discovered count context (e.g., '해당 도메인에서 142건의 불법 URL이 발견되었으며...')."
       }
     },
     "step_2": {
       "name": "Comprehensive Recommendation (종합 권고)",
-      "input": "Step 1 traffic_analysis + threat_score (size_score + growth_score + type_score) + site_type + overall trend",
-      "task": "Synthesize traffic analysis, threat scores, and site classification to determine the appropriate legal/enforcement action.",
+      "input": "Step 1 traffic_analysis + threat_score (size_score + growth_score + type_score) + site_type + discovered count + overall trend",
+      "task": "Synthesize ALL factors to produce an organic, context-aware recommendation. Do NOT mechanically map score ranges to fixed labels.",
+      "guidelines": {
+        "principle": "Produce a nuanced, organic recommendation based on the full picture — NOT mechanical score-range mapping. Each domain's unique combination of factors should lead to a tailored recommendation.",
+        "key_factors_priority": [
+          "site_type: scanlation_group and aggregator are PRIMARY SOURCES of piracy — they translate/upload original content that then spreads to clone sites. These ALWAYS warrant heightened attention regardless of traffic level.",
+          "discovered: High discovery count = active infringement. Even low-traffic sites with many discoveries are operationally dangerous.",
+          "Traffic trend: Rapid growth signals expanding damage even if current absolute numbers are moderate.",
+          "Combination matters: A low-traffic scanlation_group with surging growth + high discoveries may be MORE dangerous than a high-traffic clone in decline."
+        ],
+        "recommendation_types": [
+          "최상위 타겟 지정 — Top-tier threat requiring immediate legal action + sustained enforcement",
+          "OSINT 조사 필요 — Need to identify operator/infrastructure for direct action; especially for scanlation_group/aggregator where takedown alone is insufficient",
+          "DMCA 집중 강화 — Active content uploads require increased DMCA filing frequency",
+          "긴급 모니터링 격상 — Rapidly growing threat; not yet top-tier but trajectory is alarming",
+          "신규 위협 주시 — Recently appeared or growing from small base; watch closely",
+          "모니터링 유지 — Stable or declining; continue routine observation",
+          "조치 효과 확인 — Declining metrics suggest previous actions are working; verify and document"
+        ],
+        "complex_examples": [
+          "발견 순위 중위, 트래픽 중하위이지만 최근 방문수·UV 급상승 + scanlation_group → 'OSINT 조사 필요' (원천 번역 그룹으로서 clone 확산의 근원이 될 수 있으므로 순위가 낮더라도 운영자 조사 시작 요망)",
+          "발견 수 최상위, 트래픽 대규모 + aggregator + 성장세 → '최상위 타겟 지정' (대규모 유통망이며 활발한 침해 활동 확인)",
+          "트래픽 감소 추세, 발견 수도 전월 대비 감소 → '조치 효과 확인' (기존 DMCA 신고가 효과를 보이는 것으로 판단)"
+        ]
+      },
       "output": {
-        "recommendation": "Short Korean tag (max 15 chars). Examples: '즉시 법적 조치 권고', '긴급 DMCA 강화', 'DMCA 강화', '모니터링 강화', '모니터링'",
-        "recommendation_detail": "Korean prose (2-4 sentences) explaining why this action is recommended, referencing traffic analysis, scores, and classification."
+        "recommendation": "Short Korean tag (max 15 chars) — chosen organically from the types above or a custom variant that fits the situation.",
+        "recommendation_detail": "Korean prose (2-4 sentences) explaining WHY this recommendation was made. MUST reference: traffic analysis result, threat_score breakdown (size/growth/type), site classification importance (especially if scanlation_group/aggregator), discovered count, and overall trend."
       }
     }
   },
@@ -185,20 +208,16 @@
       {
         "name": "priority_list",
         "format": "JSON",
-        "instruction": "Wrap in ```json code block. Assign rank by threat_score descending. Use null for unavailable values. All Korean text fields (traffic_analysis, traffic_analysis_detail, recommendation, recommendation_detail) MUST be in Korean.",
+        "instruction": "Wrap in ```json code block. Assign rank by threat_score descending. Use null for unavailable values. All Korean text fields MUST be in Korean.",
         "example": {
           "rank": 1,
           "site_url": "example.com",
           "threat_score": 85.0,
           "global_rank": 1234,
-          "category": "Arts & Entertainment > Animation & Comics",
-          "category_rank": 12,
           "total_visits": 45000000,
-          "avg_visit_duration": "00:03:45",
           "unique_visitors": 12000000,
           "bounce_rate": 0.42,
-          "pages_per_visit": 4.3,
-          "page_views": 193500000,
+          "discovered": 142,
           "visits_change_mom": 12.5,
           "rank_change_mom": 20,
           "site_type": "scanlation_group",
@@ -206,34 +225,36 @@
           "size_score": 30.0,
           "growth_score": 20.0,
           "traffic_analysis": "전월대비 급격한 성장",
-          "traffic_analysis_detail": "월간 방문수 4,500만으로 전월 대비 12.5% 증가했으며, UV 1,200만 명으로 실사용자도 동반 상승했습니다. 이탈률 42%로 양호하고 페이지/방문 4.3회로 콘텐츠 소비가 활발합니다.",
-          "recommendation": "즉시 법적 조치 권고",
-          "recommendation_detail": "위협 점수 85점(규모 30 + 성장 20 + 분류 35)의 최우선 대응 대상입니다. 스캔레이션 그룹으로 직접 번역/업로드 중이며 트래픽이 전월 대비 12.5% 급증하고 있어 피해 규모가 확대되고 있습니다. 즉각적인 법적 조치가 필요합니다."
+          "traffic_analysis_detail": "월간 방문수 4,500만으로 전월 대비 12.5% 증가했으며, UV 1,200만 명으로 실사용자도 동반 상승했습니다. 이탈률 42%로 양호하며, 해당 도메인에서 142건의 불법 URL이 발견되어 활발한 침해 활동이 확인됩니다.",
+          "recommendation": "최상위 타겟 지정",
+          "recommendation_detail": "위협 점수 85점(규모 30 + 성장 20 + 분류 35)의 최우선 대응 대상입니다. 스캔레이션 그룹으로 직접 번역/업로드 중이며 트래픽이 전월 대비 12.5% 급증하고 있어 피해 규모가 확대되고 있습니다. 142건의 불법 URL 발견은 활발한 침해 활동을 입증하며, 즉각적인 법적 조치와 OSINT 조사 병행이 필요합니다."
         }
       },
       {
         "name": "report",
         "format": "Markdown",
         "instruction": "Follow the template structure below exactly. The entire report MUST be written in Korean.",
-        "template": "# 월간 해적사이트 분석 보고서 (YYYY-MM)\n\n## 1. 종합 요약 및 핵심 동향\n\n- **최우선 대응 대상**: [1위 사이트 URL] (위협 점수: [X]점) - [핵심 사유 요약]\n- **주요 동향**: (전체 트래픽 트렌드, 주목할 변화 2~3개를 구체적 수치와 함께 서술)\n- **신규 위협**: (이번 달 새로 순위권에 진입하거나 급성장한 사이트. 해당 없으면 생략)\n- **단속 효과**: (전월 대비 순위 하락 또는 트래픽 감소 사이트. 해당 없으면 생략)\n\n## 2. 대응 우선순위 종합 테이블\n\n| 순위 | 사이트 URL | 위협 점수 | 분류 | 규모 (방문수/순위) | 성장성 (방문자 증감) | 트래픽 분석 | 제언 |\n|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n| 1 | site-A.com | 95 | Scanlation | 15.2M / 5,500위 | +120% | 폭발적 성장 | 즉시 법적 조치 |\n\n(상위 10개만 테이블에 포함)\n\n## 3. 위협 등급별 분류\n\n### 🔴 최우선 대응 (threat_score >= 70)\n- 해당 사이트 목록과 핵심 위협 요인 1줄 요약\n\n### 🟡 주의 관찰 (40~69)\n- 해당 사이트 목록과 관찰 포인트\n\n### 🟢 저위험 (< 40)\n- 해당 사이트 수와 간략 요약\n\n## 4. 전월 대비 주요 변동사항\n(전월 데이터 있는 경우에만 작성)\n- 순위 상승 TOP 3\n- 순위 하락 TOP 3\n- 트래픽 급증/급감 사이트\n\n## 5. 종합 제언\n(저작권 보호 전략 관점: 법적 조치, 신고 우선순위, 모니터링 강화 대상)"
+        "template": "# 월간 해적사이트 분석 보고서 (YYYY-MM)\n\n## 1. 종합 요약 및 핵심 동향\n\n- **최우선 대응 대상**: [1위 사이트 URL] (위협 점수: [X]점) - [핵심 사유 요약]\n- **주요 동향**: (전체 트래픽 트렌드, 주목할 변화 2~3개를 구체적 수치와 함께 서술)\n- **신규 위협**: (이번 달 새로 순위권에 진입하거나 급성장한 사이트. 해당 없으면 생략)\n- **단속 효과**: (전월 대비 순위 하락 또는 트래픽 감소 사이트. 해당 없으면 생략)\n\n## 2. 대응 우선순위 종합 테이블\n\n| 순위 | 사이트 URL | 위협 점수 | 분류 | 발견 수 | 규모 (방문수/순위) | 성장성 (방문자 증감) | 트래픽 분석 | 제언 |\n|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|\n| 1 | site-A.com | 95 | Scanlation | 142 | 15.2M / 5,500위 | +120% | 폭발적 성장 | 최상위 타겟 지정 |\n\n(상위 10개만 테이블에 포함)\n\n## 3. 위협 등급별 분류\n\n### 🔴 최우선 대응 (threat_score >= 70)\n- 해당 사이트 목록과 핵심 위협 요인 1줄 요약\n\n### 🟡 주의 관찰 (40~69)\n- 해당 사이트 목록과 관찰 포인트\n\n### 🟢 저위험 (< 40)\n- 해당 사이트 수와 간략 요약\n\n## 4. 전월 대비 주요 변동사항\n(전월 데이터 있는 경우에만 작성)\n- 순위 상승 TOP 3\n- 순위 하락 TOP 3\n- 트래픽 급증/급감 사이트\n\n## 5. 종합 제언\n(저작권 보호 전략 관점: 최상위 타겟 지정 근거, OSINT 조사 대상, DMCA 강화 대상, 모니터링 대상. 스캔레이션/애그리게이터의 원천 유통 차단이 clone 확산 방지의 핵심임을 반영)"
       }
     ]
   },
 
   "cautions": [
-    "Collect ONLY 1 month of SimilarWeb data for target_month. NEVER collect 12 months.",
+    "Collect ONLY 1 month of SimilarWeb data: set start_date = end_date = target_month for ALL API calls. NEVER use default 6-month range.",
     "Do NOT fetch additional months from SimilarWeb to calculate MoM. Use the previous data provided in the prompt.",
-    "Do NOT use Traffic by Country, Country Rank, or Traffic Sources endpoints.",
-    "Do NOT use Semrush. Semrush data is NOT needed for this analysis.",
-    "type_score is pre-assigned by the user. Use the exact value provided in the prompt. Do NOT calculate it.",
-    "If SimilarWeb data for target_month is not yet available, note at the top of the report in Korean: '⚠️ {month}월 데이터 미반영. {prev_month}월 기준 분석'",
+    "Do NOT use get_traffic_sources_desktop, get_traffic_sources_mobile, or get_total_traffic_by_country (expensive, not needed).",
+    "Do NOT use any Semrush endpoints. Semrush data is NOT needed.",
+    "type_score is pre-assigned by the user. Use the exact value from the prompt. Do NOT calculate it.",
+    "discovered count is provided in the prompt. Use it as analysis input but do NOT modify it.",
+    "If SimilarWeb data for target_month is not yet available, note at the top of the report: '⚠️ {month}월 데이터 미반영. {prev_month}월 기준 분석'",
     "Always state the data reference month clearly.",
     "Use real SimilarWeb data. If estimates are used, label them clearly.",
     "MUST include both JSON priority_list and Markdown report in the output.",
-    "ALL output text (traffic_analysis, traffic_analysis_detail, recommendation, recommendation_detail, report) MUST be in Korean.",
-    "Industry Rank endpoint returns latest month data only — no date parameter needed.",
+    "ALL output text MUST be in Korean.",
     "MUST follow the 2-step analysis process: Step 1 (traffic analysis) → Step 2 (comprehensive recommendation). Do NOT skip Step 1.",
-    "If remaining SimilarWeb credits drop to 1,000 or below, STOP collecting and output results with whatever data is available.",
-    "Process all domains SEQUENTIALLY in a single task. Do NOT use WideSearch or spawn sub-tasks — it wastes Manus credits."
+    "If remaining SimilarWeb credits drop to 1,000 or below, STOP collecting and output results with available data.",
+    "Process all domains SEQUENTIALLY in a single task. Do NOT use WideSearch or spawn sub-tasks — it wastes Manus credits.",
+    "ALWAYS save retrieved data to files immediately after each API call — credit depletion can cause mid-task failures.",
+    "Recommendations must be ORGANIC and NUANCED — do NOT mechanically map score ranges to fixed recommendation labels. Consider the full picture: site_type (especially scanlation_group/aggregator as primary sources), discovered count, traffic trends, and growth trajectory."
   ]
 }

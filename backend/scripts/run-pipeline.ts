@@ -625,7 +625,9 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
     const domainWithTypes: DomainWithType[] = domainList.map((d: string) => {
       const siteType = siteTypeMap[d.toLowerCase()] || 'unclassified';
       const typeScore = TYPE_SCORE_MAP[siteType] || 0;
-      return { domain: d, site_type: siteType, type_score: typeScore };
+      const disc = topDomains.find((td: any) => td.domain === d);
+      const discovered = disc ? parseInt(disc.discovered) || 0 : 0;
+      return { domain: d, site_type: siteType, type_score: typeScore, discovered };
     });
 
     // 전전월 데이터 조회 (전월 분석 결과 = 비교 기준)
@@ -648,14 +650,10 @@ async function runMonthlyDomainAnalysisIfNeeded(sql: any) {
           site_url: r.domain,
           threat_score: r.threat_score ? parseFloat(r.threat_score) : null,
           global_rank: r.global_rank,
-          category: r.category,
-          category_rank: r.category_rank,
           total_visits: r.total_visits ? parseInt(r.total_visits) : null,
-          avg_visit_duration: r.avg_visit_duration,
           unique_visitors: r.unique_visitors ? parseInt(r.unique_visitors) : null,
           bounce_rate: r.bounce_rate ? parseFloat(r.bounce_rate) : null,
-          pages_per_visit: r.pages_per_visit ? parseFloat(r.pages_per_visit) : null,
-          page_views: r.page_views ? parseInt(r.page_views) : null,
+          discovered: r.discovered ? parseInt(r.discovered) : null,
           visits_change_mom: r.visits_change_mom ? parseFloat(r.visits_change_mom) : null,
           rank_change_mom: r.rank_change_mom,
           size_score: r.size_score ? parseFloat(r.size_score) : null,
