@@ -762,7 +762,7 @@ export default function DomainAnalysisPage() {
                           </td>
                           <td className="px-3 py-3 text-center">
                             {d.traffic_analysis ? (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-700 whitespace-nowrap">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 whitespace-nowrap">
                                 {d.traffic_analysis}
                               </span>
                             ) : (
