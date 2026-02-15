@@ -358,10 +358,13 @@ export default function DomainAnalysisPage() {
 
   const recBadgeColor = (rec: string | null) => {
     if (!rec) return 'bg-gray-100 text-gray-600';
-    if (rec.includes('즉시')) return 'bg-red-100 text-red-700';
-    if (rec.includes('법적')) return 'bg-orange-100 text-orange-700';
-    if (rec.includes('긴급')) return 'bg-yellow-100 text-yellow-700';
-    if (rec.includes('DMCA')) return 'bg-blue-100 text-blue-700';
+    if (rec.includes('최상위') || rec.includes('타겟 지정')) return 'bg-red-100 text-red-700 border border-red-200';
+    if (rec.includes('OSINT') || rec.includes('조사')) return 'bg-orange-100 text-orange-700 border border-orange-200';
+    if (rec.includes('DMCA') || rec.includes('집중 강화')) return 'bg-amber-100 text-amber-700 border border-amber-200';
+    if (rec.includes('긴급') || rec.includes('격상')) return 'bg-yellow-100 text-yellow-700 border border-yellow-200';
+    if (rec.includes('신규') || rec.includes('주시')) return 'bg-lime-100 text-lime-700 border border-lime-200';
+    if (rec.includes('모니터링 유지') || rec.includes('모니터링')) return 'bg-green-100 text-green-700 border border-green-200';
+    if (rec.includes('조치 효과') || rec.includes('확인')) return 'bg-sky-100 text-sky-700 border border-sky-200';
     return 'bg-gray-100 text-gray-600';
   };
 
@@ -678,16 +681,16 @@ export default function DomainAnalysisPage() {
                 <table className="w-full min-w-[1100px]">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-12">#</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[180px]">도메인</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-10">#</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[140px] max-w-[180px]">도메인</th>
                       <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">분류</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-[140px]">위협 점수</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">발견 수</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">글로벌 순위</th>
-                      <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Unique Visitors</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[110px]">권고사항</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">트래픽 분석</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-[130px]">위협 점수</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">발견 수</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">글로벌 순위</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Unique Visitors</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[120px]">권고사항</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[130px]">트래픽 분석</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -705,13 +708,13 @@ export default function DomainAnalysisPage() {
                           className="hover:bg-blue-50/50 transition cursor-pointer"
                           onClick={() => setDetailDomain(d)}
                         >
-                          <td className="px-3 py-3">
+                          <td className="px-3 py-3 text-center">
                             <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${
                               d.rank <= 3 ? 'bg-red-100 text-red-700' : d.rank <= 10 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
                             }`}>{d.rank}</span>
                           </td>
                           <td className="px-3 py-3">
-                            <span className="font-medium text-gray-900 text-sm">{d.domain}</span>
+                            <span className="font-medium text-gray-900 text-sm truncate block max-w-[180px]" title={d.domain}>{d.domain}</span>
                           </td>
                           <td className="px-3 py-3 text-center">
                             {(() => {
@@ -733,10 +736,10 @@ export default function DomainAnalysisPage() {
                               <span className={`text-sm font-bold ${threatTextColor} w-10 text-right`}>{d.threat_score ?? '-'}</span>
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-right">
+                          <td className="px-3 py-3 text-center">
                             <span className="text-sm font-medium text-gray-700">{d.discovered ?? '-'}</span>
                           </td>
-                          <td className="px-3 py-3 text-right">
+                          <td className="px-3 py-3 text-center">
                             <div>
                               <span className="text-sm font-medium text-gray-900">{formatVisits(d.total_visits)}</span>
                               {mom !== null && (
@@ -744,22 +747,22 @@ export default function DomainAnalysisPage() {
                               )}
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-right">
+                          <td className="px-3 py-3 text-center">
                             <span className="text-sm text-gray-700">{d.global_rank ? `#${d.global_rank.toLocaleString()}` : '-'}</span>
                           </td>
-                          <td className="px-3 py-3 text-right">
+                          <td className="px-3 py-3 text-center">
                             <span className="text-sm text-gray-700">{d.unique_visitors ? formatVisits(d.unique_visitors) : '-'}</span>
                           </td>
-                          <td className="px-3 py-3">
+                          <td className="px-3 py-3 text-center">
                             {d.recommendation && (
-                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${recBadgeColor(d.recommendation)}`}>
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${recBadgeColor(d.recommendation)}`}>
                                 {d.recommendation}
                               </span>
                             )}
                           </td>
                           <td className="px-3 py-3 text-center">
                             {d.traffic_analysis ? (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-700">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-700 whitespace-nowrap">
                                 {d.traffic_analysis}
                               </span>
                             ) : (
