@@ -248,6 +248,27 @@ export const siteClassifyApi = {
 };
 
 // ============================================
+// Site Status API (불법 사이트 현황)
+// ============================================
+
+export const siteStatusApi = {
+  getList: async () => {
+    const res = await api.get('/api/site-status');
+    return res.data;
+  },
+  
+  updateStatus: async (domain: string, site_status: string, new_url?: string) => {
+    const res = await api.patch(`/api/site-status/${encodeURIComponent(domain)}/status`, { site_status, new_url });
+    return res.data;
+  },
+  
+  classify: async (domain: string, site_type: string) => {
+    const res = await api.patch(`/api/site-status/${encodeURIComponent(domain)}/classify`, { site_type });
+    return res.data;
+  },
+};
+
+// ============================================
 // Notification API
 // ============================================
 
@@ -342,11 +363,11 @@ export const reportTrackingApi = {
     return res.data;
   },
   
-  // HTML 파일 업로드 (신고 결과 매칭) - reportId는 선택 사항 (없으면 HTML에서 자동 추출)
-  uploadHtml: async (sessionId: string, htmlContent: string, reportId?: string, fileName?: string) => {
+  // CSV 파일 업로드 (신고 결과 매칭) - 파일명에서 신고 ID 자동 추출
+  uploadCsv: async (sessionId: string, csvRows: { url: string; status: string; details: string }[], reportId: string, fileName?: string) => {
     const res = await api.post(`/api/report-tracking/${sessionId}/upload`, {
-      html_content: htmlContent,
-      report_id: reportId || undefined,
+      csv_rows: csvRows,
+      report_id: reportId,
       file_name: fileName,
     });
     return res.data;

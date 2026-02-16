@@ -311,6 +311,18 @@ async function ensureDbMigration() {
       if (!e.message?.includes('already exists')) console.error('Migration: sites.site_type error:', e.message)
     }
 
+    // sites 테이블에 site_status, new_url 컬럼 추가 (불법 사이트 현황: active, closed, changed)
+    try {
+      await db`ALTER TABLE sites ADD COLUMN IF NOT EXISTS site_status VARCHAR(20) DEFAULT 'active'`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: sites.site_status error:', e.message)
+    }
+    try {
+      await db`ALTER TABLE sites ADD COLUMN IF NOT EXISTS new_url TEXT`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: sites.new_url error:', e.message)
+    }
+
     // domain_analysis_results에 site_type, type_score 컬럼 추가
     try {
       await db`ALTER TABLE domain_analysis_results ADD COLUMN IF NOT EXISTS site_type VARCHAR(30)`
@@ -3460,100 +3472,130 @@ app.get('/api/notifications/unclassified-count', async (c) => {
 })
 
 // ============================================
+// API - 불법 사이트 현황 (Site Status)
+// ============================================
+
+// 불법 사이트 현황 목록 조회
+app.get('/api/site-status', async (c) => {
+  try {
+    await ensureDbMigration()
+    
+    const sites = await query`
+      SELECT 
+        s.id, s.domain, 
+        COALESCE(s.site_type, 'unclassified') as site_type,
+        COALESCE(s.site_status, 'active') as site_status,
+        s.new_url,
+        s.created_at
+      FROM sites s
+      WHERE s.type = 'illegal'
+      ORDER BY 
+        CASE WHEN s.site_status = 'closed' THEN 1 ELSE 0 END,
+        s.domain ASC
+    `
+    
+    return c.json({
+      success: true,
+      sites: sites.map((s: any) => ({
+        id: s.id,
+        domain: s.domain,
+        site_type: s.site_type,
+        site_status: s.site_status,
+        new_url: s.new_url || null,
+        created_at: s.created_at,
+      })),
+      total: sites.length,
+    })
+  } catch (error) {
+    console.error('Site status list error:', error)
+    return c.json({ success: false, error: 'Failed to load site status' }, 500)
+  }
+})
+
+// 사이트 상태 업데이트 (active / closed / changed)
+app.patch('/api/site-status/:domain/status', async (c) => {
+  try {
+    await ensureDbMigration()
+    const domain = decodeURIComponent(c.req.param('domain'))
+    const { site_status, new_url } = await c.req.json()
+    
+    const validStatuses = ['active', 'closed', 'changed']
+    if (!validStatuses.includes(site_status)) {
+      return c.json({ success: false, error: `유효하지 않은 상태입니다. 가능한 값: ${validStatuses.join(', ')}` }, 400)
+    }
+    
+    // changed일 때만 new_url 필요
+    const urlValue = site_status === 'changed' ? (new_url?.trim() || null) : null
+    
+    const lowerDomain = domain.toLowerCase()
+    await query`
+      UPDATE sites SET 
+        site_status = ${site_status}, 
+        new_url = ${urlValue}
+      WHERE LOWER(domain) = ${lowerDomain} AND type = 'illegal'
+    `
+    
+    return c.json({
+      success: true,
+      domain: lowerDomain,
+      site_status,
+      new_url: urlValue,
+    })
+  } catch (error) {
+    console.error('Site status update error:', error)
+    return c.json({ success: false, error: 'Failed to update site status' }, 500)
+  }
+})
+
+// 사이트 분류 + 상태 일괄 업데이트 (사이트 현황 페이지에서 분류 변경)
+app.patch('/api/site-status/:domain/classify', async (c) => {
+  try {
+    await ensureDbMigration()
+    const domain = decodeURIComponent(c.req.param('domain'))
+    const { site_type } = await c.req.json()
+    
+    const validTypes = Object.keys(TYPE_SCORE_MAP)
+    if (!validTypes.includes(site_type)) {
+      return c.json({ success: false, error: `유효하지 않은 site_type입니다.` }, 400)
+    }
+    
+    const lowerDomain = domain.toLowerCase()
+    
+    const existing = await query`
+      SELECT id FROM sites WHERE LOWER(domain) = ${lowerDomain} AND type = 'illegal'
+    `
+    
+    if (existing.length > 0) {
+      await query`
+        UPDATE sites SET site_type = ${site_type} WHERE LOWER(domain) = ${lowerDomain} AND type = 'illegal'
+      `
+    } else {
+      await query`
+        INSERT INTO sites (domain, type, site_type, site_status)
+        VALUES (${lowerDomain}, 'illegal', ${site_type}, 'active')
+        ON CONFLICT (domain, type) DO UPDATE SET site_type = ${site_type}
+      `
+    }
+    
+    return c.json({
+      success: true,
+      domain: lowerDomain,
+      site_type,
+      type_score: TYPE_SCORE_MAP[site_type] || 0,
+    })
+  } catch (error) {
+    console.error('Site classify (from status page) error:', error)
+    return c.json({ success: false, error: 'Failed to classify site' }, 500)
+  }
+})
+
+// ============================================
 // API - Report Tracking (신고결과 추적)
 // ============================================
 
 // LiteLLM + Gemini 설정
 const LITELLM_ENDPOINT = 'https://litellm.iaiai.ai/v1'
 const LITELLM_MODEL = 'gemini-3-pro-preview'
-
-// HTML에서 외부 URL 추출 (정규식 기반 - Google 신고 결과 페이지 최적화)
-function extractUrlsFromHtml(htmlContent: string): string[] {
-  const urls: string[] = []
-  
-  // 방법 1: external-link 클래스를 가진 <a> 태그에서 URL 추출
-  // Google Report Content 페이지 형식: <a class="external-link ...">https://example.com/...</a>
-  const externalLinkRegex = /<a[^>]*class="[^"]*external-link[^"]*"[^>]*>([^<]+)<\/a>/gi
-  let match
-  while ((match = externalLinkRegex.exec(htmlContent)) !== null) {
-    const url = match[1].trim()
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      urls.push(url)
-    }
-  }
-  
-  // 방법 2: external-link 클래스가 없는 경우, 일반 정규식으로 추출
-  if (urls.length === 0) {
-    console.log('No external-link tags found, using regex fallback...')
-    const urlRegex = /https?:\/\/[^\s"'<>\]]+/g
-    const allUrls = htmlContent.match(urlRegex) || []
-    
-    // 필터링: Google 관련 도메인 제외
-    const excludedDomains = [
-      'google.com', 'googleapis.com', 'googleusercontent.com', 'gstatic.com',
-      'w3.org', 'accounts.google.com', 'ogs.google.com', 'fonts.googleapis.com',
-      'fonts.gstatic.com', 'ssl.gstatic.com', 'lh3.google.com'
-    ]
-    
-    for (const url of allUrls) {
-      const isExcluded = excludedDomains.some(domain => url.includes(domain))
-      if (!isExcluded && !urls.includes(url)) {
-        urls.push(url)
-      }
-    }
-  }
-  
-  // 중복 제거 및 정리
-  const uniqueUrls = [...new Set(urls)]
-  console.log(`📎 Extracted ${uniqueUrls.length} unique URLs from HTML`)
-  
-  return uniqueUrls
-}
-
-// HTML에서 신고 ID 자동 추출 (Google Report Content 페이지)
-function extractReportIdFromHtml(htmlContent: string): string | null {
-  // 방법 1: URL 파라미터에서 추출 (report_content?id=12345)
-  // 예: https://www.google.com/webmasters/tools/dmca-notice?id=18654693&hl=ko
-  const urlParamMatch = htmlContent.match(/dmca-notice\?id=(\d+)/i)
-  if (urlParamMatch) {
-    console.log(`🔍 Extracted report ID from URL param: ${urlParamMatch[1]}`)
-    return urlParamMatch[1]
-  }
-  
-  // 방법 2: report_content URL에서 추출
-  // 예: report_content?id=12345
-  const reportContentMatch = htmlContent.match(/report_content\?id=(\d+)/i)
-  if (reportContentMatch) {
-    console.log(`🔍 Extracted report ID from report_content: ${reportContentMatch[1]}`)
-    return reportContentMatch[1]
-  }
-  
-  // 방법 3: 페이지 타이틀에서 추출
-  // 예: <title>신고 ID 12345678 - Google</title> 또는 <title>Request #12345678</title>
-  const titleMatch = htmlContent.match(/<title>[^<]*(?:신고\s*(?:ID)?|Request\s*#?|ID\s*:?\s*)(\d+)[^<]*<\/title>/i)
-  if (titleMatch) {
-    console.log(`🔍 Extracted report ID from title: ${titleMatch[1]}`)
-    return titleMatch[1]
-  }
-  
-  // 방법 4: 페이지 본문에서 숫자 ID 패턴 추출
-  // 예: "요청 ID: 12345678" 또는 "Request ID: 12345678"
-  const bodyIdMatch = htmlContent.match(/(?:요청\s*ID|Request\s*ID|신고\s*번호|Report\s*ID)\s*[:#]?\s*(\d{6,})/i)
-  if (bodyIdMatch) {
-    console.log(`🔍 Extracted report ID from body: ${bodyIdMatch[1]}`)
-    return bodyIdMatch[1]
-  }
-  
-  // 방법 5: canonical URL에서 추출
-  const canonicalMatch = htmlContent.match(/href="[^"]*(?:id|report)[=\/](\d+)[^"]*"/i)
-  if (canonicalMatch) {
-    console.log(`🔍 Extracted report ID from canonical: ${canonicalMatch[1]}`)
-    return canonicalMatch[1]
-  }
-  
-  console.log('⚠️ Could not auto-extract report ID from HTML')
-  return null
-}
 
 // ⚠️ 정적 라우트는 동적 라우트(:sessionId) 앞에 배치해야 함
 
@@ -3838,72 +3880,133 @@ app.post('/api/report-tracking/:sessionId/add-url', async (c) => {
 app.post('/api/report-tracking/:sessionId/upload', async (c) => {
   try {
     const sessionId = c.req.param('sessionId')
-    const { html_content, report_id: providedReportId, file_name } = await c.req.json()
+    const body = await c.req.json()
     
-    if (!html_content) {
-      return c.json({ success: false, error: 'Missing html_content' }, 400)
-    }
-    
-    // 신고 ID: 제공된 값 사용 또는 HTML에서 자동 추출
-    let reportId = providedReportId?.trim()
-    let autoExtracted = false
-    
-    if (!reportId) {
-      reportId = extractReportIdFromHtml(html_content)
-      autoExtracted = true
+    // CSV 업로드 (신규)
+    if (body.csv_rows) {
+      const { csv_rows, report_id: providedReportId, file_name } = body
       
-      if (!reportId) {
-        return c.json({ 
-          success: false, 
-          error: 'HTML에서 신고 ID를 자동으로 추출할 수 없습니다. 신고 ID를 직접 입력해주세요.' 
-        }, 400)
+      if (!Array.isArray(csv_rows) || csv_rows.length === 0) {
+        return c.json({ success: false, error: 'CSV 데이터가 비어있습니다.' }, 400)
       }
-      console.log(`🤖 Auto-extracted report ID: ${reportId}`)
+      
+      const reportId = providedReportId?.trim()
+      if (!reportId) {
+        return c.json({ success: false, error: '신고 ID를 추출할 수 없습니다. 파일명을 확인해주세요.' }, 400)
+      }
+      
+      console.log(`📥 Processing CSV upload for session ${sessionId}, report_id: ${reportId}, rows: ${csv_rows.length}`)
+      
+      // CSV 사유 매핑
+      const REASON_MAP: Record<string, string> = {
+        '기존의 요청과 중복된 요청입니다.': '기존과 중복된 요청',
+        '문제의 콘텐츠를 찾을 수 없습니다.': '문제의 콘텐츠를 찾을 수 없음',
+      }
+      
+      // CSV 상태 매핑
+      const STATUS_MAP: Record<string, string> = {
+        'approved': '차단',
+        'denied': '거부',
+        'pending': '대기 중',
+      }
+      
+      // 상태별로 URL 그룹핑
+      const approvedUrls: string[] = []
+      const deniedItems: { url: string; reason: string }[] = []
+      const pendingUrls: string[] = []
+      
+      for (const row of csv_rows) {
+        const url = row.url?.trim()
+        const status = row.status?.trim()?.toLowerCase()
+        const details = row.details?.trim() || ''
+        
+        if (!url || !status) continue
+        
+        if (status === 'approved') {
+          approvedUrls.push(url)
+        } else if (status === 'denied') {
+          const mappedReason = REASON_MAP[details] || details || '거부됨'
+          deniedItems.push({ url, reason: mappedReason })
+        } else if (status === 'pending') {
+          pendingUrls.push(url)
+        }
+      }
+      
+      let totalMatched = 0
+      
+      // 1) approved → 차단
+      if (approvedUrls.length > 0) {
+        const matched = await bulkUpdateReportTrackingByUrls(sessionId, approvedUrls, '차단', reportId)
+        totalMatched += matched
+        console.log(`  ✅ approved(차단): ${matched}/${approvedUrls.length} URLs matched`)
+      }
+      
+      // 2) pending → 대기 중
+      if (pendingUrls.length > 0) {
+        const matched = await bulkUpdateReportTrackingByUrls(sessionId, pendingUrls, '대기 중', reportId)
+        totalMatched += matched
+        console.log(`  ⏳ pending(대기 중): ${matched}/${pendingUrls.length} URLs matched`)
+      }
+      
+      // 3) denied → 거부 + 사유 업데이트
+      if (deniedItems.length > 0) {
+        const deniedUrls = deniedItems.map(d => d.url)
+        const matched = await bulkUpdateReportTrackingByUrls(sessionId, deniedUrls, '거부', reportId)
+        totalMatched += matched
+        console.log(`  ❌ denied(거부): ${matched}/${deniedItems.length} URLs matched`)
+        
+        // 사유 개별 업데이트 (매칭된 URL만)
+        for (const item of deniedItems) {
+          try {
+            await query`
+              UPDATE report_tracking SET reason = ${item.reason}, updated_at = NOW()
+              WHERE session_id = ${sessionId} AND url = ${item.url}
+            `
+            // report_reasons 테이블에도 사유 등록/갱신
+            await addOrUpdateReportReason(item.reason)
+          } catch (e) {
+            // 개별 사유 업데이트 실패는 무시
+          }
+        }
+      }
+      
+      console.log(`✅ CSV upload complete: ${totalMatched} total matched`)
+      
+      // 업로드 이력 저장
+      await createReportUpload({
+        session_id: sessionId,
+        report_id: reportId,
+        file_name: file_name || 'uploaded.csv',
+        matched_count: totalMatched,
+        total_urls_in_html: csv_rows.length
+      })
+      
+      // 상태별 처리 결과 요약
+      const summary = []
+      if (approvedUrls.length > 0) summary.push(`차단 ${approvedUrls.length}건`)
+      if (deniedItems.length > 0) summary.push(`거부 ${deniedItems.length}건`)
+      if (pendingUrls.length > 0) summary.push(`대기 중 ${pendingUrls.length}건`)
+      
+      return c.json({
+        success: true,
+        report_id: reportId,
+        auto_extracted: true,
+        total_rows: csv_rows.length,
+        matched_urls: totalMatched,
+        breakdown: {
+          approved: approvedUrls.length,
+          denied: deniedItems.length,
+          pending: pendingUrls.length,
+        },
+        message: `신고 ID ${reportId} — ${summary.join(', ')} (총 ${totalMatched}개 URL 매칭됨)`
+      })
     }
     
-    // HTML에서 URL 추출 (정규식 기반)
-    console.log(`📥 Processing HTML upload for session ${sessionId}, report_id: ${reportId}${autoExtracted ? ' (auto-extracted)' : ''}`)
-    const extractedUrls = extractUrlsFromHtml(html_content)
-    
-    if (extractedUrls.length === 0) {
-      return c.json({ 
-        success: false, 
-        error: 'No URLs extracted from HTML. Check if the HTML contains external links.' 
-      }, 400)
-    }
-    
-    // 세션의 URL과 매칭하여 상태 업데이트
-    const matchedCount = await bulkUpdateReportTrackingByUrls(
-      sessionId,
-      extractedUrls,
-      '차단',
-      reportId
-    )
-    
-    console.log(`✅ Matched and updated ${matchedCount} URLs`)
-    
-    // 업로드 이력 저장
-    await createReportUpload({
-      session_id: sessionId,
-      report_id: reportId,
-      file_name: file_name || 'uploaded.html',
-      matched_count: matchedCount,
-      total_urls_in_html: extractedUrls.length
-    })
-    
-    return c.json({
-      success: true,
-      report_id: reportId,
-      auto_extracted: autoExtracted,
-      extracted_urls: extractedUrls.length,
-      matched_urls: matchedCount,
-      message: autoExtracted 
-        ? `신고 ID ${reportId}가 자동 추출되었습니다. ${matchedCount}개 URL이 '차단' 상태로 업데이트되었습니다.`
-        : `${matchedCount}개 URL이 '차단' 상태로 업데이트되었습니다.`
-    })
+    // csv_rows가 없으면 에러
+    return c.json({ success: false, error: 'CSV 데이터(csv_rows)가 필요합니다.' }, 400)
   } catch (error) {
-    console.error('HTML upload error:', error)
-    return c.json({ success: false, error: 'Failed to process HTML upload' }, 500)
+    console.error('Upload error:', error)
+    return c.json({ success: false, error: 'Failed to process upload' }, 500)
   }
 })
 
@@ -4073,31 +4176,66 @@ app.post('/api/domain-analysis/run', async (c) => {
     // 상위 50개 불법 도메인 조회 (분석 대상 월 기준 발견 수)
     currentStep = '[4/6 불법 도메인 조회]'
     const monthPattern = month + '%'
-    const topDomains = await query`
-      SELECT domain, COUNT(*) as discovered
-      FROM detection_results
-      WHERE final_status = 'illegal'
-        AND domain IS NOT NULL AND domain != ''
-        AND SUBSTRING(session_id, 1, 7) = ${month}
-      GROUP BY domain
-      ORDER BY discovered DESC
-      LIMIT 50
+    // closed 상태 도메인 목록 조회 (제외 대상)
+    const closedSites = await query`
+      SELECT LOWER(domain) as domain FROM sites
+      WHERE type = 'illegal' AND site_status = 'closed'
     `
+    const closedDomains = closedSites.map((s: any) => s.domain)
+
+    let topDomains: any[]
+    if (closedDomains.length > 0) {
+      topDomains = await query`
+        SELECT domain, COUNT(*) as discovered
+        FROM detection_results
+        WHERE final_status = 'illegal'
+          AND domain IS NOT NULL AND domain != ''
+          AND SUBSTRING(session_id, 1, 7) = ${month}
+          AND LOWER(domain) != ALL(${closedDomains})
+        GROUP BY domain
+        ORDER BY discovered DESC
+        LIMIT 50
+      `
+    } else {
+      topDomains = await query`
+        SELECT domain, COUNT(*) as discovered
+        FROM detection_results
+        WHERE final_status = 'illegal'
+          AND domain IS NOT NULL AND domain != ''
+          AND SUBSTRING(session_id, 1, 7) = ${month}
+        GROUP BY domain
+        ORDER BY discovered DESC
+        LIMIT 50
+      `
+    }
 
     // 해당 월 데이터가 없으면 전체 기간 기준으로 fallback
     let usedFallback = false
     let finalDomains = topDomains
     if (topDomains.length === 0) {
       console.log(`⚠️ ${currentStep} ${month} 기간 데이터 없음 — 전체 기간으로 fallback`)
-      finalDomains = await query`
-        SELECT domain, COUNT(*) as discovered
-        FROM detection_results
-        WHERE final_status = 'illegal'
-          AND domain IS NOT NULL AND domain != ''
-        GROUP BY domain
-        ORDER BY discovered DESC
-        LIMIT 50
-      `
+      if (closedDomains.length > 0) {
+        finalDomains = await query`
+          SELECT domain, COUNT(*) as discovered
+          FROM detection_results
+          WHERE final_status = 'illegal'
+            AND domain IS NOT NULL AND domain != ''
+            AND LOWER(domain) != ALL(${closedDomains})
+          GROUP BY domain
+          ORDER BY discovered DESC
+          LIMIT 50
+        `
+      } else {
+        finalDomains = await query`
+          SELECT domain, COUNT(*) as discovered
+          FROM detection_results
+          WHERE final_status = 'illegal'
+            AND domain IS NOT NULL AND domain != ''
+          GROUP BY domain
+          ORDER BY discovered DESC
+          LIMIT 50
+        `
+      }
       usedFallback = true
     }
 
@@ -5032,25 +5170,25 @@ app.get('/', (c) => {
               <p class="text-xs text-gray-400 mt-1">작품을 선택하고 불법 URL을 추가합니다.</p>
             </div>
             
-            <!-- HTML 업로드 -->
+            <!-- CSV 업로드 -->
             <div class="border-t pt-4 mt-4">
               <h4 class="font-semibold text-sm mb-2"><i class="fas fa-upload mr-1"></i>신고 결과 업로드</h4>
-              <input type="text" id="report-id-input" placeholder="신고 ID (예: 12345)" class="w-full border rounded px-3 py-2 text-sm mb-2">
-              <input type="file" id="html-file-input" accept=".html,.htm" class="hidden" onchange="handleHtmlUpload()">
+              <input type="text" id="report-id-input" placeholder="신고 ID (미입력시 파일명에서 자동추출)" class="w-full border rounded px-3 py-2 text-sm mb-2">
+              <input type="file" id="csv-file-input" accept=".csv" class="hidden" onchange="handleCsvUpload()">
               
               <!-- 드래그앤드랍 영역 -->
-              <div id="html-drop-zone" 
+              <div id="csv-drop-zone" 
                    class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
-                   onclick="document.getElementById('html-file-input').click()"
+                   onclick="document.getElementById('csv-file-input').click()"
                    ondragover="handleDragOver(event)"
                    ondragleave="handleDragLeave(event)"
                    ondrop="handleFileDrop(event)">
                 <i class="fas fa-cloud-upload-alt text-2xl text-gray-400 mb-2"></i>
-                <p class="text-sm text-gray-500">HTML 파일을 여기에 드래그하거나</p>
+                <p class="text-sm text-gray-500">CSV 파일을 여기에 드래그하거나</p>
                 <p class="text-sm text-blue-500 font-medium">클릭하여 선택</p>
               </div>
               
-              <p class="text-xs text-gray-400 mt-2">구글 신고 결과 페이지를 업로드하면 차단된 URL을 자동 매칭합니다.</p>
+              <p class="text-xs text-gray-400 mt-2">구글 신고 결과 CSV 파일(신고ID_Urls.csv)을 업로드하면 상태별로 자동 매칭합니다.</p>
             </div>
             
             <!-- 업로드 이력 -->
@@ -6810,23 +6948,22 @@ app.get('/', (c) => {
       
       const file = files[0];
       
-      // HTML 파일 체크
-      if (!file.name.endsWith('.html') && !file.name.endsWith('.htm')) {
-        alert('HTML 파일만 업로드할 수 있습니다.');
+      if (!file.name.endsWith('.csv')) {
+        alert('CSV 파일만 업로드할 수 있습니다.');
         return;
       }
       
       // 파일 입력에 설정하고 업로드 처리
-      const fileInput = document.getElementById('html-file-input');
+      const fileInput = document.getElementById('csv-file-input');
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
       fileInput.files = dataTransfer.files;
       
-      handleHtmlUpload();
+      handleCsvUpload();
     }
     
-    async function handleHtmlUpload() {
-      const fileInput = document.getElementById('html-file-input');
+    async function handleCsvUpload() {
+      const fileInput = document.getElementById('csv-file-input');
       const reportIdInput = document.getElementById('report-id-input');
       const sessionId = currentReportSessionId;
       
@@ -6840,11 +6977,11 @@ app.get('/', (c) => {
       const reader = new FileReader();
       
       reader.onload = async function(e) {
-        const htmlContent = e.target.result;
+        const csvContent = e.target.result;
         
-        // HTML에서 신고 ID 자동 추출 (패턴: details/0-6212000039611)
-        const reportIdMatch = htmlContent.match(/details\\/([0-9]+-[0-9]+)/);
-        if (reportIdMatch && reportIdMatch[1]) {
+        // 파일명에서 신고 ID 자동 추출 (예: 9-0695000040090_Urls.csv)
+        const reportIdMatch = file.name.match(/^(.+?)_Urls\\.csv$/i);
+        if (reportIdMatch && reportIdMatch[1] && !reportIdInput.value) {
           reportIdInput.value = reportIdMatch[1];
         }
         
@@ -6854,24 +6991,34 @@ app.get('/', (c) => {
           return;
         }
         
+        // CSV 파싱 (파이프 구분자)
+        const lines = csvContent.split('\\n').filter(l => l.trim());
+        if (lines.length <= 1) {
+          alert('CSV 파일에 유효한 데이터가 없습니다.');
+          return;
+        }
+        const csvRows = lines.slice(1).map(line => {
+          const parts = line.split('|');
+          return { url: (parts[0]||'').trim(), status: (parts[1]||'').trim(), details: (parts[2]||'').trim() };
+        }).filter(r => r.url && r.status);
+        
         // 로딩 표시
-        const uploadBtn = document.querySelector('[onclick*="html-file-input"]');
-        const originalText = uploadBtn.innerHTML;
-        uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>처리 중...';
-        uploadBtn.disabled = true;
+        const uploadBtn = document.querySelector('[onclick*="csv-file-input"]');
+        const originalText = uploadBtn ? uploadBtn.innerHTML : '';
+        if (uploadBtn) { uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>처리 중...'; uploadBtn.disabled = true; }
         
         try {
           const data = await fetchAPI('/api/report-tracking/' + sessionId + '/upload', {
             method: 'POST',
             body: JSON.stringify({
-              html_content: htmlContent,
+              csv_rows: csvRows,
               report_id: reportId,
               file_name: file.name
             })
           });
           
           if (data.success) {
-            alert('업로드 완료!\\n\\n추출된 URL: ' + data.extracted_urls + '개\\n매칭된 URL: ' + data.matched_urls + '개');
+            alert('업로드 완료!\\n\\n' + data.message);
             loadReportTracking(currentReportPage);
           } else {
             alert('업로드 실패: ' + (data.error || '알 수 없는 오류'));
@@ -6879,8 +7026,7 @@ app.get('/', (c) => {
         } catch (error) {
           alert('업로드 오류: ' + error.message);
         } finally {
-          uploadBtn.innerHTML = originalText;
-          uploadBtn.disabled = false;
+          if (uploadBtn) { uploadBtn.innerHTML = originalText; uploadBtn.disabled = false; }
           fileInput.value = '';
         }
       };
@@ -6959,7 +7105,7 @@ app.get('/', (c) => {
     }
     
     // 전역 함수 등록 (onclick, onchange에서 호출되는 함수들)
-    window.handleHtmlUpload = handleHtmlUpload;
+    window.handleCsvUpload = handleCsvUpload;
     window.handleDragOver = handleDragOver;
     window.handleDragLeave = handleDragLeave;
     window.handleFileDrop = handleFileDrop;

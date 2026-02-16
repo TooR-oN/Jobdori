@@ -12,26 +12,40 @@ interface TitleStat {
   blockRate: number;
 }
 
+// 당월 기본 날짜 (YYYY-MM-01 ~ 오늘)
+function getDefaultDates() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return {
+    start: `${year}-${month}-01`,
+    end: `${year}-${month}-${day}`,
+  };
+}
+
 export default function StatsPage() {
+  const defaults = getDefaultDates();
   const [stats, setStats] = useState<TitleStat[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAllPeriod, setIsAllPeriod] = useState(false);
   
-  // 날짜 필터
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // 날짜 필터 (기본값: 당월)
+  const [startDate, setStartDate] = useState(defaults.start);
+  const [endDate, setEndDate] = useState(defaults.end);
   
   // 정렬
   const [sortField, setSortField] = useState<keyof TitleStat>('discovered');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // 데이터 로드
-  const loadStats = async () => {
+  const loadStats = async (start?: string, end?: string) => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const res = await statsApi.byTitle(startDate || undefined, endDate || undefined);
+      const res = await statsApi.byTitle(start || startDate || undefined, end || endDate || undefined);
       if (res.success) {
         setStats(res.stats || []);
       } else {
@@ -46,19 +60,31 @@ export default function StatsPage() {
   };
 
   useEffect(() => {
-    loadStats();
+    loadStats(defaults.start, defaults.end);
   }, []);
 
   // 날짜 필터 적용
   const handleFilter = () => {
+    setIsAllPeriod(false);
     loadStats();
   };
 
-  // 필터 초기화
-  const handleReset = () => {
-    setStartDate('');
-    setEndDate('');
-    loadStats();
+  // 전체기간 토글
+  const handleToggleAllPeriod = () => {
+    if (isAllPeriod) {
+      // 전체기간 → 당월로 복귀
+      const d = getDefaultDates();
+      setStartDate(d.start);
+      setEndDate(d.end);
+      setIsAllPeriod(false);
+      loadStats(d.start, d.end);
+    } else {
+      // 당월 → 전체기간
+      setStartDate('');
+      setEndDate('');
+      setIsAllPeriod(true);
+      loadStats('', '');
+    }
   };
 
   // 정렬 처리
@@ -161,10 +187,14 @@ export default function StatsPage() {
               조회
             </button>
             <button
-              onClick={handleReset}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition text-sm"
+              onClick={handleToggleAllPeriod}
+              className={`px-4 py-2 rounded-lg transition text-sm font-medium ${
+                isAllPeriod
+                  ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+              }`}
             >
-              초기화
+              전체기간
             </button>
           </div>
         </div>
