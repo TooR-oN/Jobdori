@@ -17,6 +17,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   MagnifyingGlassIcon,
+  ShieldExclamationIcon,
 } from '@heroicons/react/24/outline';
 
 // 커스텀 꺾은선 그래프 아이콘
@@ -53,6 +54,7 @@ const mainMenuItems: MenuItem[] = [
     ]
   },
   { name: '월간 불법 도메인 분석', href: '/domain-analysis', icon: MagnifyingGlassIcon },
+  { name: '불법 사이트 현황', href: '/sites/status', icon: ShieldExclamationIcon },
   { name: '사이트 목록', href: '/sites', icon: GlobeAltIcon, adminOnly: true },
 ];
 
@@ -97,6 +99,10 @@ export default function Sidebar() {
   const isActive = (href: string) => {
     if (href === '/') {
       return pathname === '/';
+    }
+    // /sites는 정확히 매칭만 (하위 경로인 /sites/status와 구분)
+    if (href === '/sites') {
+      return pathname === '/sites';
     }
     return pathname === href || pathname.startsWith(href + '/');
   };

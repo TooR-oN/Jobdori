@@ -55,7 +55,7 @@ interface Pagination {
   totalPages: number;
 }
 
-const STATUS_OPTIONS = ['미신고', '신고완료', '차단', '미차단', '확인필요', '색인없음', '거부', '대기 중'];
+const STATUS_OPTIONS = ['미신고', '차단', '색인없음', '거부', '대기 중'];
 const ITEMS_PER_PAGE = 50;
 
 export default function ReportTrackingPage() {
@@ -338,7 +338,29 @@ export default function ReportTrackingPage() {
     }
   };
 
-  // 파일 업로드
+  // CSV 파일명에서 신고 ID 추출 (예: "9-0695000040090_Urls.csv" → "9-0695000040090")
+  const extractReportIdFromFileName = (fileName: string): string | null => {
+    const match = fileName.match(/^(.+?)_Urls\.csv$/i);
+    return match ? match[1] : null;
+  };
+
+  // CSV 파일 파싱 (파이프 구분자)
+  const parseCsvContent = (text: string): { url: string; status: string; details: string }[] => {
+    const lines = text.split('\n').filter(line => line.trim());
+    if (lines.length <= 1) return []; // 헤더만 있거나 비어있음
+    
+    // 첫 줄은 헤더 (URL|Review Status|Details)
+    return lines.slice(1).map(line => {
+      const parts = line.split('|');
+      return {
+        url: (parts[0] || '').trim(),
+        status: (parts[1] || '').trim(),
+        details: (parts[2] || '').trim(),
+      };
+    }).filter(row => row.url && row.status);
+  };
+
+  // 파일 업로드 (CSV)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -349,26 +371,40 @@ export default function ReportTrackingPage() {
       return;
     }
     
-    // 신고 ID는 선택 사항 (없으면 HTML에서 자동 추출 시도)
-    
     setIsUploading(true);
     setErrorMessage(null);
     
     try {
-      const htmlContent = await file.text();
+      // 파일명에서 신고 ID 추출
+      const extractedReportId = reportId.trim() || extractReportIdFromFileName(file.name);
       
-      const res = await reportTrackingApi.uploadHtml(
+      if (!extractedReportId) {
+        setErrorMessage('파일명에서 신고 ID를 추출할 수 없습니다. 신고 ID를 직접 입력하거나, 파일명이 "신고ID_Urls.csv" 형식인지 확인해주세요.');
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+      
+      // CSV 파싱
+      const csvText = await file.text();
+      const csvRows = parseCsvContent(csvText);
+      
+      if (csvRows.length === 0) {
+        setErrorMessage('CSV 파일에 유효한 데이터가 없습니다. 파이프(|) 구분자 형식인지 확인해주세요.');
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+      
+      const res = await reportTrackingApi.uploadCsv(
         selectedSessionId,
-        htmlContent,
-        reportId.trim() || undefined,  // 빈 문자열이면 undefined로 전달
+        csvRows,
+        extractedReportId,
         file.name
       );
       
       if (res.success) {
-        const autoExtractedMsg = res.auto_extracted 
-          ? ` (신고 ID ${res.report_id} 자동 추출됨)` 
-          : '';
-        setSuccessMessage(res.message || `${res.matched_urls}개 URL이 '차단' 상태로 업데이트되었습니다.${autoExtractedMsg}`);
+        setSuccessMessage(res.message || `${res.matched_urls}개 URL이 업데이트되었습니다.`);
         setReportId('');
         // 목록 새로고침
         loadSessionData(pagination.page);
@@ -400,10 +436,7 @@ export default function ReportTrackingPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case '미신고': return 'bg-purple-100 text-purple-700';
-      case '신고완료': return 'bg-blue-100 text-blue-700';
       case '차단': return 'bg-green-100 text-green-700';
-      case '미차단': return 'bg-red-100 text-red-700';
-      case '확인필요': return 'bg-yellow-100 text-yellow-700';
       case '색인없음': return 'bg-gray-100 text-gray-600';
       case '거부': return 'bg-orange-100 text-orange-700';
       case '대기 중': return 'bg-cyan-100 text-cyan-700';
@@ -601,7 +634,7 @@ export default function ReportTrackingPage() {
                 type="text"
                 value={reportId}
                 onChange={(e) => setReportId(e.target.value)}
-                placeholder="신고 ID (선택, 미입력시 자동추출)"
+                placeholder="신고 ID (미입력시 파일명에서 자동추출)"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <div
@@ -620,20 +653,20 @@ export default function ReportTrackingPage() {
                 ) : (
                   <>
                     <ArrowUpTrayIcon className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                    <p className="text-sm text-gray-600">HTML 파일을 여기에 드래그하거나</p>
+                    <p className="text-sm text-gray-600">CSV 파일을 여기에 드래그하거나</p>
                     <p className="text-sm text-blue-600 hover:underline">클릭하여 선택</p>
                   </>
                 )}
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".html,.htm"
+                  accept=".csv"
                   onChange={handleFileUpload}
                   disabled={isUploading}
                   className="hidden"
                 />
               </div>
-              <p className="text-xs text-gray-500">구글 신고 결과 페이지를 업로드하면 차단된 URL을 자동 매칭합니다. 신고 ID는 HTML에서 자동 추출됩니다.</p>
+              <p className="text-xs text-gray-500">구글 신고 결과 CSV 파일(신고ID_Urls.csv)을 업로드하면 상태별(차단/거부/대기 중)로 자동 매칭합니다.</p>
             </div>
             
             {/* 업로드 이력 */}

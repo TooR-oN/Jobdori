@@ -2,32 +2,15 @@
 
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout';
-import { statsApi, siteClassifyApi } from '@/lib/api';
+import { statsApi } from '@/lib/api';
 
 interface DomainStat {
   domain: string;
-  site_type: string;
   discovered: number;
   reported: number;
   blocked: number;
   blockRate: number;
 }
-
-const SITE_TYPE_OPTIONS = [
-  { value: 'unclassified', label: '미분류', color: 'text-gray-400' },
-  { value: 'scanlation_group', label: 'Scanlation Group', color: 'text-red-600' },
-  { value: 'aggregator', label: 'Aggregator', color: 'text-orange-600' },
-  { value: 'clone', label: 'Clone', color: 'text-yellow-600' },
-  { value: 'blog', label: 'Blog', color: 'text-blue-600' },
-];
-
-const TYPE_SCORE_MAP: Record<string, number> = {
-  'scanlation_group': 35,
-  'aggregator': 20,
-  'clone': 10,
-  'blog': 5,
-  'unclassified': 0,
-};
 
 // 당월 기본 날짜 (YYYY-MM-01 ~ 오늘)
 function getDefaultDates() {
@@ -41,26 +24,13 @@ function getDefaultDates() {
   };
 }
 
-// 1달 전 전체 기간
-function getLastMonthDates() {
-  const now = new Date();
-  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-  const year = lastMonth.getFullYear();
-  const month = String(lastMonth.getMonth() + 1).padStart(2, '0');
-  const endDay = String(lastMonthEnd.getDate()).padStart(2, '0');
-  return {
-    start: `${year}-${month}-01`,
-    end: `${year}-${month}-${endDay}`,
-  };
-}
 
 export default function DomainStatsPage() {
   const defaults = getDefaultDates();
   const [stats, setStats] = useState<DomainStat[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [classifyingDomain, setClassifyingDomain] = useState<string | null>(null);
+  const [isAllPeriod, setIsAllPeriod] = useState(false);
   
   // 날짜 필터 (기본값: 당월)
   const [startDate, setStartDate] = useState(defaults.start);
@@ -96,40 +66,25 @@ export default function DomainStatsPage() {
 
   // 날짜 필터 적용
   const handleFilter = () => {
+    setIsAllPeriod(false);
     loadStats();
   };
 
-  // 필터 초기화 (당월로 리셋)
-  const handleReset = () => {
-    const d = getDefaultDates();
-    setStartDate(d.start);
-    setEndDate(d.end);
-    loadStats(d.start, d.end);
-  };
-
-  // 1달 전 바로 조회
-  const handleLastMonth = () => {
-    const d = getLastMonthDates();
-    setStartDate(d.start);
-    setEndDate(d.end);
-    loadStats(d.start, d.end);
-  };
-
-  // 사이트 분류 변경
-  const handleClassify = async (domain: string, newType: string) => {
-    setClassifyingDomain(domain);
-    try {
-      const res = await siteClassifyApi.classify(domain, newType);
-      if (res.success) {
-        // 로컬 상태 업데이트
-        setStats(prev => prev.map(s => 
-          s.domain === domain ? { ...s, site_type: newType } : s
-        ));
-      }
-    } catch (err) {
-      console.error('Failed to classify domain:', err);
-    } finally {
-      setClassifyingDomain(null);
+  // 전체기간 토글
+  const handleToggleAllPeriod = () => {
+    if (isAllPeriod) {
+      // 전체기간 → 당월로 복귀
+      const d = getDefaultDates();
+      setStartDate(d.start);
+      setEndDate(d.end);
+      setIsAllPeriod(false);
+      loadStats(d.start, d.end);
+    } else {
+      // 당월 → 전체기간
+      setStartDate('');
+      setEndDate('');
+      setIsAllPeriod(true);
+      loadStats('', '');
     }
   };
 
@@ -198,17 +153,16 @@ export default function DomainStatsPage() {
               조회
             </button>
             <button
-              onClick={handleReset}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition text-sm"
+              onClick={handleToggleAllPeriod}
+              className={`px-4 py-2 rounded-lg transition text-sm font-medium ${
+                isAllPeriod
+                  ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+              }`}
             >
-              초기화
+              전체기간
             </button>
-            <button
-              onClick={handleLastMonth}
-              className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition text-sm font-medium"
-            >
-              1달 전
-            </button>
+
           </div>
         </div>
       </div>
@@ -229,7 +183,6 @@ export default function DomainStatsPage() {
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">순위</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">분류</th>
                   <th 
                     className="px-4 py-3 text-left text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort('domain')}
@@ -264,7 +217,6 @@ export default function DomainStatsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {sortedStats.map((stat, index) => {
-                  const typeOption = SITE_TYPE_OPTIONS.find(o => o.value === stat.site_type) || SITE_TYPE_OPTIONS[0];
                   return (
                     <tr key={stat.domain} className="hover:bg-gray-50 transition">
                       <td className="px-4 py-3">
@@ -277,26 +229,6 @@ export default function DomainStatsPage() {
                         `}>
                           {index + 1}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <select
-                          value={stat.site_type || 'unclassified'}
-                          onChange={(e) => handleClassify(stat.domain, e.target.value)}
-                          disabled={classifyingDomain === stat.domain}
-                          className={`
-                            text-xs px-2 py-1 rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400
-                            ${stat.site_type === 'unclassified' || !stat.site_type ? 'text-gray-400 bg-gray-50' : 'bg-white'}
-                            ${stat.site_type === 'scanlation_group' ? 'text-red-600 font-medium' : ''}
-                            ${stat.site_type === 'aggregator' ? 'text-orange-600 font-medium' : ''}
-                            ${stat.site_type === 'clone' ? 'text-yellow-600 font-medium' : ''}
-                            ${stat.site_type === 'blog' ? 'text-blue-600 font-medium' : ''}
-                            ${classifyingDomain === stat.domain ? 'opacity-50' : ''}
-                          `}
-                        >
-                          {SITE_TYPE_OPTIONS.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-sm font-medium text-gray-800">{stat.domain}</span>
