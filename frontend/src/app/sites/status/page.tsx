@@ -734,15 +734,13 @@ export default function SiteStatusPage() {
                                         </div>
                                         <p className="text-xs text-gray-700 mt-0.5 break-words">{note.content}</p>
                                       </div>
-                                      {note.note_type === 'memo' && (
-                                        <button
-                                          onClick={() => handleDeleteNote(note.id, site.domain)}
-                                          className="flex-shrink-0 p-0.5 text-gray-300 hover:text-red-500"
-                                          title="삭제"
-                                        >
-                                          <TrashIcon className="w-3.5 h-3.5" />
-                                        </button>
-                                      )}
+                                      <button
+                                        onClick={() => handleDeleteNote(note.id, site.domain)}
+                                        className="flex-shrink-0 p-0.5 text-gray-300 hover:text-red-500"
+                                        title="삭제"
+                                      >
+                                        <TrashIcon className="w-3.5 h-3.5" />
+                                      </button>
                                     </div>
                                   );
                                 })}
