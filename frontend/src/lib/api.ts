@@ -266,6 +266,48 @@ export const siteStatusApi = {
     const res = await api.patch(`/api/site-status/${encodeURIComponent(domain)}/classify`, { site_type });
     return res.data;
   },
+
+  updateChannel: async (domain: string, distribution_channel: string) => {
+    const res = await api.patch(`/api/site-status/${encodeURIComponent(domain)}/channel`, { distribution_channel });
+    return res.data;
+  },
+};
+
+// ============================================
+// Distribution Channels API (유통 경로)
+// ============================================
+
+export const distributionChannelApi = {
+  getList: async () => {
+    const res = await api.get('/api/distribution-channels');
+    return res.data;
+  },
+
+  create: async (name: string) => {
+    const res = await api.post('/api/distribution-channels', { name });
+    return res.data;
+  },
+};
+
+// ============================================
+// Site Notes API (활동 이력)
+// ============================================
+
+export const siteNotesApi = {
+  getByDomain: async (domain: string) => {
+    const res = await api.get(`/api/site-notes/${encodeURIComponent(domain)}`);
+    return res.data;
+  },
+
+  addMemo: async (domain: string, content: string) => {
+    const res = await api.post(`/api/site-notes/${encodeURIComponent(domain)}`, { content });
+    return res.data;
+  },
+
+  delete: async (id: number) => {
+    const res = await api.delete(`/api/site-notes/${id}`);
+    return res.data;
+  },
 };
 
 // ============================================
