@@ -392,8 +392,50 @@ async function ensureDbMigration() {
       if (!e.message?.includes('already')) console.error('Migration: visits_change_mom type change error:', e.message)
     }
 
+    // sites 테이블에 distribution_channel 컬럼 추가 (유통 경로)
+    try {
+      await db`ALTER TABLE sites ADD COLUMN IF NOT EXISTS distribution_channel VARCHAR(50) DEFAULT '웹'`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: sites.distribution_channel error:', e.message)
+    }
+
+    // site_notes 테이블 생성 (활동 이력 — 메모 + 유통 경로 변경 기록)
+    await db`
+      CREATE TABLE IF NOT EXISTS site_notes (
+        id SERIAL PRIMARY KEY,
+        domain VARCHAR(500) NOT NULL,
+        note_type VARCHAR(20) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+    try {
+      await db`CREATE INDEX IF NOT EXISTS idx_site_notes_domain ON site_notes(domain)`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: idx_site_notes_domain error:', e.message)
+    }
+
+    // distribution_channels 테이블 생성 (사용자 추가 가능한 유통 경로 옵션)
+    await db`
+      CREATE TABLE IF NOT EXISTS distribution_channels (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) UNIQUE NOT NULL,
+        is_default BOOLEAN DEFAULT false,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+    // 기본 유통 경로 초기 데이터 삽입
+    const defaultChannels = ['웹', 'APK', '텔레그램', '디스코드']
+    for (const ch of defaultChannels) {
+      try {
+        await db`INSERT INTO distribution_channels (name, is_default) VALUES (${ch}, true) ON CONFLICT (name) DO NOTHING`
+      } catch (e: any) {
+        // 중복 무시
+      }
+    }
+
     dbMigrationDone = true
-    console.log('✅ DB migration completed (including report_tracking, deep_monitoring & domain_analysis tables)')
+    console.log('✅ DB migration completed (including report_tracking, deep_monitoring, domain_analysis & site_notes tables)')
   } catch (error) {
     console.error('DB migration error:', error)
   }
@@ -2235,7 +2277,7 @@ app.post('/api/sessions/:id/deep-monitoring/scan', async (c) => {
 // 심층 검색 실행 (execute) — Vercel Serverless에서는 제한적 지원
 // ── 헬퍼: Serper.dev 검색 (대상 1건) ──
 const SERPER_API_URL = 'https://google.serper.dev/search'
-const DEEP_SEARCH_CONFIG = { maxPages: 2, resultsPerPage: 10, maxResults: 20, delayMin: 300, delayMax: 600 }
+const DEEP_SEARCH_CONFIG = { maxPages: 3, resultsPerPage: 10, maxResults: 30, delayMin: 300, delayMax: 600 }
 
 function deepExtractDomain(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
@@ -3496,6 +3538,7 @@ app.get('/api/site-status', async (c) => {
         COALESCE(s.site_type, 'unclassified') as site_type,
         COALESCE(s.site_status, 'active') as site_status,
         s.new_url,
+        COALESCE(s.distribution_channel, '웹') as distribution_channel,
         s.created_at
       FROM sites s
       WHERE s.type = 'illegal'
@@ -3503,6 +3546,19 @@ app.get('/api/site-status', async (c) => {
         CASE WHEN s.site_status = 'closed' THEN 1 ELSE 0 END,
         s.domain ASC
     `
+    
+    // 각 사이트의 최근 활동 이력 1건씩 조회
+    const allDomains = sites.map((s: any) => s.domain.toLowerCase())
+    let latestNotes: any[] = []
+    if (allDomains.length > 0) {
+      latestNotes = await query`
+        SELECT DISTINCT ON (domain) domain, id, note_type, content, created_at
+        FROM site_notes
+        WHERE domain = ANY(${allDomains})
+        ORDER BY domain, created_at DESC
+      `
+    }
+    const notesMap = new Map(latestNotes.map((n: any) => [n.domain, n]))
     
     return c.json({
       success: true,
@@ -3512,6 +3568,8 @@ app.get('/api/site-status', async (c) => {
         site_type: s.site_type,
         site_status: s.site_status,
         new_url: s.new_url || null,
+        distribution_channel: s.distribution_channel,
+        latest_note: notesMap.get(s.domain.toLowerCase()) || null,
         created_at: s.created_at,
       })),
       total: sites.length,
@@ -3596,6 +3654,158 @@ app.patch('/api/site-status/:domain/classify', async (c) => {
   } catch (error) {
     console.error('Site classify (from status page) error:', error)
     return c.json({ success: false, error: 'Failed to classify site' }, 500)
+  }
+})
+
+// ============================================
+// API - Distribution Channels (유통 경로)
+// ============================================
+
+// 유통 경로 목록 조회
+app.get('/api/distribution-channels', async (c) => {
+  try {
+    await ensureDbMigration()
+    const channels = await query`
+      SELECT id, name, is_default, created_at
+      FROM distribution_channels
+      ORDER BY is_default DESC, name ASC
+    `
+    return c.json({ success: true, channels })
+  } catch (error) {
+    console.error('Distribution channels list error:', error)
+    return c.json({ success: false, error: 'Failed to load distribution channels' }, 500)
+  }
+})
+
+// 새 유통 경로 추가 (사용자 직접 입력)
+app.post('/api/distribution-channels', async (c) => {
+  try {
+    await ensureDbMigration()
+    const { name } = await c.req.json()
+    if (!name || !name.trim()) {
+      return c.json({ success: false, error: '유통 경로 이름을 입력해주세요.' }, 400)
+    }
+    const trimmed = name.trim()
+    const result = await query`
+      INSERT INTO distribution_channels (name, is_default)
+      VALUES (${trimmed}, false)
+      ON CONFLICT (name) DO NOTHING
+      RETURNING *
+    `
+    if (result.length === 0) {
+      // 이미 존재
+      const existing = await query`SELECT * FROM distribution_channels WHERE name = ${trimmed}`
+      return c.json({ success: true, channel: existing[0], message: '이미 존재하는 유통 경로입니다.' })
+    }
+    return c.json({ success: true, channel: result[0] })
+  } catch (error) {
+    console.error('Distribution channel create error:', error)
+    return c.json({ success: false, error: 'Failed to create distribution channel' }, 500)
+  }
+})
+
+// 사이트 유통 경로 변경 (자동 이력 기록)
+app.patch('/api/site-status/:domain/channel', async (c) => {
+  try {
+    await ensureDbMigration()
+    const domain = decodeURIComponent(c.req.param('domain'))
+    const { distribution_channel } = await c.req.json()
+    if (!distribution_channel || !distribution_channel.trim()) {
+      return c.json({ success: false, error: '유통 경로를 입력해주세요.' }, 400)
+    }
+    const newChannel = distribution_channel.trim()
+    const lowerDomain = domain.toLowerCase()
+
+    // 기존 유통 경로 조회
+    const existing = await query`
+      SELECT COALESCE(distribution_channel, '웹') as distribution_channel
+      FROM sites WHERE LOWER(domain) = ${lowerDomain} AND type = 'illegal'
+    `
+    const oldChannel = existing.length > 0 ? existing[0].distribution_channel : '웹'
+
+    // sites 테이블 업데이트
+    await query`
+      UPDATE sites SET distribution_channel = ${newChannel}
+      WHERE LOWER(domain) = ${lowerDomain} AND type = 'illegal'
+    `
+
+    // 변경 이력 자동 기록 (이전과 다른 경우에만)
+    if (oldChannel !== newChannel) {
+      const content = `${oldChannel} → ${newChannel}`
+      await query`
+        INSERT INTO site_notes (domain, note_type, content)
+        VALUES (${lowerDomain}, 'channel_change', ${content})
+      `
+    }
+
+    return c.json({
+      success: true,
+      domain: lowerDomain,
+      distribution_channel: newChannel,
+      previous_channel: oldChannel,
+    })
+  } catch (error) {
+    console.error('Site channel update error:', error)
+    return c.json({ success: false, error: 'Failed to update distribution channel' }, 500)
+  }
+})
+
+// ============================================
+// API - Site Notes (활동 이력)
+// ============================================
+
+// 도메인별 활동 이력 조회
+app.get('/api/site-notes/:domain', async (c) => {
+  try {
+    await ensureDbMigration()
+    const domain = decodeURIComponent(c.req.param('domain')).toLowerCase()
+    const notes = await query`
+      SELECT id, domain, note_type, content, created_at
+      FROM site_notes
+      WHERE domain = ${domain}
+      ORDER BY created_at DESC
+    `
+    return c.json({ success: true, notes })
+  } catch (error) {
+    console.error('Site notes list error:', error)
+    return c.json({ success: false, error: 'Failed to load site notes' }, 500)
+  }
+})
+
+// 메모 추가
+app.post('/api/site-notes/:domain', async (c) => {
+  try {
+    await ensureDbMigration()
+    const domain = decodeURIComponent(c.req.param('domain')).toLowerCase()
+    const { content } = await c.req.json()
+    if (!content || !content.trim()) {
+      return c.json({ success: false, error: '메모 내용을 입력해주세요.' }, 400)
+    }
+    const result = await query`
+      INSERT INTO site_notes (domain, note_type, content)
+      VALUES (${domain}, 'memo', ${content.trim()})
+      RETURNING *
+    `
+    return c.json({ success: true, note: result[0] })
+  } catch (error) {
+    console.error('Site note create error:', error)
+    return c.json({ success: false, error: 'Failed to create site note' }, 500)
+  }
+})
+
+// 메모 삭제
+app.delete('/api/site-notes/:id', async (c) => {
+  try {
+    await ensureDbMigration()
+    const id = parseInt(c.req.param('id'))
+    if (isNaN(id)) {
+      return c.json({ success: false, error: '유효하지 않은 ID입니다.' }, 400)
+    }
+    await query`DELETE FROM site_notes WHERE id = ${id}`
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Site note delete error:', error)
+    return c.json({ success: false, error: 'Failed to delete site note' }, 500)
   }
 })
 
