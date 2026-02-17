@@ -409,8 +409,8 @@ export default function SiteStatusPage() {
     const opt = STATUS_OPTIONS.find(o => o.value === status) || STATUS_OPTIONS[0];
     const Icon = opt.icon;
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${opt.bg} ${opt.color} border ${opt.border}`}>
-        <Icon className="w-3.5 h-3.5" />
+      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${opt.bg} ${opt.color} border ${opt.border}`}>
+        <Icon className="w-3.5 h-3.5 flex-shrink-0" />
         {opt.label}
       </span>
     );
@@ -555,10 +555,10 @@ export default function SiteStatusPage() {
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-10">#</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-40">도메인</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-32">분류</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-24">상태</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600">변경 URL</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600">도메인</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-36">분류</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-28">상태</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-56">변경 URL</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-24">유통 경로</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-64">활동 이력</th>
                   <th className="px-3 py-3 text-center text-xs font-medium text-gray-600 w-24">관리</th>
@@ -610,7 +610,7 @@ export default function SiteStatusPage() {
                         </select>
                       </td>
 
-                      <td className={`px-3 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-3 py-3 align-top whitespace-nowrap ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         {isEditing ? (
                           <select
                             value={editStatus}
@@ -640,7 +640,7 @@ export default function SiteStatusPage() {
                             href={site.new_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-blue-500 hover:underline break-all"
+                            className="text-xs text-blue-500 hover:underline break-all block max-w-[14rem]"
                             title={site.new_url}
                           >
                             {site.new_url}

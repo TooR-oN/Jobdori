@@ -3366,7 +3366,8 @@ app.get('/api/stats/by-domain', async (c) => {
           d.discovered,
           COALESCE(r.reported, 0) as reported,
           COALESCE(r.blocked, 0) as blocked,
-          COALESCE(s.site_type, 'unclassified') as site_type
+          COALESCE(s.site_type, 'unclassified') as site_type,
+          COALESCE(s.site_status, 'active') as site_status
         FROM detection_stats d
         LEFT JOIN report_stats r ON LOWER(d.domain) = LOWER(r.domain)
         LEFT JOIN sites s ON LOWER(d.domain) = LOWER(s.domain) AND s.type = 'illegal'
@@ -3395,7 +3396,8 @@ app.get('/api/stats/by-domain', async (c) => {
           d.discovered,
           COALESCE(r.reported, 0) as reported,
           COALESCE(r.blocked, 0) as blocked,
-          COALESCE(s.site_type, 'unclassified') as site_type
+          COALESCE(s.site_type, 'unclassified') as site_type,
+          COALESCE(s.site_status, 'active') as site_status
         FROM detection_stats d
         LEFT JOIN report_stats r ON LOWER(d.domain) = LOWER(r.domain)
         LEFT JOIN sites s ON LOWER(d.domain) = LOWER(s.domain) AND s.type = 'illegal'
@@ -3413,6 +3415,7 @@ app.get('/api/stats/by-domain', async (c) => {
       return {
         domain: s.domain,
         site_type: s.site_type || 'unclassified',
+        site_status: s.site_status || 'active',
         discovered,
         reported,
         blocked,

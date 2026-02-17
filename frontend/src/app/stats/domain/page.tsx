@@ -7,6 +7,7 @@ import { statsApi } from '@/lib/api';
 interface DomainStat {
   domain: string;
   site_type: string;
+  site_status: string;
   discovered: number;
   reported: number;
   blocked: number;
@@ -19,6 +20,12 @@ const SITE_TYPE_LABELS: Record<string, { label: string; color: string; bg: strin
   clone: { label: 'Clone', color: 'text-yellow-700', bg: 'bg-yellow-50' },
   blog: { label: 'Blog', color: 'text-blue-600', bg: 'bg-blue-50' },
   unclassified: { label: '미분류', color: 'text-gray-400', bg: 'bg-gray-50' },
+};
+
+const SITE_STATUS_LABELS: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  active: { label: '운영 중', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' },
+  closed: { label: '폐쇄', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' },
+  changed: { label: '주소 변경', color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' },
 };
 
 // 당월 기본 날짜 (YYYY-MM-01 ~ 오늘)
@@ -198,7 +205,8 @@ export default function DomainStatsPage() {
                   >
                     도메인 {getSortIcon('domain')}
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 w-36">분류</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 w-28">분류</th>
+                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24">상태</th>
                   <th 
                     className="px-4 py-3 text-right text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort('discovered')}
@@ -249,6 +257,16 @@ export default function DomainStatsPage() {
                           return (
                             <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${st.color} ${st.bg}`}>
                               {st.label}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          const ss = SITE_STATUS_LABELS[stat.site_status] || SITE_STATUS_LABELS['active'];
+                          return (
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${ss.color} ${ss.bg} border ${ss.border}`}>
+                              {ss.label}
                             </span>
                           );
                         })()}
