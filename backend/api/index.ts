@@ -1127,6 +1127,16 @@ async function downloadResults(blobUrl: string): Promise<FinalResult[]> {
   }
 }
 
+// 서브도메인 포함 매칭 (예: kr.pinterest.com → pinterest.com 매칭)
+function checkDomainInList(domain: string, list: Set<string>): boolean {
+  if (list.has(domain)) return true
+  const parts = domain.split('.')
+  for (let i = 1; i < parts.length - 1; i++) {
+    if (list.has(parts.slice(i).join('.'))) return true
+  }
+  return false
+}
+
 // 사이트 목록을 기반으로 final_status 재계산
 async function recalculateFinalStatus(results: FinalResult[]): Promise<FinalResult[]> {
   const illegalSites = await getSitesByType('illegal')
@@ -1138,15 +1148,15 @@ async function recalculateFinalStatus(results: FinalResult[]): Promise<FinalResu
     const domain = r.domain.toLowerCase()
     let newFinalStatus: 'illegal' | 'legal' | 'pending' = r.final_status
     
-    // 사이트 목록 기반으로 재계산
+    // 사이트 목록 기반으로 재계산 (합법은 서브도메인 포함 매칭)
     if (illegalDomains.has(domain)) {
       newFinalStatus = 'illegal'
-    } else if (legalDomains.has(domain)) {
+    } else if (checkDomainInList(domain, legalDomains)) {
       newFinalStatus = 'legal'
     } else if (r.llm_judgment === 'likely_illegal') {
-      newFinalStatus = 'pending' // 아직 검토되지 않은 경우 pending
+      newFinalStatus = 'pending'
     } else if (r.llm_judgment === 'likely_legal') {
-      newFinalStatus = 'pending' // likely_legal도 승인 대기에서 처리 전까지 pending 유지
+      newFinalStatus = 'pending'
     } else {
       newFinalStatus = 'pending'
     }
@@ -2441,8 +2451,8 @@ app.post('/api/sessions/:id/deep-monitoring/execute-target/:targetId', async (c)
 
     for (const r of newResults) {
       const d = r.domain.toLowerCase()
-      if (deepCheckDomainInList(d, illegalSites)) r.status = 'illegal'
-      else if (deepCheckDomainInList(d, legalSites)) r.status = 'legal'
+      if (illegalSites.has(d)) r.status = 'illegal'  // 불법: 정확 매칭 (신고 정확도)
+      else if (deepCheckDomainInList(d, legalSites)) r.status = 'legal'  // 합법: 서브도메인 포함
       else r.status = 'unknown'
     }
 
