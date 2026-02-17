@@ -25,12 +25,18 @@ async function loadSitesFromDb(type: 'illegal' | 'legal'): Promise<Set<string>> 
 // ============================================
 
 /**
- * 도메인이 리스트에 있는지 확인 (서브도메인 포함)
+ * 도메인이 리스트에 있는지 확인 - 정확 매칭만
  */
-function checkDomainInList(domain: string, list: Set<string>): boolean {
-  // 정확히 일치
+function exactDomainMatch(domain: string, list: Set<string>): boolean {
+  return list.has(domain);
+}
+
+/**
+ * 도메인이 리스트에 있는지 확인 - 서브도메인 포함
+ * (예: kr.pinterest.com → pinterest.com 매칭)
+ */
+function subdomainDomainMatch(domain: string, list: Set<string>): boolean {
   if (list.has(domain)) return true;
-  // 서브도메인 체크 (예: en.wikipedia.org → wikipedia.org)
   const parts = domain.split('.');
   for (let i = 1; i < parts.length - 1; i++) {
     const parentDomain = parts.slice(i).join('.');
@@ -60,10 +66,10 @@ export function classifyResults(
     
     let status: 'illegal' | 'legal' | 'unknown';
 
-    if (checkDomainInList(domain, illegalSites)) {
+    if (exactDomainMatch(domain, illegalSites)) {
       status = 'illegal';
       illegalCount++;
-    } else if (checkDomainInList(domain, legalSites)) {
+    } else if (subdomainDomainMatch(domain, legalSites)) {
       status = 'legal';
       legalCount++;
     } else {
