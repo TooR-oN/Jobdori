@@ -351,18 +351,25 @@ export default function SiteStatusPage() {
   };
 
   const handleDeleteNote = async (noteId: number, domain: string) => {
-    if (!confirm('이 메모를 삭제하시겠습니까?')) return;
+    if (!confirm('이 이력을 삭제하시겠습니까?')) return;
     try {
       const res = await siteNotesApi.delete(noteId);
       if (res.success) {
-        await loadNotes(domain);
-        // latest_note 재조회 (삭제 후 최신 메모가 바뀔 수 있음)
-        await loadSites();
-        setSuccessMessage('메모가 삭제되었습니다.');
+        // 로컬 상태에서 즉시 제거 (리프레시 없음)
+        const updatedNotes = expandedNotes.filter(n => n.id !== noteId);
+        setExpandedNotes(updatedNotes);
+
+        // latest_note도 로컬 업데이트
+        const newLatest = updatedNotes.length > 0 ? updatedNotes[0] : null;
+        setSites(prev => prev.map(s =>
+          s.domain.toLowerCase() === domain.toLowerCase()
+            ? { ...s, latest_note: newLatest }
+            : s
+        ));
       }
     } catch (err) {
       console.error('Failed to delete note:', err);
-      setError('메모 삭제에 실패했습니다.');
+      setError('이력 삭제에 실패했습니다.');
     }
   };
 
@@ -548,13 +555,13 @@ export default function SiteStatusPage() {
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-10">#</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600">도메인</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-36">분류</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-28">상태</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-36">변경 URL</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-28">유통 경로</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-40">도메인</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-32">분류</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-24">상태</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600">변경 URL</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-24">유통 경로</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-64">활동 이력</th>
-                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-600 w-28">관리</th>
+                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-600 w-24">관리</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -633,7 +640,7 @@ export default function SiteStatusPage() {
                             href={site.new_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-blue-500 hover:underline truncate block max-w-[140px]"
+                            className="text-xs text-blue-500 hover:underline break-all"
                             title={site.new_url}
                           >
                             {site.new_url}
