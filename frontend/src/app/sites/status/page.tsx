@@ -556,9 +556,9 @@ export default function SiteStatusPage() {
                 <tr>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-10">#</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600">도메인</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-36">분류</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-44">분류</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-28">상태</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-56">변경 URL</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-48">변경 URL</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-24">유통 경로</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-64">활동 이력</th>
                   <th className="px-3 py-3 text-center text-xs font-medium text-gray-600 w-24">관리</th>

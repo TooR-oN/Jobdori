@@ -205,7 +205,7 @@ export default function DomainStatsPage() {
                   >
                     도메인 {getSortIcon('domain')}
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 w-28">분류</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 w-36">분류</th>
                   <th className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24">상태</th>
                   <th 
                     className="px-4 py-3 text-right text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
@@ -255,7 +255,7 @@ export default function DomainStatsPage() {
                         {(() => {
                           const st = SITE_TYPE_LABELS[stat.site_type] || SITE_TYPE_LABELS['unclassified'];
                           return (
-                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${st.color} ${st.bg}`}>
+                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${st.color} ${st.bg}`}>
                               {st.label}
                             </span>
                           );
