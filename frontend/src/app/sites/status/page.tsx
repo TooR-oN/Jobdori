@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/layout';
-import { siteStatusApi, distributionChannelApi, siteNotesApi } from '@/lib/api';
+import { siteStatusApi, distributionChannelApi, siteNotesApi, statsApi } from '@/lib/api';
 import {
   MagnifyingGlassIcon,
   CheckCircleIcon,
@@ -114,6 +114,13 @@ export default function SiteStatusPage() {
   const [newMemo, setNewMemo] = useState('');
   const [isAddingMemo, setIsAddingMemo] = useState(false);
 
+  // 당월 도메인별 발견 통계 (정렬용)
+  const [domainDiscoveryMap, setDomainDiscoveryMap] = useState<Map<string, number>>(new Map());
+
+  // 정렬
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
   // ============================================
   // 데이터 로드
   // ============================================
@@ -148,10 +155,33 @@ export default function SiteStatusPage() {
     }
   }, []);
 
+  // 당월 도메인별 발견 통계 로드
+  const loadDomainDiscoveryStats = useCallback(async () => {
+    try {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const startDate = `${year}-${month}-01`;
+      const endDate = `${year}-${month}-${day}`;
+      const res = await statsApi.byDomain(startDate, endDate);
+      if (res.success && res.stats) {
+        const map = new Map<string, number>();
+        res.stats.forEach((s: { domain: string; discovered: number }) => {
+          map.set(s.domain.toLowerCase(), s.discovered);
+        });
+        setDomainDiscoveryMap(map);
+      }
+    } catch (err) {
+      console.error('Failed to load domain discovery stats:', err);
+    }
+  }, []);
+
   useEffect(() => {
     loadSites();
     loadChannels();
-  }, [loadSites, loadChannels]);
+    loadDomainDiscoveryStats();
+  }, [loadSites, loadChannels, loadDomainDiscoveryStats]);
 
   // 메시지 자동 숨김
   useEffect(() => {
@@ -377,6 +407,27 @@ export default function SiteStatusPage() {
   // 필터링
   // ============================================
 
+  // 정렬 처리
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      if (sortOrder === 'desc') {
+        // 3번째 클릭: 정렬 해제 → 기본 정렬(발견 통계순)로 복귀
+        setSortField(null);
+        setSortOrder('asc');
+      } else {
+        setSortOrder('desc');
+      }
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const getSortIcon = (field: string) => {
+    if (sortField !== field) return '↕️';
+    return sortOrder === 'asc' ? '↑' : '↓';
+  };
+
   const filteredSites = sites.filter(site => {
     if (search && !site.domain.toLowerCase().includes(search.toLowerCase())) {
       return false;
@@ -388,6 +439,56 @@ export default function SiteStatusPage() {
       return false;
     }
     return true;
+  });
+
+  // 정렬된 사이트 목록
+  const sortedFilteredSites = [...filteredSites].sort((a, b) => {
+    // 칼럼 정렬이 활성화된 경우
+    if (sortField) {
+      let aVal: string | number = '';
+      let bVal: string | number = '';
+      if (sortField === 'site_type') {
+        const typeLabel = (t: string) => SITE_TYPE_OPTIONS.find(o => o.value === t)?.label || '미분류';
+        aVal = typeLabel(a.site_type);
+        bVal = typeLabel(b.site_type);
+      } else if (sortField === 'site_status') {
+        const statusLabel = (s: string) => STATUS_OPTIONS.find(o => o.value === s)?.label || '운영 중';
+        aVal = statusLabel(a.site_status);
+        bVal = statusLabel(b.site_status);
+      } else if (sortField === 'distribution_channel') {
+        aVal = a.distribution_channel || '웹';
+        bVal = b.distribution_channel || '웹';
+      }
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        const cmp = aVal.localeCompare(bVal);
+        if (cmp !== 0) return sortOrder === 'asc' ? cmp : -cmp;
+      }
+      return 0;
+    }
+
+    // 기본 정렬: 당월 발견 통계순 → 미발견 알파벳순 → 폐쇄 도메인 알파벳순
+    const aIsClosed = a.site_status === 'closed';
+    const bIsClosed = b.site_status === 'closed';
+
+    // 폐쇄 도메인은 항상 마지막
+    if (aIsClosed !== bIsClosed) return aIsClosed ? 1 : -1;
+
+    // 둘 다 폐쇄면 알파벳순
+    if (aIsClosed && bIsClosed) return a.domain.localeCompare(b.domain);
+
+    // 당월 발견 수
+    const aDisc = domainDiscoveryMap.get(a.domain.toLowerCase()) || 0;
+    const bDisc = domainDiscoveryMap.get(b.domain.toLowerCase()) || 0;
+
+    // 둘 다 발견이 있으면 발견 수 내림차순
+    if (aDisc > 0 && bDisc > 0) return bDisc - aDisc;
+
+    // 발견이 있는 도메인이 먼저
+    if (aDisc > 0 && bDisc === 0) return -1;
+    if (aDisc === 0 && bDisc > 0) return 1;
+
+    // 둘 다 미발견이면 알파벳순
+    return a.domain.localeCompare(b.domain);
   });
 
   // ============================================
@@ -556,16 +657,31 @@ export default function SiteStatusPage() {
                 <tr>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-8">#</th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">도메인</th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-40">분류</th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24">상태</th>
+                  <th 
+                    className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-40 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('site_type')}
+                  >
+                    분류 {getSortIcon('site_type')}
+                  </th>
+                  <th 
+                    className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('site_status')}
+                  >
+                    상태 {getSortIcon('site_status')}
+                  </th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">변경 URL</th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-20">유통 경로</th>
+                  <th 
+                    className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-20 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('distribution_channel')}
+                  >
+                    유통 경로 {getSortIcon('distribution_channel')}
+                  </th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600">활동 이력</th>
                   <th className="px-2 py-3 text-center text-xs font-medium text-gray-600 w-24 whitespace-nowrap">관리</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredSites.map((site, index) => {
+                {sortedFilteredSites.map((site, index) => {
                   const isEditing = editingDomain === site.domain;
                   const isExpanded = expandedDomain === site.domain;
 
