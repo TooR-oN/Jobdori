@@ -555,13 +555,13 @@ export default function SiteStatusPage() {
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-8">#</th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-48">도메인</th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-36">분류</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">도메인</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-40">분류</th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24">상태</th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-48">변경 URL</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">변경 URL</th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-20">유통 경로</th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600">활동 이력</th>
-                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-600 w-28 whitespace-nowrap">관리</th>
+                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-600 w-24 whitespace-nowrap">관리</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -581,7 +581,7 @@ export default function SiteStatusPage() {
                           href={`https://${site.domain}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={`text-sm font-mono hover:underline truncate block max-w-[11rem] ${
+                          className={`text-sm font-mono hover:underline truncate block ${
                             site.site_status === 'closed' ? 'text-gray-400 line-through' : 'text-blue-600'
                           }`}
                           title={site.domain}
@@ -679,9 +679,7 @@ export default function SiteStatusPage() {
                                   site.latest_note.note_type === 'channel_change' ? 'text-purple-600' : 'text-gray-700'
                                 }`}>
                                   {site.latest_note.note_type === 'channel_change' ? '[경로] ' : ''}
-                                  {site.latest_note.content.length > 30
-                                    ? site.latest_note.content.substring(0, 30) + '...'
-                                    : site.latest_note.content}
+                                  {site.latest_note.content}
                                 </span>
                               </div>
                             ) : (
