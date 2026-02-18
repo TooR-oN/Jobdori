@@ -34,7 +34,8 @@ lerna-debug.log*
 .DS_Store
 
 # output files (generated reports)
-output/*.xlsx
+backend/output/*.json
+backend/output/*.xlsx
 
 # playwright
 /test-results/
