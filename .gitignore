@@ -32,9 +32,11 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+*.tsbuildinfo
 
 # output files (generated reports)
-output/*.xlsx
+backend/output/*.json
+backend/output/*.xlsx
 
 # playwright
 /test-results/
