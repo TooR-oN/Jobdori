@@ -205,8 +205,18 @@ export default function DomainStatsPage() {
                   >
                     도메인 {getSortIcon('domain')}
                   </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600 w-36">분류</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24">상태</th>
+                  <th 
+                    className="px-4 py-3 text-left text-sm font-medium text-gray-600 w-36 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('site_type')}
+                  >
+                    분류 {getSortIcon('site_type')}
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('site_status')}
+                  >
+                    상태 {getSortIcon('site_status')}
+                  </th>
                   <th 
                     className="px-4 py-3 text-right text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort('discovered')}
