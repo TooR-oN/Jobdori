@@ -551,17 +551,17 @@ export default function SiteStatusPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[1100px]">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-10">#</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600">도메인</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-44">분류</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-28">상태</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-48">변경 URL</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-24">유통 경로</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 w-64">활동 이력</th>
-                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-600 w-24">관리</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-8">#</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-48">도메인</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-36">분류</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24">상태</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-48">변경 URL</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-20">유통 경로</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600">활동 이력</th>
+                  <th className="px-2 py-3 text-center text-xs font-medium text-gray-600 w-28 whitespace-nowrap">관리</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -572,24 +572,25 @@ export default function SiteStatusPage() {
                   return (
                     <tr key={site.domain} className="group">
                       {/* 메인 행 */}
-                      <td className={`px-3 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         <span className="text-xs text-gray-400">{index + 1}</span>
                       </td>
 
-                      <td className={`px-3 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         <a
                           href={`https://${site.domain}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={`text-sm font-mono hover:underline ${
+                          className={`text-sm font-mono hover:underline truncate block max-w-[11rem] ${
                             site.site_status === 'closed' ? 'text-gray-400 line-through' : 'text-blue-600'
                           }`}
+                          title={site.domain}
                         >
                           {site.domain}
                         </a>
                       </td>
 
-                      <td className={`px-3 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         <select
                           value={site.site_type || 'unclassified'}
                           onChange={(e) => handleClassify(site.domain, e.target.value)}
@@ -610,7 +611,7 @@ export default function SiteStatusPage() {
                         </select>
                       </td>
 
-                      <td className={`px-3 py-3 align-top whitespace-nowrap ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-2 py-3 align-top whitespace-nowrap ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         {isEditing ? (
                           <select
                             value={editStatus}
@@ -626,7 +627,7 @@ export default function SiteStatusPage() {
                         )}
                       </td>
 
-                      <td className={`px-3 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         {isEditing && editStatus === 'changed' ? (
                           <input
                             type="url"
@@ -640,7 +641,7 @@ export default function SiteStatusPage() {
                             href={site.new_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-blue-500 hover:underline break-all block max-w-[14rem]"
+                            className="text-xs text-blue-500 hover:underline truncate block"
                             title={site.new_url}
                           >
                             {site.new_url}
@@ -651,7 +652,7 @@ export default function SiteStatusPage() {
                       </td>
 
                       {/* 유통 경로 */}
-                      <td className={`px-3 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         <select
                           value={site.distribution_channel || '웹'}
                           onChange={(e) => handleChannelChange(site.domain, e.target.value)}
@@ -668,7 +669,7 @@ export default function SiteStatusPage() {
                       </td>
 
                       {/* 활동 이력 */}
-                      <td className={`px-3 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         <div className="flex items-start gap-1">
                           <div className="flex-1 min-w-0">
                             {site.latest_note ? (
@@ -758,9 +759,9 @@ export default function SiteStatusPage() {
                       </td>
 
                       {/* 관리 버튼 */}
-                      <td className={`px-3 py-3 text-center align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                      <td className={`px-2 py-3 text-center align-top whitespace-nowrap ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         {isEditing ? (
-                          <div className="flex items-center justify-center gap-1">
+                          <div className="inline-flex items-center gap-1">
                             <button
                               onClick={() => handleSaveStatus(site.domain)}
                               disabled={isSaving}
@@ -778,7 +779,7 @@ export default function SiteStatusPage() {
                         ) : (
                           <button
                             onClick={() => handleStartEdit(site)}
-                            className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition"
+                            className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition whitespace-nowrap"
                           >
                             상태 변경
                           </button>
