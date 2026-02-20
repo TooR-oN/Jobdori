@@ -791,15 +791,15 @@ export default function SiteStatusPage() {
                   </th>
                   <th 
                     className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('language')}
-                  >
-                    언어 {getSortIcon('language')}
-                  </th>
-                  <th 
-                    className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort('site_status')}
                   >
                     상태 {getSortIcon('site_status')}
+                  </th>
+                  <th 
+                    className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('language')}
+                  >
+                    언어 {getSortIcon('language')}
                   </th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">변경 URL</th>
                   <th 
@@ -859,6 +859,23 @@ export default function SiteStatusPage() {
                         </select>
                       </td>
 
+                      {/* 상태 */}
+                      <td className={`px-2 py-3 align-top whitespace-nowrap ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                        {isEditing ? (
+                          <select
+                            value={editStatus}
+                            onChange={(e) => setEditStatus(e.target.value)}
+                            className="text-xs px-1.5 py-1 rounded border border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50 w-full"
+                          >
+                            {STATUS_OPTIONS.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          renderStatusBadge(site.site_status)
+                        )}
+                      </td>
+
                       {/* 언어 */}
                       <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         <select
@@ -885,23 +902,6 @@ export default function SiteStatusPage() {
                           ))}
                           <option value="__add_new__">+ 직접 입력</option>
                         </select>
-                      </td>
-
-                      {/* 상태 */}
-                      <td className={`px-2 py-3 align-top whitespace-nowrap ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
-                        {isEditing ? (
-                          <select
-                            value={editStatus}
-                            onChange={(e) => setEditStatus(e.target.value)}
-                            className="text-xs px-1.5 py-1 rounded border border-blue-300 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50 w-full"
-                          >
-                            {STATUS_OPTIONS.map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          renderStatusBadge(site.site_status)
-                        )}
                       </td>
 
                       <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
