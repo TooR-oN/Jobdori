@@ -227,15 +227,15 @@ export default function DomainStatsPage() {
                   </th>
                   <th 
                     className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('language')}
-                  >
-                    언어 {getSortIcon('language')}
-                  </th>
-                  <th 
-                    className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort('site_status')}
                   >
                     상태 {getSortIcon('site_status')}
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('language')}
+                  >
+                    언어 {getSortIcon('language')}
                   </th>
                   <th 
                     className="px-4 py-3 text-right text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
@@ -293,20 +293,20 @@ export default function DomainStatsPage() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         {(() => {
-                          const lang = LANGUAGE_LABELS[stat.language] || { label: stat.language || '미설정', color: 'text-gray-500', bg: 'bg-gray-50' };
+                          const ss = SITE_STATUS_LABELS[stat.site_status] || SITE_STATUS_LABELS['active'];
                           return (
-                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${lang.color} ${lang.bg}`}>
-                              {lang.label}
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${ss.color} ${ss.bg} border ${ss.border}`}>
+                              {ss.label}
                             </span>
                           );
                         })()}
                       </td>
                       <td className="px-4 py-3 text-center">
                         {(() => {
-                          const ss = SITE_STATUS_LABELS[stat.site_status] || SITE_STATUS_LABELS['active'];
+                          const lang = LANGUAGE_LABELS[stat.language] || { label: stat.language || '미설정', color: 'text-gray-500', bg: 'bg-gray-50' };
                           return (
-                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${ss.color} ${ss.bg} border ${ss.border}`}>
-                              {ss.label}
+                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${lang.color} ${lang.bg}`}>
+                              {lang.label}
                             </span>
                           );
                         })()}
