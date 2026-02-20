@@ -8,11 +8,25 @@ interface DomainStat {
   domain: string;
   site_type: string;
   site_status: string;
+  language: string;
   discovered: number;
   reported: number;
   blocked: number;
   blockRate: number;
 }
+
+const LANGUAGE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  unset: { label: '미설정', color: 'text-gray-400', bg: 'bg-gray-50' },
+  '다국어': { label: '다국어', color: 'text-indigo-600', bg: 'bg-indigo-50' },
+  '영어': { label: '영어', color: 'text-blue-600', bg: 'bg-blue-50' },
+  '스페인어': { label: '스페인어', color: 'text-orange-600', bg: 'bg-orange-50' },
+  '포르투갈어': { label: '포르투갈어', color: 'text-green-600', bg: 'bg-green-50' },
+  '러시아어': { label: '러시아어', color: 'text-red-600', bg: 'bg-red-50' },
+  '아랍어': { label: '아랍어', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  '태국어': { label: '태국어', color: 'text-pink-600', bg: 'bg-pink-50' },
+  '인도네시아어': { label: '인도네시아어', color: 'text-teal-600', bg: 'bg-teal-50' },
+  '중국어': { label: '중국어', color: 'text-yellow-700', bg: 'bg-yellow-50' },
+};
 
 const SITE_TYPE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   scanlation_group: { label: 'Scanlation Group', color: 'text-red-600', bg: 'bg-red-50' },
@@ -213,6 +227,12 @@ export default function DomainStatsPage() {
                   </th>
                   <th 
                     className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('language')}
+                  >
+                    언어 {getSortIcon('language')}
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort('site_status')}
                   >
                     상태 {getSortIcon('site_status')}
@@ -267,6 +287,16 @@ export default function DomainStatsPage() {
                           return (
                             <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${st.color} ${st.bg}`}>
                               {st.label}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          const lang = LANGUAGE_LABELS[stat.language] || { label: stat.language || '미설정', color: 'text-gray-500', bg: 'bg-gray-50' };
+                          return (
+                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${lang.color} ${lang.bg}`}>
+                              {lang.label}
                             </span>
                           );
                         })()}

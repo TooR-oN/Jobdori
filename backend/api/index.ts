@@ -434,8 +434,34 @@ async function ensureDbMigration() {
       }
     }
 
+    // sites 테이블에 language 컬럼 추가 (사이트 언어)
+    try {
+      await db`ALTER TABLE sites ADD COLUMN IF NOT EXISTS language VARCHAR(50) DEFAULT 'unset'`
+    } catch (e: any) {
+      if (!e.message?.includes('already exists')) console.error('Migration: sites.language error:', e.message)
+    }
+
+    // site_languages 테이블 생성 (사용자 추가 가능한 언어 옵션)
+    await db`
+      CREATE TABLE IF NOT EXISTS site_languages (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) UNIQUE NOT NULL,
+        is_default BOOLEAN DEFAULT false,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+    // 기본 언어 초기 데이터 삽입
+    const defaultLanguages = ['다국어', '영어', '스페인어', '포르투갈어', '러시아어', '아랍어', '태국어', '인도네시아어', '중국어']
+    for (const lang of defaultLanguages) {
+      try {
+        await db`INSERT INTO site_languages (name, is_default) VALUES (${lang}, true) ON CONFLICT (name) DO NOTHING`
+      } catch (e: any) {
+        // 중복 무시
+      }
+    }
+
     dbMigrationDone = true
-    console.log('✅ DB migration completed (including report_tracking, deep_monitoring, domain_analysis & site_notes tables)')
+    console.log('✅ DB migration completed (including report_tracking, deep_monitoring, domain_analysis, site_notes & site_languages tables)')
   } catch (error) {
     console.error('DB migration error:', error)
   }
@@ -3367,7 +3393,8 @@ app.get('/api/stats/by-domain', async (c) => {
           COALESCE(r.reported, 0) as reported,
           COALESCE(r.blocked, 0) as blocked,
           COALESCE(s.site_type, 'unclassified') as site_type,
-          COALESCE(s.site_status, 'active') as site_status
+          COALESCE(s.site_status, 'active') as site_status,
+          COALESCE(s.language, 'unset') as language
         FROM detection_stats d
         LEFT JOIN report_stats r ON LOWER(d.domain) = LOWER(r.domain)
         LEFT JOIN sites s ON LOWER(d.domain) = LOWER(s.domain) AND s.type = 'illegal'
@@ -3397,7 +3424,8 @@ app.get('/api/stats/by-domain', async (c) => {
           COALESCE(r.reported, 0) as reported,
           COALESCE(r.blocked, 0) as blocked,
           COALESCE(s.site_type, 'unclassified') as site_type,
-          COALESCE(s.site_status, 'active') as site_status
+          COALESCE(s.site_status, 'active') as site_status,
+          COALESCE(s.language, 'unset') as language
         FROM detection_stats d
         LEFT JOIN report_stats r ON LOWER(d.domain) = LOWER(r.domain)
         LEFT JOIN sites s ON LOWER(d.domain) = LOWER(s.domain) AND s.type = 'illegal'
@@ -3416,6 +3444,7 @@ app.get('/api/stats/by-domain', async (c) => {
         domain: s.domain,
         site_type: s.site_type || 'unclassified',
         site_status: s.site_status || 'active',
+        language: s.language || 'unset',
         discovered,
         reported,
         blocked,
@@ -3542,6 +3571,7 @@ app.get('/api/site-status', async (c) => {
         COALESCE(s.site_status, 'active') as site_status,
         s.new_url,
         COALESCE(s.distribution_channel, '웹') as distribution_channel,
+        COALESCE(s.language, 'unset') as language,
         s.created_at
       FROM sites s
       WHERE s.type = 'illegal'
@@ -3572,6 +3602,7 @@ app.get('/api/site-status', async (c) => {
         site_status: s.site_status,
         new_url: s.new_url || null,
         distribution_channel: s.distribution_channel,
+        language: s.language,
         latest_note: notesMap.get(s.domain.toLowerCase()) || null,
         created_at: s.created_at,
       })),
@@ -3754,6 +3785,80 @@ app.patch('/api/site-status/:domain/channel', async (c) => {
 })
 
 // ============================================
+// API - Site Languages (사이트 언어)
+// ============================================
+
+// 언어 옵션 목록 조회
+app.get('/api/site-languages', async (c) => {
+  try {
+    await ensureDbMigration()
+    const languages = await query`
+      SELECT id, name, is_default, created_at
+      FROM site_languages
+      ORDER BY is_default DESC, name ASC
+    `
+    return c.json({ success: true, languages })
+  } catch (error) {
+    console.error('Site languages list error:', error)
+    return c.json({ success: false, error: 'Failed to load site languages' }, 500)
+  }
+})
+
+// 새 언어 추가 (사용자 직접 입력)
+app.post('/api/site-languages', async (c) => {
+  try {
+    await ensureDbMigration()
+    const { name } = await c.req.json()
+    if (!name || !name.trim()) {
+      return c.json({ success: false, error: '언어 이름을 입력해주세요.' }, 400)
+    }
+    const trimmed = name.trim()
+    const result = await query`
+      INSERT INTO site_languages (name, is_default)
+      VALUES (${trimmed}, false)
+      ON CONFLICT (name) DO NOTHING
+      RETURNING *
+    `
+    if (result.length === 0) {
+      const existing = await query`SELECT * FROM site_languages WHERE name = ${trimmed}`
+      return c.json({ success: true, language: existing[0], message: '이미 존재하는 언어입니다.' })
+    }
+    return c.json({ success: true, language: result[0] })
+  } catch (error) {
+    console.error('Site language create error:', error)
+    return c.json({ success: false, error: 'Failed to create site language' }, 500)
+  }
+})
+
+// 사이트 언어 변경
+app.patch('/api/site-status/:domain/language', async (c) => {
+  try {
+    await ensureDbMigration()
+    const domain = decodeURIComponent(c.req.param('domain'))
+    const { language } = await c.req.json()
+    if (!language || !language.trim()) {
+      return c.json({ success: false, error: '언어를 입력해주세요.' }, 400)
+    }
+    const newLanguage = language.trim()
+    const lowerDomain = domain.toLowerCase()
+
+    await query`
+      UPDATE sites SET language = ${newLanguage}
+      WHERE LOWER(domain) = ${lowerDomain} AND type = 'illegal'
+    `
+
+    return c.json({
+      success: true,
+      domain: lowerDomain,
+      language: newLanguage,
+    })
+  } catch (error) {
+    console.error('Site language update error:', error)
+    return c.json({ success: false, error: 'Failed to update site language' }, 500)
+  }
+})
+
+// ============================================
 // API - Site Notes (활동 이력)
 // ============================================
 
@@ -3871,6 +3976,47 @@ app.get('/api/report-tracking/reasons', async (c) => {
   } catch (error) {
     console.error('Reasons list error:', error)
     return c.json({ success: false, error: 'Failed to load reasons' }, 500)
+  }
+})
+
+// 대기 중 URL 요약 조회 - 정적 라우트 (모달용)
+app.get('/api/report-tracking/pending-summary', async (c) => {
+  try {
+    await ensureDbMigration()
+    const sessionId = c.req.query('session_id')
+    
+    if (!sessionId) {
+      return c.json({ success: false, error: '세션 ID가 필요합니다.' }, 400)
+    }
+    
+    // 대기 중 상태의 모든 URL 조회 (페이지네이션 없음)
+    const items = await query`
+      SELECT id, session_id, url, domain, title, report_status, report_id, reason, created_at, updated_at
+      FROM report_tracking
+      WHERE session_id = ${sessionId}
+        AND report_status = '대기 중'
+      ORDER BY created_at DESC
+    `
+    
+    return c.json({
+      success: true,
+      items: items.map((item: any) => ({
+        id: item.id,
+        session_id: item.session_id,
+        url: item.url,
+        domain: item.domain,
+        title: item.title || null,
+        report_status: item.report_status,
+        report_id: item.report_id || null,
+        reason: item.reason || null,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      })),
+      total: items.length,
+    })
+  } catch (error) {
+    console.error('Pending summary error:', error)
+    return c.json({ success: false, error: 'Failed to load pending summary' }, 500)
   }
 })
 

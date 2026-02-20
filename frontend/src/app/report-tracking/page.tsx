@@ -12,6 +12,8 @@ import {
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ClockIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 interface Session {
@@ -53,6 +55,19 @@ interface Pagination {
   limit: number;
   total: number;
   totalPages: number;
+}
+
+interface PendingItem {
+  id: number;
+  session_id: string;
+  url: string;
+  domain: string;
+  title: string | null;
+  report_status: string;
+  report_id: string | null;
+  reason: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 const STATUS_OPTIONS = ['미신고', '차단', '색인없음', '거부', '대기 중'];
@@ -98,6 +113,14 @@ export default function ReportTrackingPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // 대기 중 요약 모달
+  const [showPendingModal, setShowPendingModal] = useState(false);
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
+  const [isLoadingPending, setIsLoadingPending] = useState(false);
+  const [pendingSortField, setPendingSortField] = useState<'created_at' | 'report_id'>('created_at');
+  const [pendingSortOrder, setPendingSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [pendingCount, setPendingCount] = useState(0);
 
   // 검색어 디바운스
   useEffect(() => {
@@ -432,6 +455,126 @@ export default function ReportTrackingPage() {
     }
   };
 
+  // ============================================
+  // 대기 중 요약 모달
+  // ============================================
+
+  // 대기 중 URL 개수 업데이트 (세션 선택 시)
+  useEffect(() => {
+    if (selectedSession) {
+      setPendingCount(selectedSession.tracking_stats?.['대기 중'] || 0);
+    }
+  }, [selectedSession]);
+
+  const loadPendingItems = async () => {
+    if (!selectedSessionId) return;
+    setIsLoadingPending(true);
+    try {
+      const res = await reportTrackingApi.getPendingSummary(selectedSessionId);
+      if (res.success) {
+        setPendingItems(res.items || []);
+      }
+    } catch (err) {
+      console.error('Failed to load pending summary:', err);
+    } finally {
+      setIsLoadingPending(false);
+    }
+  };
+
+  const handleOpenPendingModal = async () => {
+    setShowPendingModal(true);
+    await loadPendingItems();
+  };
+
+  const handleClosePendingModal = () => {
+    setShowPendingModal(false);
+    // 부모 페이지 데이터 새로고침 (모달에서 변경한 내용 반영)
+    loadSessionData(pagination.page);
+    // 세션 통계도 새로고침
+    reportTrackingApi.getSessions().then(res => {
+      if (res.success) {
+        setSessions(res.sessions || []);
+      }
+    });
+  };
+
+  // 대기 중 모달 내 상태 변경 (인라인 저장)
+  const handlePendingStatusChange = async (id: number, newStatus: string) => {
+    try {
+      await reportTrackingApi.updateStatus(id, newStatus);
+      setPendingItems(prev => {
+        if (newStatus !== '대기 중') {
+          // 대기 중이 아닌 상태로 변경하면 목록에서 제거
+          return prev.filter(item => item.id !== id);
+        }
+        return prev.map(item =>
+          item.id === id ? { ...item, report_status: newStatus } : item
+        );
+      });
+      // 대기 중 카운트 업데이트
+      if (newStatus !== '대기 중') {
+        setPendingCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (err) {
+      console.error('Failed to update pending status:', err);
+    }
+  };
+
+  // 대기 중 모달 내 사유 변경 (인라인 저장)
+  const handlePendingReasonChange = async (id: number, reasonText: string) => {
+    try {
+      if (reasonText) {
+        await reportTrackingApi.updateReason(id, reasonText);
+      }
+      setPendingItems(prev => prev.map(item =>
+        item.id === id ? { ...item, reason: reasonText || null } : item
+      ));
+    } catch (err) {
+      console.error('Failed to update pending reason:', err);
+    }
+  };
+
+  // 대기 중 모달 내 신고ID 변경 (인라인 저장)
+  const handlePendingReportIdChange = async (id: number, newReportId: string) => {
+    try {
+      await reportTrackingApi.updateReportId(id, newReportId);
+      setPendingItems(prev => prev.map(item =>
+        item.id === id ? { ...item, report_id: newReportId } : item
+      ));
+    } catch (err) {
+      console.error('Failed to update pending report ID:', err);
+    }
+  };
+
+  // 대기 중 정렬
+  const handlePendingSort = (field: 'created_at' | 'report_id') => {
+    if (pendingSortField === field) {
+      setPendingSortOrder(pendingSortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setPendingSortField(field);
+      setPendingSortOrder('desc');
+    }
+  };
+
+  const getPendingSortIcon = (field: string) => {
+    if (pendingSortField !== field) return ' ↕';
+    return pendingSortOrder === 'asc' ? ' ↑' : ' ↓';
+  };
+
+  const sortedPendingItems = [...pendingItems].sort((a, b) => {
+    if (pendingSortField === 'created_at') {
+      const aDate = new Date(a.created_at).getTime();
+      const bDate = new Date(b.created_at).getTime();
+      return pendingSortOrder === 'asc' ? aDate - bDate : bDate - aDate;
+    } else if (pendingSortField === 'report_id') {
+      const aId = a.report_id || '';
+      const bId = b.report_id || '';
+      const cmp = aId.localeCompare(bId);
+      return pendingSortOrder === 'asc' ? cmp : -cmp;
+    }
+    return 0;
+  });
+
   // 상태별 색상
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -516,6 +659,173 @@ export default function ReportTrackingPage() {
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
           {errorMessage}
           <button onClick={() => setErrorMessage(null)} className="ml-2 underline">닫기</button>
+        </div>
+      )}
+
+      {/* 대기 중 요약 보기 버튼 */}
+      <div className="mb-4">
+        <button
+          onClick={handleOpenPendingModal}
+          disabled={!selectedSessionId || pendingCount === 0}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition shadow-sm ${
+            pendingCount > 0
+              ? 'bg-cyan-600 text-white hover:bg-cyan-700'
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          <ClockIcon className="w-5 h-5" />
+          대기 중 요약 보기
+          {pendingCount > 0 && (
+            <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold bg-white text-cyan-700">
+              {pendingCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* 대기 중 요약 모달 */}
+      {showPendingModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col">
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-cyan-100 rounded-lg">
+                  <ClockIcon className="w-5 h-5 text-cyan-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800">대기 중 URL 요약</h2>
+                  <p className="text-sm text-gray-500">
+                    {formatSessionDate(selectedSessionId)} | {sortedPendingItems.length}건
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleClosePendingModal}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 모달 본문 */}
+            <div className="flex-1 overflow-auto px-6 py-4">
+              {isLoadingPending ? (
+                <div className="flex items-center justify-center h-48 text-gray-400">
+                  <p>로딩 중...</p>
+                </div>
+              ) : sortedPendingItems.length === 0 ? (
+                <div className="flex items-center justify-center h-48 text-gray-400">
+                  <p>대기 중인 URL이 없습니다.</p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-8">#</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600">URL</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-28">도메인</th>
+                      <th 
+                        className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-32 cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => handlePendingSort('created_at')}
+                      >
+                        신고일시{getPendingSortIcon('created_at')}
+                      </th>
+                      <th 
+                        className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100 select-none"
+                        onClick={() => handlePendingSort('report_id')}
+                      >
+                        신고ID{getPendingSortIcon('report_id')}
+                      </th>
+                      <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-28">상태</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-40">사유</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sortedPendingItems.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-gray-50 transition">
+                        <td className="px-3 py-2.5">
+                          <span className="text-xs text-gray-400">{idx + 1}</span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline truncate block max-w-xs"
+                            title={item.url}
+                          >
+                            {item.url}
+                          </a>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="text-xs text-gray-600 truncate block" title={item.domain}>{item.domain}</span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="text-xs text-gray-500">
+                            {new Date(item.created_at).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <input
+                            type="text"
+                            defaultValue={item.report_id || ''}
+                            onBlur={(e) => {
+                              const val = e.target.value.trim();
+                              if (val !== (item.report_id || '')) {
+                                handlePendingReportIdChange(item.id, val);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                            }}
+                            placeholder="-"
+                            className="w-20 px-2 py-1 text-xs text-center border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <select
+                            value={item.report_status}
+                            onChange={(e) => handlePendingStatusChange(item.id, e.target.value)}
+                            className={`px-2 py-1 text-xs font-medium rounded-full border-0 focus:ring-2 focus:ring-blue-500 ${getStatusColor(item.report_status)}`}
+                          >
+                            {STATUS_OPTIONS.map(status => (
+                              <option key={status} value={status}>{status}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <select
+                            value={item.reason || ''}
+                            onChange={(e) => handlePendingReasonChange(item.id, e.target.value)}
+                            className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="">사유 선택...</option>
+                            {reasons.map(reason => (
+                              <option key={reason.id} value={reason.text}>{reason.text}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* 모달 푸터 */}
+            <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 bg-gray-50 rounded-b-2xl">
+              <p className="text-xs text-gray-500">
+                상태 및 사유 변경은 자동 저장됩니다.
+              </p>
+              <button
+                onClick={handleClosePendingModal}
+                className="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
