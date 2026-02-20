@@ -605,3 +605,827 @@ Neon PostgreSQL은 표준 PostgreSQL 프로토콜을 지원. `pg`, `@neondatabas
 3. **타임존**: 모든 TIMESTAMP 칼럼은 `WITH TIME ZONE` (UTC 저장). 한국 시간은 +9시간.
 4. **도메인 대소문자**: 모든 도메인은 소문자로 저장. 조회 시 `LOWER()` 적용 권장.
 5. **마이그레이션**: 테이블 스키마는 `backend/api/index.ts`의 `ensureDbMigration()` 함수와 `backend/src/lib/db.ts`의 `initializeDatabase()` 함수에서 자동 실행. 별도 마이그레이션 도구 없음.
+
+---
+
+## 6. 환경변수 전체 목록
+
+Jobdori가 사용하는 환경변수 목록 (`.env` 파일 또는 Vercel 환경변수).
+
+### 6.1 필수 (Required)
+
+| 환경변수 | 용도 | 예시 |
+|---------|------|------|
+| `DATABASE_URL` | Neon PostgreSQL 연결 문자열 | `postgres://user:pw@ep-xxxx.us-east-2.aws.neon.tech/neondb?sslmode=require` |
+
+### 6.2 인증 관련
+
+| 환경변수 | 용도 | 비고 |
+|---------|------|------|
+| `ADMIN_USERNAME` | 비상용 관리자 ID | DB 장애 시 환경변수 기반 로그인 |
+| `ADMIN_PASSWORD_HASH` | 비상용 관리자 비밀번호 (bcrypt) | `$2b$10$...` 형식 |
+| `SESSION_SECRET` | JWT 토큰 서명 시크릿 | 미설정 시 기본값 사용 |
+
+### 6.3 외부 서비스 연동
+
+| 환경변수 | 용도 | 비고 |
+|---------|------|------|
+| `MANUS_API_KEY` | Manus AI API 키 | 월간 도메인 분석 + LLM 2차 판정 |
+| `MANUS_TRAFFIC_PROJECT_ID` | Manus 트래픽 분석 프로젝트 ID | 기본값: `TvfU37uAeUph4R3YLzR2LV` |
+| `SERPER_API_KEY` | Serper (Google 검색) API 키 | 모니터링 파이프라인 검색 |
+| `SLACK_BOT_TOKEN` | Slack 알림 봇 토큰 | 파이프라인 완료 알림 |
+| `SLACK_CHANNEL_ID` | Slack 알림 채널 ID | 알림 전송 대상 |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob Storage 토큰 | 결과 파일/리포트 저장 |
+
+### 6.4 프론트엔드
+
+| 환경변수 | 용도 | 비고 |
+|---------|------|------|
+| `NEXT_PUBLIC_API_URL` | 백엔드 API URL | Next.js rewrites 프록시 대상 |
+
+---
+
+## 7. 데이터 흐름 파이프라인
+
+### 7.1 모니터링 파이프라인 (`run-pipeline.ts`)
+
+```
+1. titles 조회 (is_current = true)
+   ↓
+2. 각 작품명으로 Google 검색 (Serper API)
+   ↓
+3. 검색 결과 URL 수집 → sites 테이블과 대조
+   - sites(type='illegal')에 있으면 → initial_status = 'illegal'
+   - sites(type='legal')에 있으면 → initial_status = 'legal'
+   - 없으면 → initial_status = 'unknown'
+   ↓
+4. unknown 도메인에 대해 Manus AI LLM 2차 판정
+   - likely_illegal → final_status = 'illegal'
+   - likely_legal → final_status = 'legal'
+   - uncertain → final_status = 'pending' (→ pending_reviews 등록)
+   ↓
+5. detection_results INSERT (session_id + url UNIQUE)
+   ↓
+6. final_status='illegal' URL → report_tracking INSERT (status='미신고')
+   - excluded_urls에 있는 URL은 제외
+   ↓
+7. 불법 도메인 중 URL 3개 이상 → deep_monitoring_targets 등록
+   ↓
+8. manta_rankings / manta_ranking_history 갱신
+   ↓
+9. sessions 완료 처리 (status='completed')
+```
+
+### 7.2 월간 도메인 분석 파이프라인 (`domain-analysis.ts`)
+
+```
+1. detection_results에서 해당 월 불법 도메인 TOP 50 추출
+   ↓
+2. 각 도메인의 site_type을 sites 테이블에서 조회
+   → type_score 매핑 (TYPE_SCORE_MAP)
+   ↓
+3. 전월 분석 결과 조회 (domain_analysis_results, MoM 비교용)
+   ↓
+4. 프롬프트 생성 → Manus AI Task 생성
+   - Manus가 SimilarWeb API 호출하여 트래픽 데이터 수집
+   - Manus가 점수 산정 (size_score, growth_score) + 위협 점수(threat_score) 계산
+   - Manus가 traffic_analysis, recommendation, recommendation_detail 생성
+   ↓
+5. domain_analysis_reports INSERT/UPDATE (status='running' → 'completed')
+   ↓
+6. 결과 JSON 파싱 (normalizeManusItem) → domain_analysis_results INSERT
+   ↓
+7. Markdown 보고서를 report_markdown + Vercel Blob에 저장
+```
+
+### 7.3 데이터 흐름도
+
+```
+[Google 검색]
+     ↓
+[detection_results] ──→ [monthly_stats] (실시간 집계)
+     ↓                       ↓
+     ↓               [대시보드 표시]
+     ↓
+[sites] ←── 불법 도메인 등록
+  │  ↑
+  │  └── site_type, site_status, language, distribution_channel 관리
+  │
+  ├──→ [domain_analysis_results] ← Manus AI + SimilarWeb
+  │        │
+  │        ├── threat_score (종합 위협 점수)
+  │        ├── recommendation (권고사항)
+  │        └── traffic_analysis (트래픽 분석)
+  │
+  └──→ [report_tracking] ← DMCA 신고 추적
+           │
+           ├── report_status (미신고/대기/차단/거부/색인없음)
+           └── report_uploads (구글 신고 결과 HTML 업로드)
+```
+
+---
+
+## 8. 월간 도메인 분석 — 권고사항(recommendation) 심층 가이드 ★★★
+
+이 섹션은 `domain_analysis_results.recommendation` 필드에 대한 **완전한 참조 문서**입니다.
+
+### 8.1 recommendation 값의 생성 과정
+
+```
+1. Manus AI가 SimilarWeb 트래픽 데이터 수집
+2. threat_score 계산: size_score + growth_score + type_score
+3. 트래픽 패턴 분석 (traffic_analysis)
+4. 종합 판단하여 recommendation + recommendation_detail 생성
+```
+
+**핵심**: `recommendation` 값은 Manus AI가 자연어로 생성합니다. 고정된 ENUM이 아니라 AI가 상황에 맞게 다양한 표현을 사용할 수 있습니다. 아래는 프론트엔드에서 매핑하는 대표 패턴입니다.
+
+### 8.2 recommendation 값 분류 체계
+
+프론트엔드(`frontend/src/app/domain-analysis/page.tsx`)의 `recBadgeColor` 함수가 사용하는 **키워드 기반 분류**:
+
+| 우선순위 | 키워드 포함 여부 | 뱃지 색상 | 의미 | 대응 수준 |
+|---------|----------------|----------|------|----------|
+| 1 (최고) | `최상위` 또는 `타겟 지정` | 빨간색 (`red`) | 최상위 위험 도메인, 타겟 지정 차단 필요 | **즉시 조치** |
+| 2 | `OSINT` 또는 `조사` | 주황색 (`orange`) | OSINT 조사 필요, 운영자/인프라 추적 | **심층 조사** |
+| 3 | `DMCA` 또는 `집중 강화` | 황갈색 (`amber`) | DMCA 집중 강화 신고 권고 | **적극 신고** |
+| 4 | `긴급` 또는 `격상` | 노란색 (`yellow`) | 긴급 주의, 위험 등급 격상 | **긴급 대응** |
+| 5 | `신규` 또는 `주시` | 라임색 (`lime`) | 신규 도메인 또는 주시 필요 | **관찰 강화** |
+| 6 | `모니터링 유지` 또는 `모니터링` | 초록색 (`green`) | 현재 수준 모니터링 유지 | **현상 유지** |
+| 7 | `조치 효과` 또는 `확인` | 하늘색 (`sky`) | 이전 조치의 효과 확인됨 | **효과 검증** |
+| 기타 | 위 키워드 없음 | 회색 (`gray`) | 분류 불가 또는 기타 | **별도 검토** |
+
+### 8.3 recommendation 실제 값 예시
+
+Manus AI가 생성하는 실제 `recommendation` 값 예시:
+
+```
+- "최상위 위험 - 타겟 지정 차단"
+- "OSINT 조사 및 운영자 추적 권고"
+- "DMCA 집중 강화 신고"
+- "긴급 주의 - 위험 등급 격상"
+- "신규 도메인 주시 필요"
+- "모니터링 유지"
+- "조치 효과 확인 - 트래픽 감소 중"
+- "Urgent Block"
+- "Priority Block"
+- "Block"
+- "Monitor"
+- "Low Priority"
+- "No Data"
+```
+
+### 8.4 recommendation_detail 예시
+
+```
+"이 도메인은 월간 250만 방문, 전월 대비 45% 급증. Scanlation Group으로
+직접 번역·스캔을 수행하며 글로벌 순위 12,300위. 즉시 DMCA 차단 신고와
+함께 CDN(Cloudflare) 어뷰즈 리포트를 병행할 것을 권고."
+
+"글로벌 순위 85,000위 → 72,000위로 상승. 방문자 130만 → 180만 (38% 증가).
+Aggregator 유형으로 다수 Scanlation 소스를 수집해 제공. 현재 DMCA 차단률 42%.
+차단 신고 빈도를 주 3회로 격상하고, 호스팅 업체(Cloudflare, DMCA.com)에
+직접 어뷰즈 리포트 발송 권고."
+
+"트래픽 데이터 없음 (SimilarWeb 미수집). 도메인 등록일 최근이거나
+방문자가 극소. 향후 모니터링 리스트에서 추적 필요."
+```
+
+### 8.5 위협 점수(threat_score)와 recommendation의 관계
+
+| threat_score 범위 | 일반적 recommendation 패턴 | 설명 |
+|-------------------|--------------------------|------|
+| 70~100 | `최상위`, `타겟 지정`, `Urgent Block` | 대규모 + 고위험 유형 + 급성장 |
+| 50~69 | `DMCA 집중 강화`, `Priority Block` | 중~대규모 + 위험 유형 |
+| 30~49 | `긴급 주시`, `Block` | 중규모 또는 급성장 |
+| 10~29 | `모니터링 유지`, `Monitor` | 소규모 또는 감소 추세 |
+| 0~9 | `Low Priority`, `No Data` | 미미하거나 데이터 없음 |
+
+> **주의**: 위 범위는 일반적인 패턴이며, Manus AI가 상황(급격한 성장, 특수 유형 등)에 따라 다르게 판단할 수 있습니다.
+
+### 8.6 불법 사이트 도메인과 권고사항의 관계
+
+**불법 사이트 도메인 전체 흐름**:
+
+```
+[sites 테이블] (type='illegal')
+  │
+  ├── domain: 불법 사이트 도메인 (마스터 목록)
+  ├── site_type: scanlation_group / aggregator / clone / blog / unclassified
+  ├── site_status: active / closed / changed
+  ├── language: 사이트 언어
+  └── distribution_channel: 유통 경로 (웹/APK/텔레그램/디스코드)
+         │
+         ▼ (월간 분석 시 sites.site_type 참조하여 type_score 부여)
+         │
+[domain_analysis_results 테이블]
+  │
+  ├── threat_score: 종합 위협 점수 (size + growth + type)
+  ├── recommendation: ★ AI 권고사항
+  ├── recommendation_detail: ★ AI 권고 상세
+  ├── traffic_analysis: 트래픽 분석 요약
+  ├── total_visits / unique_visitors / bounce_rate: 트래픽 지표
+  └── visits_change_mom / rank_change_mom: 전월 대비 변동
+```
+
+**다른 서비스에서 불법 사이트 + 권고사항 조회**:
+
+```sql
+-- 현재 활성 불법 사이트의 최신 분석 결과 + 권고사항 한번에 조회
+SELECT 
+  s.domain,
+  s.site_type,
+  s.site_status,
+  s.language,
+  s.distribution_channel,
+  dar.threat_score,
+  dar.recommendation,
+  dar.recommendation_detail,
+  dar.traffic_analysis,
+  dar.traffic_analysis_detail,
+  dar.total_visits,
+  dar.unique_visitors,
+  dar.visits_change_mom,
+  dar.size_score,
+  dar.growth_score,
+  dar.type_score,
+  dar.global_rank,
+  dar.bounce_rate,
+  dar.discovered
+FROM sites s
+LEFT JOIN LATERAL (
+  SELECT dar.*
+  FROM domain_analysis_results dar
+  JOIN domain_analysis_reports rp ON dar.report_id = rp.id
+  WHERE dar.domain = s.domain
+    AND rp.status = 'completed'
+  ORDER BY rp.analysis_month DESC
+  LIMIT 1
+) dar ON true
+WHERE s.type = 'illegal'
+  AND s.site_status = 'active'
+ORDER BY dar.threat_score DESC NULLS LAST;
+```
+
+```sql
+-- 최근 N개월간 특정 도메인의 권고사항 변동 추적
+SELECT 
+  rp.analysis_month,
+  dar.threat_score,
+  dar.recommendation,
+  dar.recommendation_detail,
+  dar.total_visits,
+  dar.visits_change_mom
+FROM domain_analysis_results dar
+JOIN domain_analysis_reports rp ON dar.report_id = rp.id
+WHERE dar.domain = 'example-pirate.com'
+  AND rp.status = 'completed'
+ORDER BY rp.analysis_month DESC;
+```
+
+---
+
+## 9. 외부 서비스에서 DB 연동 코드 예시
+
+### 9.1 Node.js (@neondatabase/serverless)
+
+Jobdori와 동일한 방식. Serverless 환경(Vercel, Cloudflare Workers 등)에 최적.
+
+```typescript
+import { neon } from '@neondatabase/serverless';
+
+const sql = neon(process.env.DATABASE_URL!);
+
+// 불법 사이트 목록 조회
+async function getIllegalSites() {
+  const sites = await sql`
+    SELECT domain, site_type, site_status, language, distribution_channel
+    FROM sites
+    WHERE type = 'illegal' AND site_status = 'active'
+    ORDER BY domain
+  `;
+  return sites;
+}
+
+// 최신 월간 분석 결과 + 권고사항 조회
+async function getLatestAnalysis() {
+  const results = await sql`
+    SELECT dar.domain, dar.threat_score, dar.recommendation,
+           dar.recommendation_detail, dar.total_visits, dar.site_type
+    FROM domain_analysis_results dar
+    JOIN domain_analysis_reports rp ON dar.report_id = rp.id
+    WHERE rp.status = 'completed'
+      AND rp.analysis_month = (
+        SELECT MAX(analysis_month) FROM domain_analysis_reports WHERE status = 'completed'
+      )
+    ORDER BY dar.rank
+  `;
+  return results;
+}
+```
+
+### 9.2 Node.js (pg - 표준 PostgreSQL)
+
+```typescript
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+async function getIllegalDomains() {
+  const { rows } = await pool.query(
+    `SELECT domain, site_type, site_status FROM sites WHERE type = 'illegal' ORDER BY domain`
+  );
+  return rows;
+}
+```
+
+### 9.3 Python (psycopg2)
+
+```python
+import psycopg2
+import os
+
+conn = psycopg2.connect(os.environ['DATABASE_URL'], sslmode='require')
+cur = conn.cursor()
+
+# 불법 사이트 목록 + 최신 권고사항
+cur.execute("""
+    SELECT s.domain, s.site_type, s.site_status, s.language,
+           dar.threat_score, dar.recommendation, dar.recommendation_detail
+    FROM sites s
+    LEFT JOIN LATERAL (
+        SELECT dar.*
+        FROM domain_analysis_results dar
+        JOIN domain_analysis_reports rp ON dar.report_id = rp.id
+        WHERE dar.domain = s.domain AND rp.status = 'completed'
+        ORDER BY rp.analysis_month DESC LIMIT 1
+    ) dar ON true
+    WHERE s.type = 'illegal' AND s.site_status = 'active'
+    ORDER BY dar.threat_score DESC NULLS LAST
+""")
+
+for row in cur.fetchall():
+    print(row)
+
+cur.close()
+conn.close()
+```
+
+### 9.4 Python (SQLAlchemy)
+
+```python
+from sqlalchemy import create_engine, text
+import os
+
+engine = create_engine(os.environ['DATABASE_URL'])
+
+with engine.connect() as conn:
+    result = conn.execute(text("""
+        SELECT domain, site_type, site_status, language, distribution_channel
+        FROM sites WHERE type = 'illegal'
+    """))
+    for row in result:
+        print(dict(row._mapping))
+```
+
+---
+
+## 10. API 엔드포인트 참조
+
+다른 서비스에서 DB 직접 접근 대신 **Jobdori API**를 통해 데이터에 접근할 수도 있습니다.
+
+### 10.1 불법 사이트 관련
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/site-status` | 불법 사이트 전체 목록 (site_type, site_status, language, distribution_channel 포함) |
+| PATCH | `/api/site-status/:domain/status` | 사이트 상태 변경 (active/closed/changed) |
+| PATCH | `/api/site-status/:domain/language` | 사이트 언어 변경 |
+| PATCH | `/api/sites/classify` | 사이트 분류 변경 (scanlation_group/aggregator/clone/blog) |
+| GET | `/api/site-languages` | 언어 옵션 목록 |
+| GET | `/api/distribution-channels` | 유통 경로 옵션 목록 |
+
+### 10.2 월간 도메인 분석
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/domain-analysis/months` | 분석 가능 월 목록 |
+| GET | `/api/domain-analysis/:month` | 특정 월 분석 결과 (권고사항 포함) |
+| POST | `/api/domain-analysis/run` | 분석 실행 |
+| GET | `/api/domain-analysis/status/:month` | 실행 상태 폴링 |
+| POST | `/api/domain-analysis/process-result` | Manus 완료 후 결과 저장 |
+
+### 10.3 통계/탐지
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/stats/by-domain` | 도메인별 탐지/신고/차단 통계 |
+| GET | `/api/dashboard/months` | 대시보드용 월 목록 |
+| GET | `/api/dashboard/:month` | 특정 월 대시보드 데이터 |
+| GET | `/api/sessions` | 세션 목록 |
+| GET | `/api/sessions/:id` | 세션 상세 |
+| GET | `/api/sessions/:id/results` | 세션 탐지 결과 |
+
+### 10.4 신고 추적
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/report-tracking/sessions` | 신고 추적 회차 목록 |
+| GET | `/api/report-tracking/:sessionId` | 회차별 신고 목록 |
+| GET | `/api/report-tracking/:sessionId/stats` | 회차별 신고 통계 |
+| GET | `/api/report-tracking/pending-summary` | 대기 중 URL 요약 |
+| PUT | `/api/report-tracking/:id/status` | 신고 상태 업데이트 |
+
+### 10.5 작품/순위
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| GET | `/api/titles` | 모니터링 대상 작품 목록 |
+| GET | `/api/manta-rankings` | 최신 만타 순위 |
+| GET | `/api/manta-rankings/:title/history` | 작품별 순위 히스토리 |
+
+### 10.6 인증
+
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| POST | `/api/auth/login` | 로그인 (JWT 토큰 발급) |
+| POST | `/api/auth/logout` | 로그아웃 |
+| GET | `/api/auth/status` | 인증 상태 확인 |
+
+> **인증 방식**: JWT 토큰 기반. `cookie`에 `auth_token`으로 저장됨. API 호출 시 쿠키 전송 필요.
+
+---
+
+## 11. Neon PostgreSQL 연결 시 주의사항
+
+### 11.1 Connection Pooling
+
+Neon은 서버리스 특성상 connection pooling이 중요합니다.
+
+- **Serverless 환경** (Vercel, Cloudflare Workers): `@neondatabase/serverless` 사용 권장
+- **Long-running 서버** (Express, Fastify): Neon pooling endpoint 사용 (`-pooler` 포함 URL)
+- **Connection 문자열 구분**:
+  - 직접 연결: `postgres://user:pw@ep-xxxx.us-east-2.aws.neon.tech/neondb`
+  - Pooling: `postgres://user:pw@ep-xxxx-pooler.us-east-2.aws.neon.tech/neondb`
+
+### 11.2 Cold Start
+
+Neon의 서버리스 특성으로 첫 쿼리 시 cold start 지연(~1초)이 발생할 수 있습니다. 
+Jobdori 백엔드에서는 Lazy Initialization으로 처리합니다.
+
+### 11.3 읽기 전용 접근 설정 (권장)
+
+외부 서비스에서 Jobdori DB에 접근할 때는 **별도의 읽기 전용 역할** 생성을 권장합니다.
+
+```sql
+-- Neon 콘솔에서 실행 (관리자)
+CREATE ROLE jobdori_reader WITH LOGIN PASSWORD 'secure-password';
+GRANT CONNECT ON DATABASE neondb TO jobdori_reader;
+GRANT USAGE ON SCHEMA public TO jobdori_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO jobdori_reader;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO jobdori_reader;
+```
+
+---
+
+## 12. 부록: 전체 테이블 CREATE 문 (현재 스키마)
+
+아래는 현재 운영 중인 **최종 스키마**를 정리한 DDL입니다. 새 환경에 DB를 복제하거나 스키마를 확인할 때 참고하세요.
+
+```sql
+-- ============================================
+-- Jobdori Full Schema (2026-02-20 기준)
+-- ============================================
+
+-- 1. sessions
+CREATE TABLE IF NOT EXISTS sessions (
+  id VARCHAR(50) PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  status VARCHAR(20) DEFAULT 'running',
+  titles_count INTEGER DEFAULT 0,
+  keywords_count INTEGER DEFAULT 0,
+  total_searches INTEGER DEFAULT 0,
+  results_total INTEGER DEFAULT 0,
+  results_illegal INTEGER DEFAULT 0,
+  results_legal INTEGER DEFAULT 0,
+  results_pending INTEGER DEFAULT 0,
+  file_final_results VARCHAR(500),
+  deep_monitoring_executed BOOLEAN DEFAULT false,
+  deep_monitoring_targets_count INTEGER DEFAULT 0,
+  deep_monitoring_new_urls INTEGER DEFAULT 0
+);
+
+-- 2. detection_results
+CREATE TABLE IF NOT EXISTS detection_results (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(50) NOT NULL,
+  title TEXT,
+  search_query TEXT,
+  url TEXT NOT NULL,
+  domain VARCHAR(255),
+  page INTEGER,
+  rank INTEGER,
+  initial_status VARCHAR(20),
+  llm_judgment VARCHAR(20),
+  llm_reason TEXT,
+  final_status VARCHAR(20),
+  reviewed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  snippet TEXT,
+  source VARCHAR(20) DEFAULT 'regular',
+  deep_target_id INTEGER,
+  UNIQUE(session_id, url)
+);
+
+-- 3. sites
+CREATE TABLE IF NOT EXISTS sites (
+  id SERIAL PRIMARY KEY,
+  domain VARCHAR(255) NOT NULL,
+  type VARCHAR(10) NOT NULL CHECK (type IN ('illegal', 'legal')),
+  site_type VARCHAR(30) DEFAULT 'unclassified',
+  site_status VARCHAR(20) DEFAULT 'active',
+  new_url TEXT,
+  distribution_channel VARCHAR(50) DEFAULT '웹',
+  language VARCHAR(50) DEFAULT 'unset',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(domain, type)
+);
+
+-- 4. titles
+CREATE TABLE IF NOT EXISTS titles (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(500) NOT NULL UNIQUE,
+  is_current BOOLEAN DEFAULT TRUE,
+  manta_url TEXT,
+  unofficial_titles JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. pending_reviews
+CREATE TABLE IF NOT EXISTS pending_reviews (
+  id SERIAL PRIMARY KEY,
+  domain VARCHAR(255) NOT NULL UNIQUE,
+  urls JSONB DEFAULT '[]',
+  titles JSONB DEFAULT '[]',
+  llm_judgment VARCHAR(20),
+  llm_reason TEXT,
+  session_id VARCHAR(50),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. monthly_stats
+CREATE TABLE IF NOT EXISTS monthly_stats (
+  id SERIAL PRIMARY KEY,
+  month VARCHAR(7) NOT NULL UNIQUE,
+  sessions_count INTEGER DEFAULT 0,
+  total INTEGER DEFAULT 0,
+  illegal INTEGER DEFAULT 0,
+  legal INTEGER DEFAULT 0,
+  pending INTEGER DEFAULT 0,
+  top_contents JSONB DEFAULT '[]',
+  top_illegal_sites JSONB DEFAULT '[]',
+  last_updated TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. manta_rankings
+CREATE TABLE IF NOT EXISTS manta_rankings (
+  title VARCHAR(500) PRIMARY KEY,
+  manta_rank INTEGER,
+  first_rank_domain VARCHAR(255),
+  search_query VARCHAR(500),
+  session_id VARCHAR(50),
+  page1_illegal_count INTEGER DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. manta_ranking_history
+CREATE TABLE IF NOT EXISTS manta_ranking_history (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(500) NOT NULL,
+  manta_rank INTEGER,
+  first_rank_domain VARCHAR(255),
+  session_id VARCHAR(50),
+  page1_illegal_count INTEGER DEFAULT 0,
+  recorded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. report_tracking
+CREATE TABLE IF NOT EXISTS report_tracking (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(50) NOT NULL,
+  url TEXT NOT NULL,
+  domain VARCHAR(255) NOT NULL,
+  title TEXT,
+  report_status VARCHAR(20) DEFAULT '미신고',
+  report_id VARCHAR(50),
+  reason TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(session_id, url)
+);
+
+-- 10. report_uploads
+CREATE TABLE IF NOT EXISTS report_uploads (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(50) NOT NULL,
+  report_id VARCHAR(50) NOT NULL,
+  file_name VARCHAR(255),
+  matched_count INTEGER DEFAULT 0,
+  total_urls_in_html INTEGER DEFAULT 0,
+  uploaded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. report_reasons
+CREATE TABLE IF NOT EXISTS report_reasons (
+  id SERIAL PRIMARY KEY,
+  reason_text VARCHAR(255) UNIQUE NOT NULL,
+  usage_count INTEGER DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. deep_monitoring_targets
+CREATE TABLE IF NOT EXISTS deep_monitoring_targets (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(50) NOT NULL,
+  title TEXT NOT NULL,
+  domain VARCHAR(255) NOT NULL,
+  url_count INTEGER NOT NULL,
+  base_keyword TEXT NOT NULL,
+  deep_query TEXT NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending',
+  results_count INTEGER DEFAULT 0,
+  new_urls_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  executed_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  UNIQUE(session_id, title, domain)
+);
+
+-- 13. excluded_urls
+CREATE TABLE IF NOT EXISTS excluded_urls (
+  id SERIAL PRIMARY KEY,
+  url TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 14. domain_analysis_reports
+CREATE TABLE IF NOT EXISTS domain_analysis_reports (
+  id SERIAL PRIMARY KEY,
+  analysis_month VARCHAR(7) NOT NULL UNIQUE,
+  status VARCHAR(20) DEFAULT 'pending',
+  manus_task_id VARCHAR(100),
+  total_domains INTEGER DEFAULT 0,
+  report_blob_url TEXT,
+  report_markdown TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  error_message TEXT
+);
+
+-- 15. domain_analysis_results
+CREATE TABLE IF NOT EXISTS domain_analysis_results (
+  id SERIAL PRIMARY KEY,
+  report_id INTEGER NOT NULL REFERENCES domain_analysis_reports(id) ON DELETE CASCADE,
+  rank INTEGER NOT NULL,
+  domain VARCHAR(255) NOT NULL,
+  threat_score DECIMAL(5,1) DEFAULT 0,
+  global_rank INTEGER,
+  total_visits BIGINT,
+  unique_visitors BIGINT,
+  bounce_rate DECIMAL(5,4),
+  discovered INTEGER DEFAULT 0,
+  visits_change_mom DECIMAL(7,1),
+  rank_change_mom INTEGER,
+  size_score DECIMAL(5,1),
+  growth_score DECIMAL(5,1),
+  type_score DECIMAL(5,1) DEFAULT 0,
+  site_type VARCHAR(30),
+  traffic_analysis VARCHAR(50),
+  traffic_analysis_detail TEXT,
+  recommendation TEXT,
+  recommendation_detail TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(report_id, domain)
+);
+
+-- 16. site_notes
+CREATE TABLE IF NOT EXISTS site_notes (
+  id SERIAL PRIMARY KEY,
+  domain VARCHAR(500) NOT NULL,
+  note_type VARCHAR(20) NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 17. distribution_channels
+CREATE TABLE IF NOT EXISTS distribution_channels (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) UNIQUE NOT NULL,
+  is_default BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 18. site_languages
+CREATE TABLE IF NOT EXISTS site_languages (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) UNIQUE NOT NULL,
+  is_default BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 19. users
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(100) UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role VARCHAR(20) DEFAULT 'user',
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================
+-- 인덱스
+-- ============================================
+CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_monthly_stats_month ON monthly_stats(month);
+CREATE INDEX IF NOT EXISTS idx_sites_type ON sites(type);
+CREATE INDEX IF NOT EXISTS idx_sites_domain ON sites(domain);
+CREATE INDEX IF NOT EXISTS idx_titles_is_current ON titles(is_current);
+CREATE INDEX IF NOT EXISTS idx_pending_reviews_domain ON pending_reviews(domain);
+CREATE INDEX IF NOT EXISTS idx_manta_rankings_title ON manta_rankings(title);
+CREATE INDEX IF NOT EXISTS idx_manta_ranking_history_title ON manta_ranking_history(title, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_report_tracking_session ON report_tracking(session_id, report_status);
+CREATE INDEX IF NOT EXISTS idx_report_tracking_title ON report_tracking(title);
+CREATE INDEX IF NOT EXISTS idx_deep_monitoring_session ON deep_monitoring_targets(session_id, status);
+CREATE INDEX IF NOT EXISTS idx_domain_analysis_results_report ON domain_analysis_results(report_id, rank);
+CREATE INDEX IF NOT EXISTS idx_site_notes_domain ON site_notes(domain);
+
+-- ============================================
+-- 기본 데이터
+-- ============================================
+INSERT INTO report_reasons (reason_text, usage_count) VALUES
+  ('저작권 미확인', 100), ('검토 필요', 99), ('중복 신고', 98), ('URL 오류', 97)
+ON CONFLICT (reason_text) DO NOTHING;
+
+INSERT INTO distribution_channels (name, is_default) VALUES
+  ('웹', true), ('APK', true), ('텔레그램', true), ('디스코드', true)
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO site_languages (name, is_default) VALUES
+  ('다국어', true), ('영어', true), ('스페인어', true), ('포르투갈어', true),
+  ('러시아어', true), ('아랍어', true), ('태국어', true), ('인도네시아어', true), ('중국어', true)
+ON CONFLICT (name) DO NOTHING;
+```
+
+---
+
+## 13. FAQ
+
+### Q1. 다른 서비스에서 불법 도메인 목록만 간단히 가져오려면?
+```sql
+SELECT domain FROM sites WHERE type = 'illegal' AND site_status = 'active';
+```
+
+### Q2. 특정 도메인이 불법인지 확인하려면?
+```sql
+SELECT COUNT(*) > 0 AS is_illegal
+FROM sites WHERE domain = LOWER('example.com') AND type = 'illegal';
+```
+
+### Q3. 가장 위험한 도메인 TOP 10을 알려면?
+```sql
+SELECT dar.domain, dar.threat_score, dar.recommendation, dar.total_visits
+FROM domain_analysis_results dar
+JOIN domain_analysis_reports rp ON dar.report_id = rp.id
+WHERE rp.analysis_month = (
+  SELECT MAX(analysis_month) FROM domain_analysis_reports WHERE status = 'completed'
+)
+ORDER BY dar.threat_score DESC
+LIMIT 10;
+```
+
+### Q4. 특정 월에 신규 발견된 불법 도메인은?
+```sql
+SELECT DISTINCT domain 
+FROM detection_results 
+WHERE session_id LIKE '2026-01%' AND final_status = 'illegal'
+  AND domain NOT IN (
+    SELECT DISTINCT domain FROM detection_results 
+    WHERE session_id < '2026-01' AND final_status = 'illegal'
+  );
+```
+
+### Q5. 마이그레이션은 어떻게 관리되나요?
+별도의 마이그레이션 도구(Prisma Migrate, Drizzle Kit 등)를 사용하지 않습니다.
+- `backend/src/lib/db.ts`의 `initializeDatabase()`: 코어 테이블 생성
+- `backend/api/index.ts`의 `ensureDbMigration()`: 추가 칼럼/테이블 마이그레이션
+- 모두 `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` 패턴으로 멱등성 보장
+
+### Q6. DB 스키마를 변경하려면?
+`backend/api/index.ts`의 `ensureDbMigration()` 함수에 새 마이그레이션 코드를 추가합니다. `IF NOT EXISTS` 패턴을 사용하면 기존 배포에 영향 없이 점진적으로 적용됩니다.
