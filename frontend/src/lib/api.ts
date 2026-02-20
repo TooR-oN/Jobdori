@@ -271,6 +271,11 @@ export const siteStatusApi = {
     const res = await api.patch(`/api/site-status/${encodeURIComponent(domain)}/channel`, { distribution_channel });
     return res.data;
   },
+
+  updateLanguage: async (domain: string, language: string) => {
+    const res = await api.patch(`/api/site-status/${encodeURIComponent(domain)}/language`, { language });
+    return res.data;
+  },
 };
 
 // ============================================
@@ -306,6 +311,22 @@ export const siteNotesApi = {
 
   delete: async (id: number) => {
     const res = await api.delete(`/api/site-notes/${id}`);
+    return res.data;
+  },
+};
+
+// ============================================
+// Site Languages API (사이트 언어)
+// ============================================
+
+export const siteLanguageApi = {
+  getList: async () => {
+    const res = await api.get('/api/site-languages');
+    return res.data;
+  },
+
+  create: async (name: string) => {
+    const res = await api.post('/api/site-languages', { name });
     return res.data;
   },
 };
@@ -381,6 +402,11 @@ export const reportTrackingApi = {
   
   getReasons: async () => {
     const res = await api.get('/api/report-tracking/reasons');
+    return res.data;
+  },
+
+  getPendingSummary: async (sessionId: string) => {
+    const res = await api.get('/api/report-tracking/pending-summary', { params: { session_id: sessionId } });
     return res.data;
   },
   

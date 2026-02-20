@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/layout';
-import { siteStatusApi, distributionChannelApi, siteNotesApi, statsApi } from '@/lib/api';
+import { siteStatusApi, distributionChannelApi, siteLanguageApi, siteNotesApi, statsApi } from '@/lib/api';
 import {
   MagnifyingGlassIcon,
   CheckCircleIcon,
@@ -33,8 +33,15 @@ interface SiteStatusItem {
   site_status: string;
   new_url: string | null;
   distribution_channel: string;
+  language: string;
   latest_note: SiteNote | null;
   created_at: string;
+}
+
+interface SiteLanguage {
+  id: number;
+  name: string;
+  is_default: boolean;
 }
 
 interface DistributionChannel {
@@ -88,12 +95,19 @@ export default function SiteStatusPage() {
   const [showAddChannel, setShowAddChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
 
+  // 언어 옵션
+  const [languages, setLanguages] = useState<SiteLanguage[]>([]);
+  const [showAddLanguage, setShowAddLanguage] = useState(false);
+  const [newLanguageName, setNewLanguageName] = useState('');
+  const [languageChangingDomain, setLanguageChangingDomain] = useState<string | null>(null);
+
   // 검색
   const [search, setSearch] = useState('');
 
   // 필터
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [languageFilter, setLanguageFilter] = useState<string>('all');
 
   // 수정 중 상태
   const [editingDomain, setEditingDomain] = useState<string | null>(null);
@@ -155,6 +169,17 @@ export default function SiteStatusPage() {
     }
   }, []);
 
+  const loadLanguages = useCallback(async () => {
+    try {
+      const res = await siteLanguageApi.getList();
+      if (res.success) {
+        setLanguages(res.languages || []);
+      }
+    } catch (err) {
+      console.error('Failed to load site languages:', err);
+    }
+  }, []);
+
   // 당월 도메인별 발견 통계 로드
   const loadDomainDiscoveryStats = useCallback(async () => {
     try {
@@ -180,8 +205,9 @@ export default function SiteStatusPage() {
   useEffect(() => {
     loadSites();
     loadChannels();
+    loadLanguages();
     loadDomainDiscoveryStats();
-  }, [loadSites, loadChannels, loadDomainDiscoveryStats]);
+  }, [loadSites, loadChannels, loadLanguages, loadDomainDiscoveryStats]);
 
   // 메시지 자동 숨김
   useEffect(() => {
@@ -327,6 +353,51 @@ export default function SiteStatusPage() {
   };
 
   // ============================================
+  // 언어 변경 핸들러
+  // ============================================
+
+  const handleLanguageChange = async (domain: string, newLanguage: string) => {
+    if (newLanguage === '__add_new__') {
+      setShowAddLanguage(true);
+      return;
+    }
+    setLanguageChangingDomain(domain);
+    try {
+      const res = await siteStatusApi.updateLanguage(domain, newLanguage);
+      if (res.success) {
+        setSites(prev => prev.map(s =>
+          s.domain === domain ? { ...s, language: newLanguage } : s
+        ));
+        setSuccessMessage(`"${domain}" 언어가 "${newLanguage}"로 변경되었습니다.`);
+      } else {
+        setError(res.error || '언어 변경에 실패했습니다.');
+      }
+    } catch (err) {
+      console.error('Failed to update language:', err);
+      setError('언어 변경에 실패했습니다.');
+    } finally {
+      setLanguageChangingDomain(null);
+    }
+  };
+
+  const handleAddLanguage = async () => {
+    if (!newLanguageName.trim()) return;
+    try {
+      const res = await siteLanguageApi.create(newLanguageName.trim());
+      if (res.success) {
+        await loadLanguages();
+        setSuccessMessage(`언어 "${newLanguageName.trim()}" 추가됨`);
+      }
+    } catch (err) {
+      console.error('Failed to add language:', err);
+      setError('언어 추가에 실패했습니다.');
+    } finally {
+      setShowAddLanguage(false);
+      setNewLanguageName('');
+    }
+  };
+
+  // ============================================
   // 활동 이력 핸들러
   // ============================================
 
@@ -438,6 +509,11 @@ export default function SiteStatusPage() {
     if (typeFilter !== 'all' && site.site_type !== typeFilter) {
       return false;
     }
+    if (languageFilter !== 'all') {
+      const siteLang = site.language || 'unset';
+      if (languageFilter === 'unset' && siteLang !== 'unset') return false;
+      if (languageFilter !== 'unset' && siteLang !== languageFilter) return false;
+    }
     return true;
   });
 
@@ -458,6 +534,9 @@ export default function SiteStatusPage() {
       } else if (sortField === 'distribution_channel') {
         aVal = a.distribution_channel || '웹';
         bVal = b.distribution_channel || '웹';
+      } else if (sortField === 'language') {
+        aVal = a.language || '미설정';
+        bVal = b.language || '미설정';
       }
       if (typeof aVal === 'string' && typeof bVal === 'string') {
         const cmp = aVal.localeCompare(bVal);
@@ -575,6 +654,39 @@ export default function SiteStatusPage() {
         </div>
       )}
 
+      {/* 언어 추가 모달 */}
+      {showAddLanguage && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-lg p-6 w-96">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">언어 추가</h3>
+            <input
+              type="text"
+              value={newLanguageName}
+              onChange={(e) => setNewLanguageName(e.target.value)}
+              placeholder="새 언어 이름"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+              onKeyDown={(e) => e.key === 'Enter' && handleAddLanguage()}
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setShowAddLanguage(false); setNewLanguageName(''); }}
+                className="px-4 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleAddLanguage}
+                disabled={!newLanguageName.trim()}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                추가
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 상태 요약 카드 */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
@@ -634,6 +746,20 @@ export default function SiteStatusPage() {
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600 whitespace-nowrap">언어:</label>
+            <select
+              value={languageFilter}
+              onChange={(e) => setLanguageFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">전체</option>
+              <option value="unset">미설정</option>
+              {languages.map(lang => (
+                <option key={lang.id} value={lang.name}>{lang.name}</option>
+              ))}
+            </select>
+          </div>
           <span className="text-sm text-gray-500 whitespace-nowrap">
             {filteredSites.length}개 표시
           </span>
@@ -652,7 +778,7 @@ export default function SiteStatusPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px]">
+            <table className="w-full min-w-[1200px]">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-8">#</th>
@@ -662,6 +788,12 @@ export default function SiteStatusPage() {
                     onClick={() => handleSort('site_type')}
                   >
                     분류 {getSortIcon('site_type')}
+                  </th>
+                  <th 
+                    className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('language')}
+                  >
+                    언어 {getSortIcon('language')}
                   </th>
                   <th 
                     className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
@@ -676,7 +808,7 @@ export default function SiteStatusPage() {
                   >
                     유통 경로 {getSortIcon('distribution_channel')}
                   </th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600">활동 이력</th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">활동 이력</th>
                   <th className="px-2 py-3 text-center text-xs font-medium text-gray-600 w-24 whitespace-nowrap">관리</th>
                 </tr>
               </thead>
@@ -727,6 +859,35 @@ export default function SiteStatusPage() {
                         </select>
                       </td>
 
+                      {/* 언어 */}
+                      <td className={`px-2 py-3 align-top ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
+                        <select
+                          value={site.language === 'unset' ? 'unset' : (site.language || 'unset')}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '__add_new__') {
+                              handleLanguageChange(site.domain, val);
+                            } else if (val === 'unset') {
+                              handleLanguageChange(site.domain, 'unset');
+                            } else {
+                              handleLanguageChange(site.domain, val);
+                            }
+                          }}
+                          disabled={languageChangingDomain === site.domain}
+                          className={`text-xs px-1.5 py-1 rounded border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400 w-full
+                            ${site.language === 'unset' || !site.language ? 'text-gray-400 bg-gray-50' : 'bg-white text-gray-700'}
+                            ${languageChangingDomain === site.domain ? 'opacity-50' : ''}
+                          `}
+                        >
+                          <option value="unset" className="text-gray-400">미설정</option>
+                          {languages.map(lang => (
+                            <option key={lang.id} value={lang.name}>{lang.name}</option>
+                          ))}
+                          <option value="__add_new__">+ 직접 입력</option>
+                        </select>
+                      </td>
+
+                      {/* 상태 */}
                       <td className={`px-2 py-3 align-top whitespace-nowrap ${site.site_status === 'closed' ? 'opacity-60' : ''}`}>
                         {isEditing ? (
                           <select
@@ -844,7 +1005,7 @@ export default function SiteStatusPage() {
                             ) : expandedNotes.length === 0 ? (
                               <p className="text-xs text-gray-400">이력이 없습니다.</p>
                             ) : (
-                              <div className="max-h-48 overflow-y-auto space-y-1.5">
+                              <div className="max-h-24 overflow-y-auto space-y-1.5">
                                 {expandedNotes.map(note => {
                                   const ni = getNoteIcon(note.note_type);
                                   return (

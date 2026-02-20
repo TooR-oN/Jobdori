@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UI 와이어프레임 - 기능 1 & 2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: #f3f4f6; font-family: 'Pretendard', -apple-system, sans-serif; }
+  .wireframe-label { background: #fef3c7; border: 2px dashed #f59e0b; color: #92400e; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; display: inline-block; margin-bottom: 12px; }
+  .highlight-new { background: #dbeafe !important; border: 2px solid #3b82f6 !important; }
+  .highlight-changed { background: #fef9c3 !important; border: 2px solid #eab308 !important; }
+</style>
+</head>
+<body class="p-6">
+
+<!-- ========================================== -->
+<!-- 기능 1: 불법 사이트 현황 - 언어 칼럼 추가 -->
+<!-- ========================================== -->
+<div class="max-w-[1400px] mx-auto mb-16">
+  <div class="wireframe-label">기능 1: 불법 사이트 현황 - 언어 칼럼 추가</div>
+  <h1 class="text-2xl font-bold text-gray-800 mb-2">불법 사이트 현황</h1>
+  <p class="text-sm text-gray-500 mb-6">🔵 파란 테두리 = 새로 추가되는 요소 | 🟡 노란 테두리 = 변경되는 요소</p>
+
+  <!-- 상태 요약 카드 (기존 유지) -->
+  <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+      <p class="text-xs text-gray-500 mb-1">전체 사이트</p>
+      <p class="text-2xl font-bold text-gray-800">289</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm p-4 border border-green-100">
+      <p class="text-xs text-green-600 mb-1">운영 중</p>
+      <p class="text-2xl font-bold text-green-600">261</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm p-4 border border-red-100">
+      <p class="text-xs text-red-600 mb-1">폐쇄</p>
+      <p class="text-2xl font-bold text-red-600">22</p>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm p-4 border border-amber-100">
+      <p class="text-xs text-amber-600 mb-1">주소 변경</p>
+      <p class="text-2xl font-bold text-amber-600">6</p>
+    </div>
+  </div>
+
+  <!-- 필터 영역 (기존 + 언어 필터 추가) -->
+  <div class="mb-6 bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+    <div class="flex items-center gap-4">
+      <div class="relative flex-1">
+        <input type="text" placeholder="도메인 검색..." class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm">
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-600">상태:</label>
+        <select class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          <option>전체</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-gray-600">분류:</label>
+        <select class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+          <option>전체</option>
+        </select>
+      </div>
+      <!-- 🔵 NEW: 언어 필터 -->
+      <div class="flex items-center gap-2 highlight-new rounded-lg px-2 py-1">
+        <label class="text-sm text-blue-700 font-medium">언어:</label>
+        <select class="px-3 py-2 border border-blue-300 rounded-lg text-sm bg-blue-50">
+          <option>전체</option>
+          <option>다국어</option>
+          <option>영어</option>
+          <option>스페인어</option>
+        </select>
+      </div>
+      <span class="text-sm text-gray-500">289개 표시</span>
+    </div>
+  </div>
+
+  <!-- 테이블 -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <table class="w-full">
+      <thead class="bg-gray-50 border-b border-gray-100">
+        <tr>
+          <th class="px-2 py-3 text-left text-xs font-medium text-gray-600 w-8">#</th>
+          <th class="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">도메인</th>
+          <th class="px-2 py-3 text-left text-xs font-medium text-gray-600 w-36">분류 ↕️</th>
+          <th class="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24">상태 ↕️</th>
+          <!-- 🔵 NEW: 언어 칼럼 (유통 경로 앞에 배치) -->
+          <th class="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 highlight-new rounded">
+            언어 ↕️
+          </th>
+          <th class="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">변경 URL</th>
+          <th class="px-2 py-3 text-left text-xs font-medium text-gray-600 w-20">유통 경로 ↕️</th>
+          <!-- 🟡 CHANGED: 활동 이력 너비 50% 축소 -->
+          <th class="px-2 py-3 text-left text-xs font-medium text-gray-600 highlight-changed rounded" style="width: 180px;">
+            활동 이력 <span class="text-[10px] text-amber-600">(50% 축소)</span>
+          </th>
+          <th class="px-2 py-3 text-center text-xs font-medium text-gray-600 w-24">관리</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        <!-- Row 1 -->
+        <tr>
+          <td class="px-2 py-3"><span class="text-xs text-gray-400">1</span></td>
+          <td class="px-2 py-3"><a class="text-sm font-mono text-blue-600">mangago.me</a></td>
+          <td class="px-2 py-3">
+            <select class="text-xs px-1.5 py-1 rounded border border-gray-200 w-full">
+              <option>Clone</option>
+            </select>
+          </td>
+          <td class="px-2 py-3">
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-600 border border-green-200">● 운영 중</span>
+          </td>
+          <!-- 🔵 NEW: 언어 드롭다운 -->
+          <td class="px-2 py-3 highlight-new rounded">
+            <select class="text-xs px-1.5 py-1 rounded border border-blue-200 w-full bg-blue-50 text-blue-700 font-medium">
+              <option>영어</option>
+              <option>다국어</option>
+              <option>스페인어</option>
+              <option>+ 직접 입력</option>
+            </select>
+          </td>
+          <td class="px-2 py-3"><span class="text-xs text-gray-300">-</span></td>
+          <td class="px-2 py-3">
+            <select class="text-xs px-1.5 py-1 rounded border border-gray-200 w-full bg-white">
+              <option>웹</option>
+            </select>
+          </td>
+          <td class="px-2 py-3" style="width: 180px;">
+            <div class="text-xs text-gray-400 truncate">2026-02-15 14:30 메모 내용...</div>
+          </td>
+          <td class="px-2 py-3 text-center">
+            <button class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">상태 변경</button>
+          </td>
+        </tr>
+        <!-- Row 2 -->
+        <tr>
+          <td class="px-2 py-3"><span class="text-xs text-gray-400">2</span></td>
+          <td class="px-2 py-3"><a class="text-sm font-mono text-blue-600">kunmanga.com</a></td>
+          <td class="px-2 py-3">
+            <select class="text-xs px-1.5 py-1 rounded border border-gray-200 w-full">
+              <option>Clone</option>
+            </select>
+          </td>
+          <td class="px-2 py-3">
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-600 border border-green-200">● 운영 중</span>
+          </td>
+          <td class="px-2 py-3 highlight-new rounded">
+            <select class="text-xs px-1.5 py-1 rounded border border-blue-200 w-full bg-blue-50 text-blue-700 font-medium">
+              <option>다국어</option>
+            </select>
+          </td>
+          <td class="px-2 py-3"><span class="text-xs text-gray-300">-</span></td>
+          <td class="px-2 py-3">
+            <select class="text-xs px-1.5 py-1 rounded border border-gray-200 w-full bg-white">
+              <option>웹</option>
+            </select>
+          </td>
+          <td class="px-2 py-3" style="width: 180px;">
+            <div class="text-xs text-gray-300">이력 없음</div>
+          </td>
+          <td class="px-2 py-3 text-center">
+            <button class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">상태 변경</button>
+          </td>
+        </tr>
+        <!-- Row 3: 미설정 -->
+        <tr>
+          <td class="px-2 py-3"><span class="text-xs text-gray-400">3</span></td>
+          <td class="px-2 py-3"><a class="text-sm font-mono text-blue-600">comick.io</a></td>
+          <td class="px-2 py-3">
+            <select class="text-xs px-1.5 py-1 rounded border border-gray-200 w-full text-orange-600 font-medium">
+              <option>Aggregator</option>
+            </select>
+          </td>
+          <td class="px-2 py-3">
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-600 border border-green-200">● 운영 중</span>
+          </td>
+          <td class="px-2 py-3 highlight-new rounded">
+            <select class="text-xs px-1.5 py-1 rounded border border-gray-200 w-full text-gray-400 bg-gray-50">
+              <option>미설정</option>
+              <option>다국어</option>
+              <option>영어</option>
+              <option>+ 직접 입력</option>
+            </select>
+          </td>
+          <td class="px-2 py-3"><span class="text-xs text-gray-300">-</span></td>
+          <td class="px-2 py-3">
+            <select class="text-xs px-1.5 py-1 rounded border border-gray-200 w-full bg-white">
+              <option>웹</option>
+            </select>
+          </td>
+          <td class="px-2 py-3" style="width: 180px;">
+            <div class="text-xs text-gray-300">이력 없음</div>
+          </td>
+          <td class="px-2 py-3 text-center">
+            <button class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">상태 변경</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 언어 추가 모달 미리보기 -->
+  <div class="mt-8">
+    <div class="wireframe-label">언어 추가 모달 (사용자가 "+ 직접 입력" 선택 시)</div>
+    <div class="bg-white rounded-xl shadow-lg p-6 w-96 border-2 border-blue-300">
+      <h3 class="text-lg font-bold text-gray-800 mb-4">언어 추가</h3>
+      <input type="text" placeholder="새 언어 이름 (예: 프랑스어)" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-4">
+      <div class="flex justify-end gap-2">
+        <button class="px-4 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg">취소</button>
+        <button class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg">추가</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 도메인별 신고/차단 통계 연동 -->
+  <div class="mt-8">
+    <div class="wireframe-label">기능 1-연동: 도메인별 신고/차단 통계에 언어 칼럼 추가</div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b border-gray-100">
+          <tr>
+            <th class="px-4 py-3 text-left text-sm font-medium text-gray-600">순위</th>
+            <th class="px-4 py-3 text-left text-sm font-medium text-gray-600">도메인 ↕️</th>
+            <th class="px-4 py-3 text-left text-sm font-medium text-gray-600 w-36">분류 ↕️</th>
+            <th class="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24">상태 ↕️</th>
+            <!-- 🔵 NEW -->
+            <th class="px-4 py-3 text-center text-sm font-medium text-gray-600 w-24 highlight-new rounded">언어 ↕️</th>
+            <th class="px-4 py-3 text-right text-sm font-medium text-gray-600">발견 ↕️</th>
+            <th class="px-4 py-3 text-right text-sm font-medium text-gray-600">신고 ↕️</th>
+            <th class="px-4 py-3 text-right text-sm font-medium text-gray-600">차단 ↕️</th>
+            <th class="px-4 py-3 text-right text-sm font-medium text-gray-600">차단율 ↕️</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <tr>
+            <td class="px-4 py-3"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">1</span></td>
+            <td class="px-4 py-3 text-sm font-medium text-gray-800">mangago.me</td>
+            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium text-yellow-700 bg-yellow-50">Clone</span></td>
+            <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 rounded-full text-xs font-medium text-green-600 bg-green-50 border border-green-200">운영 중</span></td>
+            <td class="px-4 py-3 text-center highlight-new rounded"><span class="px-2 py-0.5 rounded text-xs font-medium text-blue-600 bg-blue-50">영어</span></td>
+            <td class="px-4 py-3 text-right text-sm text-blue-600 font-medium">1,245</td>
+            <td class="px-4 py-3 text-right text-sm text-orange-600 font-medium">890</td>
+            <td class="px-4 py-3 text-right text-sm text-green-600 font-medium">456</td>
+            <td class="px-4 py-3 text-right text-sm text-green-600 font-medium">51.2%</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3"><span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold bg-gray-200 text-gray-700">2</span></td>
+            <td class="px-4 py-3 text-sm font-medium text-gray-800">kunmanga.com</td>
+            <td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-xs font-medium text-yellow-700 bg-yellow-50">Clone</span></td>
+            <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 rounded-full text-xs font-medium text-green-600 bg-green-50 border border-green-200">운영 중</span></td>
+            <td class="px-4 py-3 text-center highlight-new rounded"><span class="px-2 py-0.5 rounded text-xs font-medium text-blue-600 bg-blue-50">다국어</span></td>
+            <td class="px-4 py-3 text-right text-sm text-blue-600 font-medium">987</td>
+            <td class="px-4 py-3 text-right text-sm text-orange-600 font-medium">654</td>
+            <td class="px-4 py-3 text-right text-sm text-green-600 font-medium">321</td>
+            <td class="px-4 py-3 text-right text-sm text-green-600 font-medium">49.1%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- 기능 2: 신고 결과 추적 - 대기 중 URL 모달 -->
+<!-- ========================================== -->
+<div class="max-w-[1400px] mx-auto mb-16">
+  <div class="wireframe-label">기능 2: 신고 결과 추적 - 대기 중 URL 모달</div>
+  <h1 class="text-2xl font-bold text-gray-800 mb-2">신고결과 추적</h1>
+  <p class="text-sm text-gray-500 mb-6">🔵 파란 테두리 = 새로 추가되는 요소</p>
+
+  <!-- 대기 중 요약 보기 버튼 (페이지 상단) -->
+  <div class="mb-4 highlight-new rounded-xl p-1 inline-block">
+    <button class="flex items-center gap-2 px-4 py-2.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition text-sm font-medium shadow-sm">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      대기 중 요약 보기
+      <span class="bg-white text-cyan-700 px-2 py-0.5 rounded-full text-xs font-bold">47</span>
+    </button>
+  </div>
+
+  <p class="text-xs text-gray-400 mb-8">↑ 이 버튼은 기존 필터/액션 바 위, 페이지 제목 아래에 배치됩니다</p>
+
+  <!-- 대기 중 URL 모달 미리보기 -->
+  <div class="wireframe-label">대기 중 URL 모달 (버튼 클릭 시 열림)</div>
+  
+  <div class="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-5xl mx-auto overflow-hidden">
+    <!-- 모달 헤더 -->
+    <div class="bg-gradient-to-r from-cyan-50 to-blue-50 px-6 py-4 border-b border-gray-200">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-cyan-100 rounded-full flex items-center justify-center">
+            <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold text-gray-800">대기 중 URL 목록</h2>
+            <p class="text-sm text-gray-500">전체 회차에서 "대기 중" 상태인 URL을 모아 봅니다</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="bg-cyan-100 text-cyan-700 px-3 py-1 rounded-full text-sm font-bold">총 47건</span>
+          <button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-200 text-gray-400 text-xl">&times;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 모달 본문 -->
+    <div class="px-6 py-4 max-h-[600px] overflow-y-auto">
+      <table class="w-full">
+        <thead class="bg-gray-50 border-b border-gray-200 sticky top-0">
+          <tr>
+            <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-10">#</th>
+            <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-600">URL</th>
+            <th class="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-28 cursor-pointer hover:bg-gray-100">
+              신고일 ↕️
+            </th>
+            <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-28 cursor-pointer hover:bg-gray-100">
+              신고 ID ↕️
+            </th>
+            <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-28">상태</th>
+            <th class="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-36">사유</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <!-- Row 1: 신고 ID 있음 -->
+          <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2.5 text-xs text-gray-400">1</td>
+            <td class="px-3 py-2.5">
+              <a class="text-xs text-blue-600 hover:underline truncate block max-w-md" title="https://mangago.me/read-manga/merry_psycho/chapter-1/">
+                https://mangago.me/read-manga/merry_psycho/chapter-1/
+              </a>
+              <span class="text-[10px] text-gray-400">mangago.me</span>
+            </td>
+            <td class="px-3 py-2.5 text-xs text-gray-600">2026-02-10</td>
+            <td class="px-3 py-2.5 text-center">
+              <span class="text-xs text-blue-600 font-medium">9-069500...</span>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <select class="px-2 py-1 text-xs font-medium rounded-full border-0 bg-cyan-100 text-cyan-700 focus:ring-2 focus:ring-blue-500">
+                <option selected>대기 중</option>
+                <option>미신고</option>
+                <option>차단</option>
+                <option>색인없음</option>
+                <option>거부</option>
+              </select>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <select class="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-blue-500">
+                <option value="">사유 선택...</option>
+                <option>DMCA 위반</option>
+                <option>저작권 침해</option>
+              </select>
+            </td>
+          </tr>
+          <!-- Row 2: 신고 ID 없음 -->
+          <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2.5 text-xs text-gray-400">2</td>
+            <td class="px-3 py-2.5">
+              <a class="text-xs text-blue-600 hover:underline truncate block max-w-md">
+                https://kunmanga.com/manga/merry-psycho/chapter-5/
+              </a>
+              <span class="text-[10px] text-gray-400">kunmanga.com</span>
+            </td>
+            <td class="px-3 py-2.5 text-xs text-gray-600">2026-02-08</td>
+            <td class="px-3 py-2.5 text-center">
+              <span class="text-xs text-gray-300">-</span>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <select class="px-2 py-1 text-xs font-medium rounded-full border-0 bg-cyan-100 text-cyan-700">
+                <option selected>대기 중</option>
+                <option>미신고</option>
+                <option>차단</option>
+                <option>색인없음</option>
+                <option>거부</option>
+              </select>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <select class="w-full px-2 py-1 text-xs border border-gray-200 rounded">
+                <option value="">사유 선택...</option>
+              </select>
+            </td>
+          </tr>
+          <!-- Row 3 -->
+          <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2.5 text-xs text-gray-400">3</td>
+            <td class="px-3 py-2.5">
+              <a class="text-xs text-blue-600 hover:underline truncate block max-w-md">
+                https://es.rultimate.com/manga/merry-psycho/chapter-3/
+              </a>
+              <span class="text-[10px] text-gray-400">es.rultimate.com</span>
+            </td>
+            <td class="px-3 py-2.5 text-xs text-gray-600">2026-02-05</td>
+            <td class="px-3 py-2.5 text-center">
+              <span class="text-xs text-blue-600 font-medium">9-071200...</span>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <!-- 상태가 변경된 후의 모습 예시 -->
+              <select class="px-2 py-1 text-xs font-medium rounded-full border-0 bg-green-100 text-green-700">
+                <option>대기 중</option>
+                <option>미신고</option>
+                <option selected>차단</option>
+                <option>색인없음</option>
+                <option>거부</option>
+              </select>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <select class="w-full px-2 py-1 text-xs border border-gray-200 rounded">
+                <option value="">사유 선택...</option>
+              </select>
+            </td>
+          </tr>
+          <!-- Row 4: 거부 예시 (사유 포함) -->
+          <tr class="hover:bg-gray-50 bg-orange-50/30">
+            <td class="px-3 py-2.5 text-xs text-gray-400">4</td>
+            <td class="px-3 py-2.5">
+              <a class="text-xs text-blue-600 hover:underline truncate block max-w-md">
+                https://comick.io/comic/merry-psycho/chapter-2/
+              </a>
+              <span class="text-[10px] text-gray-400">comick.io</span>
+            </td>
+            <td class="px-3 py-2.5 text-xs text-gray-600">2026-01-28</td>
+            <td class="px-3 py-2.5 text-center">
+              <span class="text-xs text-blue-600 font-medium">9-068800...</span>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <select class="px-2 py-1 text-xs font-medium rounded-full border-0 bg-orange-100 text-orange-700">
+                <option>대기 중</option>
+                <option>미신고</option>
+                <option>차단</option>
+                <option>색인없음</option>
+                <option selected>거부</option>
+              </select>
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              <select class="w-full px-2 py-1 text-xs border border-orange-300 rounded bg-orange-50 text-orange-700">
+                <option value="">사유 선택...</option>
+                <option selected>DMCA 위반</option>
+              </select>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    
+    <!-- 모달 푸터 -->
+    <div class="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+      <p class="text-xs text-gray-500">💡 상태 변경 시 자동 저장됩니다 (리프레시 없음)</p>
+      <button class="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 설계 메모 -->
+<div class="max-w-[1400px] mx-auto mb-16">
+  <div class="wireframe-label">설계 메모</div>
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
+    
+    <div>
+      <h3 class="font-bold text-gray-800 mb-2">기능 1: 언어 칼럼</h3>
+      <ul class="text-sm text-gray-600 space-y-1 list-disc pl-5">
+        <li><b>배치:</b> "상태"와 "변경 URL" 사이 (유통 경로 앞) → 사이트 속성 그룹(분류→상태→언어)이 연속되어 자연스러움</li>
+        <li><b>DB:</b> <code>sites</code> 테이블에 <code>language VARCHAR(50) DEFAULT 'unset'</code> 칼럼 추가</li>
+        <li><b>DB:</b> <code>site_languages</code> 테이블 신규 생성 (유통 경로와 동일한 패턴)</li>
+        <li><b>API:</b> <code>GET /api/site-languages</code>, <code>POST /api/site-languages</code>, <code>PATCH /api/site-status/:domain/language</code></li>
+        <li><b>통계 연동:</b> <code>GET /api/stats/by-domain</code>에서 <code>language</code> 필드 JOIN 추가</li>
+        <li><b>활동 이력:</b> 너비를 기존 약 360px → 180px로 축소 (50%)</li>
+      </ul>
+    </div>
+    
+    <div>
+      <h3 class="font-bold text-gray-800 mb-2">기능 2: 대기 중 URL 모달</h3>
+      <ul class="text-sm text-gray-600 space-y-1 list-disc pl-5">
+        <li><b>API:</b> <code>GET /api/report-tracking/pending-summary</code> → 모든 세션에서 <code>report_status = '대기 중'</code>인 URL 조회</li>
+        <li><b>응답:</b> <code>{ id, url, domain, report_id, created_at, report_status, reason }</code></li>
+        <li><b>정렬:</b> 신고일(created_at), 신고 ID(report_id) 오름차순/내림차순 (프론트엔드 정렬)</li>
+        <li><b>상태 변경:</b> 기존 <code>PUT /api/report-tracking/:id/status</code> 재사용 → 인라인 저장</li>
+        <li><b>사유 변경:</b> 기존 <code>PUT /api/report-tracking/:id/reason</code> 재사용</li>
+        <li><b>리프레시 없음:</b> 상태/사유 변경 시 로컬 state만 업데이트, 모달 닫을 때 부모 데이터 새로고침</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
