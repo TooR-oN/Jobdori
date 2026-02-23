@@ -30,6 +30,9 @@ export default function PendingPage() {
   // 처리 중 상태
   const [processingIds, setProcessingIds] = useState<Set<number>>(new Set());
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  
+  // 벌크 처리 진행률
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, failed: 0 });
 
   // 정렬 상태
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -148,7 +151,7 @@ export default function PendingPage() {
     }
   };
 
-  // 일괄 승인/거부
+  // 일괄 승인/거부 (개별 처리로 진행률 표시)
   const handleBulkReview = async (action: 'approve' | 'reject') => {
     if (selectedIds.size === 0) {
       setError('선택된 항목이 없습니다.');
@@ -159,23 +162,31 @@ export default function PendingPage() {
       return;
     }
     
-    setIsBulkProcessing(true);
+    const ids = Array.from(selectedIds);
+    const total = ids.length;
     
-    try {
-      const res = await pendingApi.bulkReview(Array.from(selectedIds), action);
-      if (res.success) {
-        setSuccessMessage(`${res.processed || selectedIds.size}개 항목이 처리되었습니다.`);
-        setSelectedIds(new Set());
-        loadPending();
-      } else {
-        setError(res.error || '일괄 처리에 실패했습니다.');
+    setIsBulkProcessing(true);
+    setBulkProgress({ current: 0, total, failed: 0 });
+    
+    let processed = 0;
+    let failed = 0;
+    
+    for (const id of ids) {
+      try {
+        await pendingApi.review(id, action);
+        processed++;
+      } catch (err) {
+        console.error(`Failed to review item ${id}:`, err);
+        failed++;
       }
-    } catch (err) {
-      console.error('Failed to bulk review:', err);
-      setError('일괄 처리에 실패했습니다.');
-    } finally {
-      setIsBulkProcessing(false);
+      setBulkProgress({ current: processed + failed, total, failed });
     }
+    
+    setSuccessMessage(`${processed}개 항목이 처리되었습니다.${failed > 0 ? ` (${failed}개 실패)` : ''}`);
+    setSelectedIds(new Set());
+    setIsBulkProcessing(false);
+    setBulkProgress({ current: 0, total: 0, failed: 0 });
+    loadPending();
   };
 
   // 전체 선택/해제
@@ -246,6 +257,29 @@ export default function PendingPage() {
           </span>
         </div>
       </div>
+
+      {/* 벌크 처리 진행률 표시 */}
+      {isBulkProcessing && bulkProgress.total > 0 && (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-blue-700">
+              일괄 처리 중... ({bulkProgress.current}/{bulkProgress.total})
+            </span>
+            <span className="text-sm font-bold text-blue-700">
+              {Math.round((bulkProgress.current / bulkProgress.total) * 100)}%
+            </span>
+          </div>
+          <div className="w-full bg-blue-200 rounded-full h-3 overflow-hidden">
+            <div 
+              className="bg-blue-600 h-3 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+            />
+          </div>
+          {bulkProgress.failed > 0 && (
+            <p className="mt-1 text-xs text-red-600">{bulkProgress.failed}개 실패</p>
+          )}
+        </div>
+      )}
 
       {/* 테이블 */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

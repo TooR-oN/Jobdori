@@ -438,7 +438,7 @@ async function updateMonthlyStats(finalResults: FinalResult[]) {
 async function updateMantaRankings(searchResults: SearchResult[], sessionId: string, illegalDomains: Set<string>) {
   const sql = getDb();
   
-  // 작품별로 "[작품명]만" 검색한 결과에서 manta.net 순위 및 1페이지 불법 URL 수 계산
+  // 작품별로 "[작품명]만" 검색한 결과에서 manta.net 순위 및 상위 3페이지(30위) 불법 URL 수 계산
   const titleRankings = new Map<string, { 
     mantaRank: number | null; 
     firstDomain: string; 
@@ -457,8 +457,8 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
       
       const ranking = titleRankings.get(title)!;
       
-      // 1페이지(1~10위) 내 불법 사이트 URL 수 계산
-      if (result.rank <= 10 && illegalDomains.has(result.domain.toLowerCase())) {
+      // 상위 3페이지(1~30위) 내 불법 사이트 URL 수 계산
+      if (result.rank <= 30 && illegalDomains.has(result.domain.toLowerCase())) {
         ranking.page1IllegalCount++;
       }
       

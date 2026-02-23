@@ -22,6 +22,7 @@ interface RankHistoryPoint {
   fullDate: string;
   sessionId: string;
   rank: number | null;
+  page1IllegalCount: number;
 }
 
 export default function MantaRankingsPage() {
@@ -34,6 +35,7 @@ export default function MantaRankingsPage() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [showAllTitles, setShowAllTitles] = useState(false);
   const [currentTitles, setCurrentTitles] = useState<string[]>([]);
+  const [historyOnlyTitles, setHistoryOnlyTitles] = useState<string[]>([]);
   
   // 날짜 필터 (각 작품별)
   const [dateFilterStart, setDateFilterStart] = useState('');
@@ -42,11 +44,12 @@ export default function MantaRankingsPage() {
   // 차트 호버 상태
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
 
-  // 작품 목록 (중복 제거 및 정렬)
+  // 작품 목록 (현재 모니터링 + 히스토리 작품)
   const titles = useMemo(() => {
-    const uniqueTitles = Array.from(new Set(rankings.map(r => r.title)));
-    return uniqueTitles.sort((a, b) => a.localeCompare(b));
-  }, [rankings]);
+    const rankingTitles = Array.from(new Set(rankings.map(r => r.title)));
+    const allTitles = Array.from(new Set([...rankingTitles, ...historyOnlyTitles]));
+    return allTitles.sort((a, b) => a.localeCompare(b));
+  }, [rankings, historyOnlyTitles]);
 
   // 필터된 작품 목록 (모니터링 상태 + 검색)
   const filteredTitles = useMemo(() => {
@@ -79,6 +82,7 @@ export default function MantaRankingsPage() {
         }
         if (titlesRes.success) {
           setCurrentTitles((titlesRes.current || []).map((t: { name: string }) => t.name));
+          setHistoryOnlyTitles(titlesRes.historyOnlyTitles || []);
         }
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -105,13 +109,14 @@ export default function MantaRankingsPage() {
       const res = await mantaRankingsApi.getRankingHistory(title);
       
       if (res.success && res.history && res.history.length > 0) {
-        const history: RankHistoryPoint[] = res.history.map((h: { rank: number | null; sessionId: string; recordedAt: string }) => {
+        const history: RankHistoryPoint[] = res.history.map((h: { rank: number | null; sessionId: string; recordedAt: string; page1IllegalCount?: number }) => {
           const date = new Date(h.recordedAt);
           return {
             date: `${date.getMonth() + 1}/${date.getDate()}`,
             fullDate: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
             sessionId: h.sessionId,
             rank: h.rank,
+            page1IllegalCount: h.page1IllegalCount ?? 0,
           };
         });
         
@@ -124,6 +129,7 @@ export default function MantaRankingsPage() {
             fullDate: new Date().toISOString().slice(0, 10),
             sessionId: currentRanking.sessionId,
             rank: currentRanking.mantaRank,
+            page1IllegalCount: currentRanking.page1IllegalCount ?? 0,
           }]);
         } else {
           setRankHistory([]);
@@ -138,6 +144,7 @@ export default function MantaRankingsPage() {
           fullDate: new Date().toISOString().slice(0, 10),
           sessionId: currentRanking.sessionId,
           rank: currentRanking.mantaRank,
+          page1IllegalCount: currentRanking.page1IllegalCount ?? 0,
         }]);
       } else {
         setRankHistory([]);
@@ -168,18 +175,26 @@ export default function MantaRankingsPage() {
     });
   }, [rankHistory, dateFilterStart, dateFilterEnd]);
 
-  // 그래프 SVG 생성 (확대 + 툴팁 지원)
+  // 듀얼 Y축 그래프 SVG 생성
   const generateChartSVG = () => {
     if (filteredHistory.length === 0) return null;
 
     const width = 1200;
     const height = 500;
-    const padding = { top: 40, right: 50, bottom: 60, left: 60 };
+    const padding = { top: 50, right: 70, bottom: 60, left: 75 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
     const maxRank = 30;
     const minRank = 1;
+
+    // 불법 URL 최대값 (우측 Y축 스케일)
+    const maxIllegalCount = Math.max(
+      ...filteredHistory.map(p => p.page1IllegalCount),
+      1 // 최소 1 보장
+    );
+    // 스케일 올림 (보기 좋게)
+    const illegalYMax = Math.ceil(maxIllegalCount * 1.2) || 1;
 
     const allPoints = filteredHistory.map((point, index) => {
       const x = filteredHistory.length === 1
@@ -188,7 +203,10 @@ export default function MantaRankingsPage() {
       const y = point.rank !== null
         ? padding.top + ((point.rank - minRank) / (maxRank - minRank)) * chartHeight
         : null;
-      return { x, y, ...point, index };
+      // 불법 URL 바 높이 (아래에서 위로)
+      const barHeight = (point.page1IllegalCount / illegalYMax) * chartHeight;
+      const barY = padding.top + chartHeight - barHeight;
+      return { x, y, barY, barHeight, ...point, index };
     });
 
     const validPoints = allPoints.filter(p => p.y !== null) as (typeof allPoints[0] & { y: number })[];
@@ -199,8 +217,22 @@ export default function MantaRankingsPage() {
 
     const yTicks = [1, 5, 10, 15, 20, 25, 30];
 
-    // 10 page 경계선 (page 1 = rank 1~10)
+    // 페이지 경계선 위치 (P1=10위, P2=20위, P3=30위)
     const page1Bottom = padding.top + ((10 - minRank) / (maxRank - minRank)) * chartHeight;
+    const page2Bottom = padding.top + ((20 - minRank) / (maxRank - minRank)) * chartHeight;
+
+    // 불법 URL 바 너비 계산
+    const barWidth = filteredHistory.length === 1 
+      ? 30 
+      : Math.max(4, Math.min(20, (chartWidth / filteredHistory.length) * 0.5));
+
+    // 우측 Y축 눈금 (불법 URL 개수)
+    const illegalTicks: number[] = [];
+    const tickStep = illegalYMax <= 5 ? 1 : illegalYMax <= 10 ? 2 : Math.ceil(illegalYMax / 5);
+    for (let i = 0; i <= illegalYMax; i += tickStep) {
+      illegalTicks.push(i);
+    }
+    if (!illegalTicks.includes(illegalYMax)) illegalTicks.push(illegalYMax);
 
     return (
       <svg
@@ -209,7 +241,20 @@ export default function MantaRankingsPage() {
         preserveAspectRatio="xMidYMid meet"
         onMouseLeave={() => setHoveredPoint(null)}
       >
-        {/* Page 1 영역 하이라이트 */}
+        {/* 범례 (Legend) */}
+        <g>
+          {/* 순위 라인 범례 */}
+          <line x1={padding.left} y1={16} x2={padding.left + 24} y2={16} stroke="#3b82f6" strokeWidth={2.5} />
+          <circle cx={padding.left + 12} cy={16} r={3} fill="#3b82f6" stroke="white" strokeWidth={1} />
+          <text x={padding.left + 30} y={20} className="text-[11px] fill-gray-700 font-medium">Manta 순위</text>
+          
+          {/* 불법 URL 바 범례 */}
+          <rect x={padding.left + 120} y={9} width={14} height={14} fill="#ef4444" opacity={0.6} rx={1} />
+          <text x={padding.left + 140} y={20} className="text-[11px] fill-gray-700 font-medium">불법 URL 개수 (30위 내)</text>
+        </g>
+
+        {/* Page 영역 하이라이트 */}
+        {/* P1: 1~10위 - 녹색 */}
         <rect
           x={padding.left}
           y={padding.top}
@@ -218,13 +263,34 @@ export default function MantaRankingsPage() {
           fill="#f0fdf4"
           opacity={0.5}
         />
-        <text x={width - padding.right + 5} y={page1Bottom - 5} className="text-[10px] fill-green-500" textAnchor="start">
-          P1
-        </text>
+        {/* P2: 11~20위 - 연한 노란 */}
+        <rect
+          x={padding.left}
+          y={page1Bottom}
+          width={chartWidth}
+          height={page2Bottom - page1Bottom}
+          fill="#fefce8"
+          opacity={0.3}
+        />
+        {/* P3: 21~30위 - 연한 빨간 */}
+        <rect
+          x={padding.left}
+          y={page2Bottom}
+          width={chartWidth}
+          height={(padding.top + chartHeight) - page2Bottom}
+          fill="#fef2f2"
+          opacity={0.3}
+        />
 
-        {/* Y축 그리드 라인 */}
+        {/* 페이지 표시 (좌측 Y축 10위 왼쪽) */}
+        <text x={padding.left - 55} y={padding.top + ((5 - minRank) / (maxRank - minRank)) * chartHeight + 4} className="text-[10px] fill-green-600 font-bold" textAnchor="end">P1</text>
+        <text x={padding.left - 55} y={padding.top + ((15 - minRank) / (maxRank - minRank)) * chartHeight + 4} className="text-[10px] fill-amber-600 font-bold" textAnchor="end">P2</text>
+        <text x={padding.left - 55} y={padding.top + ((25 - minRank) / (maxRank - minRank)) * chartHeight + 4} className="text-[10px] fill-red-500 font-bold" textAnchor="end">P3</text>
+
+        {/* Y축 그리드 라인 + 눈금 (좌측: 순위) */}
         {yTicks.map(tick => {
           const y = padding.top + ((tick - minRank) / (maxRank - minRank)) * chartHeight;
+          const isPageBoundary = tick === 10 || tick === 20 || tick === 30;
           return (
             <g key={tick}>
               <line
@@ -232,21 +298,58 @@ export default function MantaRankingsPage() {
                 y1={y}
                 x2={width - padding.right}
                 y2={y}
-                stroke={tick === 10 ? '#86efac' : '#e5e7eb'}
-                strokeDasharray={tick === 10 ? '0' : '4'}
-                strokeWidth={tick === 10 ? 1.5 : 1}
+                stroke={isPageBoundary ? (tick === 10 ? '#86efac' : tick === 20 ? '#fde68a' : '#fca5a5') : '#e5e7eb'}
+                strokeDasharray={isPageBoundary ? '0' : '4'}
+                strokeWidth={isPageBoundary ? 1.5 : 1}
               />
               <text
-                x={padding.left - 10}
+                x={padding.left - 8}
                 y={y + 4}
                 textAnchor="end"
                 className="text-xs fill-gray-500"
               >
-                {tick}위
+                {tick}
               </text>
             </g>
           );
         })}
+
+        {/* 우측 Y축 눈금 (불법 URL 개수) */}
+        {illegalTicks.map(tick => {
+          const y = padding.top + chartHeight - (tick / illegalYMax) * chartHeight;
+          return (
+            <g key={`illegal-${tick}`}>
+              <text
+                x={width - padding.right + 8}
+                y={y + 4}
+                textAnchor="start"
+                className="text-xs fill-red-400"
+              >
+                {tick}
+              </text>
+            </g>
+          );
+        })}
+        {/* 우측 Y축 라벨 */}
+        <text
+          x={width - 10}
+          y={padding.top + chartHeight / 2}
+          textAnchor="middle"
+          className="text-[10px] fill-red-400"
+          transform={`rotate(90, ${width - 10}, ${padding.top + chartHeight / 2})`}
+        >
+          불법 URL 수
+        </text>
+        {/* 좌측 Y축 라벨 */}
+        <text
+          x={12}
+          y={padding.top + chartHeight / 2}
+          textAnchor="middle"
+          className="text-[10px] fill-blue-500"
+          transform={`rotate(-90, 12, ${padding.top + chartHeight / 2})`}
+        >
+          Manta 순위
+        </text>
 
         {/* X축 라벨 */}
         {filteredHistory.map((point, index) => {
@@ -269,7 +372,26 @@ export default function MantaRankingsPage() {
           );
         })}
 
-        {/* 라인 */}
+        {/* 불법 URL 바 차트 (빨간색) */}
+        {allPoints.map((point, index) => {
+          if (point.page1IllegalCount === 0) return null;
+          const isHovered = hoveredPoint === index;
+          return (
+            <rect
+              key={`bar-${index}`}
+              x={point.x - barWidth / 2}
+              y={point.barY}
+              width={barWidth}
+              height={point.barHeight}
+              fill="#ef4444"
+              opacity={isHovered ? 0.8 : 0.45}
+              rx={1}
+              className="transition-opacity"
+            />
+          );
+        })}
+
+        {/* 순위 라인 (파란색) */}
         {validPoints.length > 1 && (
           <path
             d={linePath}
@@ -361,18 +483,24 @@ export default function MantaRankingsPage() {
                   />
                   {/* 툴팁 박스 */}
                   <foreignObject
-                    x={Math.min(px - 70, width - padding.right - 150)}
-                    y={Math.max(padding.top - 5, (point.y ?? padding.top) - 75)}
-                    width={155}
-                    height={70}
+                    x={Math.min(Math.max(px - 90, 5), width - padding.right - 185)}
+                    y={Math.max(padding.top - 5, (point.y ?? padding.top) - 95)}
+                    width={185}
+                    height={90}
                   >
                     <div className="bg-gray-900 text-white text-[11px] rounded-lg px-3 py-2 shadow-lg">
                       <p className="font-medium">{point.fullDate}</p>
                       <p className="mt-0.5">
                         {point.rank !== null 
-                          ? <>순위: <span className="font-bold text-blue-300">P1-{point.rank}</span> ({point.rank <= 10 ? '1페이지' : `${Math.ceil(point.rank / 10)}페이지`})</>
+                          ? <>순위: <span className="font-bold text-blue-300">{point.rank}위</span> ({point.rank <= 10 ? '1페이지' : point.rank <= 20 ? '2페이지' : '3페이지'})</>
                           : <span className="text-red-300 font-medium">순위권 외 (30위 밖)</span>
                         }
+                      </p>
+                      <p className="mt-0.5">
+                        불법 URL: <span className={`font-bold ${point.page1IllegalCount > 0 ? 'text-red-300' : 'text-green-300'}`}>
+                          {point.page1IllegalCount}건
+                        </span>
+                        <span className="text-gray-400 ml-1">(30위 내)</span>
                       </p>
                     </div>
                   </foreignObject>
@@ -388,7 +516,16 @@ export default function MantaRankingsPage() {
           y1={padding.top}
           x2={padding.left}
           y2={height - padding.bottom}
-          stroke="#d1d5db"
+          stroke="#93c5fd"
+          strokeWidth={1.5}
+        />
+        <line
+          x1={width - padding.right}
+          y1={padding.top}
+          x2={width - padding.right}
+          y2={height - padding.bottom}
+          stroke="#fca5a5"
+          strokeWidth={1.5}
         />
         <line
           x1={padding.left}
@@ -476,13 +613,18 @@ export default function MantaRankingsPage() {
                           <p className={`font-medium truncate ${isSelected ? 'text-blue-600' : 'text-gray-800'}`}>
                             {title}
                           </p>
-                          {ranking && (
+                          {ranking ? (
                             <p className="text-[10px] text-gray-500 mt-0.5">
                               {ranking.mantaRank !== null 
-                                ? `P1-${ranking.mantaRank}` 
+                                ? `${ranking.mantaRank}위` 
                                 : '순위권 외'
                               }
+                              {ranking.page1IllegalCount > 0 && (
+                                <span className="text-red-500 ml-1">불법 {ranking.page1IllegalCount}</span>
+                              )}
                             </p>
+                          ) : (
+                            <p className="text-[10px] text-gray-400 mt-0.5">히스토리만</p>
                           )}
                         </div>
                       </button>
@@ -507,6 +649,9 @@ export default function MantaRankingsPage() {
                 <h3 className="text-base font-semibold text-gray-800 truncate">
                   {selectedTitle || '작품을 선택하세요'}
                 </h3>
+                {selectedTitle && !currentTitles.includes(selectedTitle) && (
+                  <span className="px-1.5 py-0.5 text-[10px] bg-gray-200 text-gray-600 rounded">모니터링 종료</span>
+                )}
               </div>
               {selectedRanking && (
                 <p className="text-xs text-gray-500 mt-0.5">
@@ -517,6 +662,11 @@ export default function MantaRankingsPage() {
                       불법 {selectedRanking.page1IllegalCount}건
                     </span>
                   )}
+                </p>
+              )}
+              {selectedTitle && !selectedRanking && (
+                <p className="text-xs text-gray-400 mt-0.5">
+                  현재 순위 없음 (과거 히스토리만 존재)
                 </p>
               )}
             </div>
@@ -590,8 +740,10 @@ export default function MantaRankingsPage() {
                 <div className="flex-1 min-h-0">
                   {generateChartSVG()}
                 </div>
-                <div className="mt-1 text-center text-[10px] text-gray-400">
-                  녹색 영역 = 검색 결과 1페이지 (1~10위)
+                <div className="mt-1 flex items-center justify-center gap-4 text-[10px] text-gray-400">
+                  <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 bg-green-100 border border-green-300 rounded-sm"></span> 1페이지 (1~10위)</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 bg-yellow-100 border border-yellow-300 rounded-sm"></span> 2페이지 (11~20위)</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 bg-red-100 border border-red-300 rounded-sm"></span> 3페이지 (21~30위)</span>
                 </div>
               </div>
             )}

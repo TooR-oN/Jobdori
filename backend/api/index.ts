@@ -1843,6 +1843,24 @@ app.get('/api/titles', async (c) => {
   try {
     const current = await getCurrentTitles()
     const history = await getHistoryTitles()
+    
+    // 히스토리 테이블에만 존재하는 비모니터링 작품 (titles 테이블에 없거나 is_current=false인 작품 중 ranking history가 있는 것)
+    const currentNames = current.map((t: any) => t.name)
+    const historyNames = history.map((t: any) => t.name)
+    const allTitleNames = [...currentNames, ...historyNames]
+    
+    let historyOnlyTitles: string[] = []
+    try {
+      const historyRankTitles = await query`
+        SELECT DISTINCT title FROM manta_ranking_history
+        WHERE title != ALL(${allTitleNames.length > 0 ? allTitleNames : ['']})
+        ORDER BY title ASC
+      `
+      historyOnlyTitles = historyRankTitles.map((t: any) => t.title)
+    } catch {
+      // ignore - optional data
+    }
+    
     return c.json({
       success: true,
       current: current.map((t: any) => ({ 
@@ -1854,7 +1872,8 @@ app.get('/api/titles', async (c) => {
         name: t.name, 
         manta_url: t.manta_url,
         unofficial_titles: t.unofficial_titles || []
-      }))
+      })),
+      historyOnlyTitles
     })
   } catch {
     return c.json({ success: false, error: 'Failed to load titles' }, 500)
@@ -3191,14 +3210,14 @@ app.get('/api/manta-rankings', async (c) => {
   }
 })
 
-// 작품별 순위 히스토리 API
+// 작품별 순위 히스토리 API (page1IllegalCount 포함)
 app.get('/api/titles/:title/ranking-history', async (c) => {
   try {
     const title = decodeURIComponent(c.req.param('title'))
     
     // 먼저 히스토리 테이블에서 조회
     let history = await query`
-      SELECT manta_rank, first_rank_domain, session_id, recorded_at
+      SELECT manta_rank, first_rank_domain, session_id, COALESCE(page1_illegal_count, 0) as page1_illegal_count, recorded_at
       FROM manta_ranking_history
       WHERE title = ${title}
       ORDER BY recorded_at ASC
@@ -3207,7 +3226,7 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
     // 히스토리가 없으면 현재 manta_rankings에서 가져오기
     if (history.length === 0) {
       const current = await query`
-        SELECT manta_rank, first_rank_domain, session_id, updated_at as recorded_at
+        SELECT manta_rank, first_rank_domain, session_id, COALESCE(page1_illegal_count, 0) as page1_illegal_count, updated_at as recorded_at
         FROM manta_rankings
         WHERE title = ${title}
       `
@@ -3221,6 +3240,7 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
         rank: h.manta_rank,
         firstDomain: h.first_rank_domain,
         sessionId: h.session_id,
+        page1IllegalCount: h.page1_illegal_count,
         recordedAt: h.recorded_at
       }))
     })
@@ -3230,15 +3250,26 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
 })
 
 // 모니터링 대상 작품 목록 API (상세보기용)
+// 비모니터링 작품도 히스토리가 있으면 포함
 app.get('/api/titles/list', async (c) => {
   try {
     const titles = await query`
       SELECT name, manta_url FROM titles WHERE is_current = true ORDER BY name ASC
     `
+    
+    // 히스토리 테이블에서 비모니터링 작품 중 순위 기록이 있는 작품 조회
+    const historyTitles = await query`
+      SELECT DISTINCT h.title as name
+      FROM manta_ranking_history h
+      WHERE h.title NOT IN (SELECT name FROM titles WHERE is_current = true)
+      ORDER BY h.title ASC
+    `
+    
     return c.json({
       success: true,
       titles: titles.map(t => t.name),
-      titlesWithUrl: titles.map(t => ({ name: t.name, manta_url: t.manta_url }))
+      titlesWithUrl: titles.map(t => ({ name: t.name, manta_url: t.manta_url })),
+      historyOnlyTitles: historyTitles.map(t => t.name)
     })
   } catch {
     return c.json({ success: false, error: 'Failed to load titles' }, 500)
