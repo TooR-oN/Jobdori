@@ -678,20 +678,33 @@ export default function DomainAnalysisPage() {
           {activeTab === 'table' && (
             <div className="bg-white rounded-b-xl shadow-sm border border-gray-100 border-t-0 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1200px]">
+                <table className="w-full min-w-[1200px] table-fixed">
+                  <colgroup>
+                    <col className="w-[45px]" /> {/* # */}
+                    <col className="w-[160px]" /> {/* 도메인 */}
+                    <col /> {/* 분류 */}
+                    <col /> {/* 위협 점수 */}
+                    <col /> {/* 발견 수 */}
+                    <col /> {/* 월간 방문 */}
+                    <col /> {/* 이탈률 */}
+                    <col /> {/* 글로벌 순위 */}
+                    <col /> {/* Unique Visitors */}
+                    <col /> {/* 권고사항 */}
+                    <col /> {/* 트래픽 분석 */}
+                  </colgroup>
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-10">#</th>
-                      <th className="px-2 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[130px] max-w-[170px]">도메인</th>
-                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">분류</th>
-                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-[120px]">위협 점수</th>
-                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-14">발견 수</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">#</th>
+                      <th className="px-2 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">도메인</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">분류</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">위협 점수</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">발견 수</th>
                       <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
-                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">이탈률</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider pl-5">글로벌 순위</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider pl-5">Unique Visitors</th>
-                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[110px]">권고사항</th>
-                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[120px]">트래픽 분석</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">이탈률</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">글로벌 순위</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Unique Visitors</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">권고사항</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">트래픽 분석</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -741,12 +754,10 @@ export default function DomainAnalysisPage() {
                             <span className="text-sm font-medium text-gray-700">{d.discovered ?? '-'}</span>
                           </td>
                           <td className="px-2 py-3 text-center">
-                            <div>
-                              <span className="text-sm font-medium text-gray-900">{formatVisits(d.total_visits)}</span>
+                            <span className="text-sm font-medium text-gray-900">{formatVisits(d.total_visits)}</span>
                               {mom !== null && (
                                 <div className={`text-[11px] ${momColor} leading-tight`}>({momIcon} {Math.abs(mom).toFixed(1)}%)</div>
                               )}
-                            </div>
                           </td>
                           <td className="px-2 py-3 text-center">
                             <span className={`text-sm font-medium ${
@@ -757,10 +768,10 @@ export default function DomainAnalysisPage() {
                               {d.bounce_rate !== null ? `${(d.bounce_rate * 100).toFixed(0)}%` : '-'}
                             </span>
                           </td>
-                          <td className="px-3 py-3 text-center pl-5">
+                          <td className="px-2 py-3 text-center">
                             <span className="text-sm text-gray-700">{d.global_rank ? `#${d.global_rank.toLocaleString()}` : '-'}</span>
                           </td>
-                          <td className="px-3 py-3 text-center pl-5">
+                          <td className="px-2 py-3 text-center">
                             <span className="text-sm text-gray-700">{d.unique_visitors ? formatVisits(d.unique_visitors) : '-'}</span>
                           </td>
                           <td className="px-2 py-3 text-center">

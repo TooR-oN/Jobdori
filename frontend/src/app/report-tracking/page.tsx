@@ -695,7 +695,7 @@ export default function ReportTrackingPage() {
       {/* 대기 중 요약 모달 */}
       {showPendingModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] flex flex-col">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[85vh] flex flex-col">
             {/* 모달 헤더 */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <div className="flex items-center gap-3">
@@ -732,9 +732,9 @@ export default function ReportTrackingPage() {
                   <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
                     <tr>
                       <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-8">#</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-24">회차</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600">URL</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-28">도메인</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-24 whitespace-nowrap">회차</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 min-w-[300px]">URL</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-36 whitespace-nowrap">도메인</th>
                       <th 
                         className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-32 cursor-pointer hover:bg-gray-100 select-none"
                         onClick={() => handlePendingSort('created_at')}
@@ -742,13 +742,13 @@ export default function ReportTrackingPage() {
                         신고일시{getPendingSortIcon('created_at')}
                       </th>
                       <th 
-                        className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100 select-none"
+                        className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-28 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
                         onClick={() => handlePendingSort('report_id')}
                       >
                         신고ID{getPendingSortIcon('report_id')}
                       </th>
-                      <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-28">상태</th>
-                      <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-40">사유</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-28 whitespace-nowrap">상태</th>
+                      <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-600 w-48 whitespace-nowrap">사유</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -767,14 +767,14 @@ export default function ReportTrackingPage() {
                             href={item.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-blue-600 hover:underline truncate block max-w-xs"
+                            className="text-xs text-blue-600 hover:underline break-all"
                             title={item.url}
                           >
                             {item.url}
                           </a>
                         </td>
                         <td className="px-3 py-2.5">
-                          <span className="text-xs text-gray-600 truncate block" title={item.domain}>{item.domain}</span>
+                          <span className="text-xs text-gray-600 whitespace-nowrap" title={item.domain}>{item.domain}</span>
                         </td>
                         <td className="px-3 py-2.5">
                           <span className="text-xs text-gray-500">
@@ -795,14 +795,14 @@ export default function ReportTrackingPage() {
                               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                             }}
                             placeholder="-"
-                            className="w-20 px-2 py-1 text-xs text-center border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="w-24 px-2 py-1 text-xs text-center border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           <select
                             value={item.report_status}
                             onChange={(e) => handlePendingStatusChange(item.id, e.target.value)}
-                            className={`px-2 py-1 text-xs font-medium rounded-full border-0 focus:ring-2 focus:ring-blue-500 ${getStatusColor(item.report_status)}`}
+                            className={`px-2 py-1 text-xs font-medium rounded-full border-0 focus:ring-2 focus:ring-blue-500 whitespace-nowrap ${getStatusColor(item.report_status)}`}
                           >
                             {STATUS_OPTIONS.map(status => (
                               <option key={status} value={status}>{status}</option>
