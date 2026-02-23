@@ -459,18 +459,18 @@ export default function ReportTrackingPage() {
   // 대기 중 요약 모달
   // ============================================
 
-  // 대기 중 URL 개수 업데이트 (세션 선택 시)
+  // 대기 중 URL 개수 업데이트 (전체 세션 기준)
   useEffect(() => {
-    if (selectedSession) {
-      setPendingCount(selectedSession.tracking_stats?.['대기 중'] || 0);
-    }
-  }, [selectedSession]);
+    // 전체 세션의 대기 중 합계
+    const totalPending = sessions.reduce((sum, s) => sum + (s.tracking_stats?.['대기 중'] || 0), 0);
+    setPendingCount(totalPending);
+  }, [sessions]);
 
   const loadPendingItems = async () => {
-    if (!selectedSessionId) return;
     setIsLoadingPending(true);
     try {
-      const res = await reportTrackingApi.getPendingSummary(selectedSessionId);
+      // 전체 세션에서 대기 중인 URL 모두 조회 (session_id 미전달)
+      const res = await reportTrackingApi.getPendingSummary();
       if (res.success) {
         setPendingItems(res.items || []);
       }
@@ -514,6 +514,15 @@ export default function ReportTrackingPage() {
       // 대기 중 카운트 업데이트
       if (newStatus !== '대기 중') {
         setPendingCount(prev => Math.max(0, prev - 1));
+      }
+      // 세션 목록 통계 실시간 갱신 (모니터링 회차 상세에도 반영)
+      const sessionsRes = await reportTrackingApi.getSessions();
+      if (sessionsRes.success) {
+        setSessions(sessionsRes.sessions || []);
+      }
+      // 현재 선택된 세션의 아이템도 실시간 갱신
+      if (selectedSessionId) {
+        loadSessionData(pagination.page);
       }
     } catch (err) {
       console.error('Failed to update pending status:', err);
@@ -694,9 +703,9 @@ export default function ReportTrackingPage() {
                   <ClockIcon className="w-5 h-5 text-cyan-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-gray-800">대기 중 URL 요약</h2>
+                  <h2 className="text-lg font-bold text-gray-800">대기 중 URL 요약 (전체 세션)</h2>
                   <p className="text-sm text-gray-500">
-                    {formatSessionDate(selectedSessionId)} | {sortedPendingItems.length}건
+                    모든 모니터링 회차 | {sortedPendingItems.length}건
                   </p>
                 </div>
               </div>
@@ -723,6 +732,7 @@ export default function ReportTrackingPage() {
                   <thead className="bg-gray-50 border-b border-gray-100 sticky top-0">
                     <tr>
                       <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-8">#</th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-24">회차</th>
                       <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600">URL</th>
                       <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-600 w-28">도메인</th>
                       <th 
@@ -746,6 +756,11 @@ export default function ReportTrackingPage() {
                       <tr key={item.id} className="hover:bg-gray-50 transition">
                         <td className="px-3 py-2.5">
                           <span className="text-xs text-gray-400">{idx + 1}</span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="text-xs text-gray-500 font-mono" title={item.session_id}>
+                            {item.session_id?.slice(0, 10) || '-'}
+                          </span>
                         </td>
                         <td className="px-3 py-2.5">
                           <a
