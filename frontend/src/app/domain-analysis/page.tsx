@@ -678,19 +678,20 @@ export default function DomainAnalysisPage() {
           {activeTab === 'table' && (
             <div className="bg-white rounded-b-xl shadow-sm border border-gray-100 border-t-0 overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1100px]">
+                <table className="w-full min-w-[1200px]">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-10">#</th>
-                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[140px] max-w-[180px]">도메인</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">분류</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-[130px]">위협 점수</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">발견 수</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">글로벌 순위</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Unique Visitors</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[120px]">권고사항</th>
-                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[130px]">트래픽 분석</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-10">#</th>
+                      <th className="px-2 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[130px] max-w-[170px]">도메인</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">분류</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-[120px]">위협 점수</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-14">발견 수</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">월간 방문</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">이탈률</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider pl-5">글로벌 순위</th>
+                      <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider pl-5">Unique Visitors</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[110px]">권고사항</th>
+                      <th className="px-2 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[120px]">트래픽 분석</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -708,15 +709,15 @@ export default function DomainAnalysisPage() {
                           className="hover:bg-blue-50/50 transition cursor-pointer"
                           onClick={() => setDetailDomain(d)}
                         >
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2 py-3 text-center">
                             <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${
                               d.rank <= 3 ? 'bg-red-100 text-red-700' : d.rank <= 10 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
                             }`}>{d.rank}</span>
                           </td>
-                          <td className="px-3 py-3">
-                            <span className="font-medium text-gray-900 text-sm truncate block max-w-[180px]" title={d.domain}>{d.domain}</span>
+                          <td className="px-2 py-3">
+                            <span className="font-medium text-gray-900 text-sm truncate block max-w-[170px]" title={d.domain}>{d.domain}</span>
                           </td>
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2 py-3 text-center">
                             {(() => {
                               const st = SITE_TYPE_LABELS[d.site_type || 'unclassified'] || SITE_TYPE_LABELS.unclassified;
                               return (
@@ -726,7 +727,7 @@ export default function DomainAnalysisPage() {
                               );
                             })()}
                           </td>
-                          <td className="px-3 py-3">
+                          <td className="px-2 py-3">
                             <div className="flex items-center gap-2">
                               <div className="flex-1">
                                 <div className="w-full bg-gray-200 rounded-full h-2">
@@ -736,10 +737,10 @@ export default function DomainAnalysisPage() {
                               <span className={`text-sm font-bold ${threatTextColor} w-10 text-right`}>{d.threat_score ?? '-'}</span>
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2 py-3 text-center">
                             <span className="text-sm font-medium text-gray-700">{d.discovered ?? '-'}</span>
                           </td>
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2 py-3 text-center">
                             <div>
                               <span className="text-sm font-medium text-gray-900">{formatVisits(d.total_visits)}</span>
                               {mom !== null && (
@@ -747,20 +748,29 @@ export default function DomainAnalysisPage() {
                               )}
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2 py-3 text-center">
+                            <span className={`text-sm font-medium ${
+                              d.bounce_rate !== null && d.bounce_rate > 0.7 ? 'text-red-500' :
+                              d.bounce_rate !== null && d.bounce_rate > 0.4 ? 'text-yellow-600' :
+                              d.bounce_rate !== null ? 'text-green-600' : 'text-gray-400'
+                            }`}>
+                              {d.bounce_rate !== null ? `${(d.bounce_rate * 100).toFixed(0)}%` : '-'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-center pl-5">
                             <span className="text-sm text-gray-700">{d.global_rank ? `#${d.global_rank.toLocaleString()}` : '-'}</span>
                           </td>
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-3 py-3 text-center pl-5">
                             <span className="text-sm text-gray-700">{d.unique_visitors ? formatVisits(d.unique_visitors) : '-'}</span>
                           </td>
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2 py-3 text-center">
                             {d.recommendation && (
                               <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${recBadgeColor(d.recommendation)}`}>
                                 {d.recommendation}
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2 py-3 text-center">
                             {d.traffic_analysis ? (
                               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 whitespace-nowrap">
                                 {d.traffic_analysis}
@@ -799,9 +809,9 @@ export default function DomainAnalysisPage() {
                     <div className="space-y-0.5 pl-3">
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">발견 수</span> — 해당 도메인에서 탐지된 불법 URL 건수 (Jobdori 모니터링 기준)</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">월간 방문</span> — 최근 1개월 총 방문 횟수 (MoM 변화율 포함)</p>
+                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">이탈률</span> — 단일 페이지만 보고 떠나는 비율 (높을수록 빨간색)</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">글로벌 순위</span> — SimilarWeb 전 세계 웹사이트 트래픽 순위</p>
                       <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">Unique Visitors</span> — 순 방문자 (중복 제거)</p>
-                      <p className="text-[10px] text-gray-400"><span className="text-gray-500 font-medium">이탈률</span> — 이탈률 (모달에서 확인)</p>
                     </div>
                   </div>
                   <div>

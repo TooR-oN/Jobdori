@@ -405,8 +405,9 @@ export const reportTrackingApi = {
     return res.data;
   },
 
-  getPendingSummary: async (sessionId: string) => {
-    const res = await api.get('/api/report-tracking/pending-summary', { params: { session_id: sessionId } });
+  getPendingSummary: async (sessionId?: string) => {
+    const params = sessionId ? { session_id: sessionId } : {};
+    const res = await api.get('/api/report-tracking/pending-summary', { params });
     return res.data;
   },
   

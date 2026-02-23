@@ -3985,18 +3985,24 @@ app.get('/api/report-tracking/pending-summary', async (c) => {
     await ensureDbMigration()
     const sessionId = c.req.query('session_id')
     
-    if (!sessionId) {
-      return c.json({ success: false, error: '세션 ID가 필요합니다.' }, 400)
+    // session_id가 있으면 해당 세션만, 없으면 전체 세션의 대기 중 URL 조회
+    let items
+    if (sessionId) {
+      items = await query`
+        SELECT id, session_id, url, domain, title, report_status, report_id, reason, created_at, updated_at
+        FROM report_tracking
+        WHERE session_id = ${sessionId}
+          AND report_status = '대기 중'
+        ORDER BY created_at DESC
+      `
+    } else {
+      items = await query`
+        SELECT id, session_id, url, domain, title, report_status, report_id, reason, created_at, updated_at
+        FROM report_tracking
+        WHERE report_status = '대기 중'
+        ORDER BY session_id DESC, created_at DESC
+      `
     }
-    
-    // 대기 중 상태의 모든 URL 조회 (페이지네이션 없음)
-    const items = await query`
-      SELECT id, session_id, url, domain, title, report_status, report_id, reason, created_at, updated_at
-      FROM report_tracking
-      WHERE session_id = ${sessionId}
-        AND report_status = '대기 중'
-      ORDER BY created_at DESC
-    `
     
     return c.json({
       success: true,
