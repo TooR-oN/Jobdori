@@ -265,17 +265,17 @@ export default function StatsPage() {
                 <tr>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">순위</th>
                   <th 
+                    className="px-4 py-3 text-left text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('title')}
+                  >
+                    작품명 {getSortIcon('title')}
+                  </th>
+                  <th 
                     className="px-4 py-3 text-center text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100 w-16"
                     onClick={() => handleSort('isCurrent')}
                     title="모니터링 상태"
                   >
                     상태 {getSortIcon('isCurrent')}
-                  </th>
-                  <th 
-                    className="px-4 py-3 text-left text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('title')}
-                  >
-                    작품명 {getSortIcon('title')}
                   </th>
                   <th 
                     className="px-4 py-3 text-right text-sm font-medium text-gray-600 cursor-pointer hover:bg-gray-100"
@@ -319,14 +319,14 @@ export default function StatsPage() {
                           {index + 1}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        <span className="text-sm font-medium text-gray-800">{stat.title}</span>
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <span
                           className={`inline-block w-3 h-3 rounded-full ${isCurrent ? 'bg-green-500' : 'bg-gray-300'}`}
                           title={isCurrent ? '모니터링 중' : '모니터링 중단'}
                         />
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm font-medium text-gray-800">{stat.title}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="text-sm text-blue-600 font-medium">{stat.discovered.toLocaleString()}</span>
