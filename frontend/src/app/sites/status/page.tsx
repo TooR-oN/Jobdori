@@ -356,8 +356,13 @@ export default function SiteStatusPage() {
   // 언어 변경 핸들러
   // ============================================
 
+  // 직접 입력 대상 도메인 (모달에서 사용)
+  const [directInputDomain, setDirectInputDomain] = useState<string | null>(null);
+
   const handleLanguageChange = async (domain: string, newLanguage: string) => {
     if (newLanguage === '__add_new__') {
+      // 직접 입력 모달을 열되, 어떤 도메인인지 기억
+      setDirectInputDomain(domain);
       setShowAddLanguage(true);
       return;
     }
@@ -368,7 +373,7 @@ export default function SiteStatusPage() {
         setSites(prev => prev.map(s =>
           s.domain === domain ? { ...s, language: newLanguage } : s
         ));
-        setSuccessMessage(`"${domain}" 언어가 "${newLanguage}"로 변경되었습니다.`);
+        // 알림 없이 실시간 반영
       } else {
         setError(res.error || '언어 변경에 실패했습니다.');
       }
@@ -382,11 +387,26 @@ export default function SiteStatusPage() {
 
   const handleAddLanguage = async () => {
     if (!newLanguageName.trim()) return;
+    const langName = newLanguageName.trim();
+    const targetDomain = directInputDomain;
     try {
-      const res = await siteLanguageApi.create(newLanguageName.trim());
+      const res = await siteLanguageApi.create(langName);
       if (res.success) {
         await loadLanguages();
-        setSuccessMessage(`언어 "${newLanguageName.trim()}" 추가됨`);
+        // 직접 입력 대상 도메인이 있으면 즉시 해당 언어를 적용
+        if (targetDomain) {
+          try {
+            const updateRes = await siteStatusApi.updateLanguage(targetDomain, langName);
+            if (updateRes.success) {
+              setSites(prev => prev.map(s =>
+                s.domain === targetDomain ? { ...s, language: langName } : s
+              ));
+            }
+          } catch (err) {
+            console.error('Failed to apply language to domain:', err);
+          }
+        }
+        // 알림 없이 조용히 반영
       }
     } catch (err) {
       console.error('Failed to add language:', err);
@@ -394,6 +414,7 @@ export default function SiteStatusPage() {
     } finally {
       setShowAddLanguage(false);
       setNewLanguageName('');
+      setDirectInputDomain(null);
     }
   };
 
@@ -658,19 +679,24 @@ export default function SiteStatusPage() {
       {showAddLanguage && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-lg p-6 w-96">
-            <h3 className="text-lg font-bold text-gray-800 mb-4">언어 추가</h3>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">언어 직접 입력</h3>
+            {directInputDomain && (
+              <p className="text-sm text-gray-500 mb-3">
+                <span className="font-mono text-blue-600">{directInputDomain}</span>에 적용됩니다
+              </p>
+            )}
             <input
               type="text"
               value={newLanguageName}
               onChange={(e) => setNewLanguageName(e.target.value)}
-              placeholder="새 언어 이름"
+              placeholder="언어명 (예: 스페인어)"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
               onKeyDown={(e) => e.key === 'Enter' && handleAddLanguage()}
               autoFocus
             />
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => { setShowAddLanguage(false); setNewLanguageName(''); }}
+                onClick={() => { setShowAddLanguage(false); setNewLanguageName(''); setDirectInputDomain(null); }}
                 className="px-4 py-2 text-sm bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
               >
                 취소
@@ -680,7 +706,7 @@ export default function SiteStatusPage() {
                 disabled={!newLanguageName.trim()}
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                추가
+                {directInputDomain ? '적용' : '추가'}
               </button>
             </div>
           </div>
