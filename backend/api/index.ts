@@ -460,8 +460,64 @@ async function ensureDbMigration() {
       }
     }
 
+    // manta_rankings / manta_ranking_history 테이블에 top30_illegal_count 컬럼 추가
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'manta_rankings' AND column_name = 'top30_illegal_count'
+        ) THEN
+          ALTER TABLE manta_rankings ADD COLUMN top30_illegal_count INTEGER DEFAULT 0;
+          UPDATE manta_rankings SET top30_illegal_count = COALESCE(page1_illegal_count, 0);
+        END IF;
+      END $$
+    `
+    await db`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'manta_ranking_history' AND column_name = 'top30_illegal_count'
+        ) THEN
+          ALTER TABLE manta_ranking_history ADD COLUMN top30_illegal_count INTEGER DEFAULT 0;
+          UPDATE manta_ranking_history SET top30_illegal_count = COALESCE(page1_illegal_count, 0);
+        END IF;
+      END $$
+    `
+
+    // system_settings 테이블 생성 (관리자 설정용)
+    await db`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      )
+    `
+    // 기본값: 모니터링 작품 수 제한 20개
+    await db`
+      INSERT INTO system_settings (key, value) VALUES ('max_monitoring_titles', '20')
+      ON CONFLICT (key) DO NOTHING
+    `
+
+    // 기본값: 모니터링 키워드 접미사 (빈 문자열 = 작품명만 검색)
+    await db`
+      INSERT INTO system_settings (key, value) VALUES ('monitoring_keyword_suffixes', '["", "manga", "chapter"]')
+      ON CONFLICT (key) DO NOTHING
+    `
+
+    // keyword_history 테이블 생성 (삭제된 키워드 히스토리)
+    await db`
+      CREATE TABLE IF NOT EXISTS keyword_history (
+        id SERIAL PRIMARY KEY,
+        suffix VARCHAR(200) NOT NULL,
+        deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        is_permanent_deleted BOOLEAN DEFAULT false
+      )
+    `
+
     dbMigrationDone = true
-    console.log('✅ DB migration completed (including report_tracking, deep_monitoring, domain_analysis, site_notes & site_languages tables)')
+    console.log('✅ DB migration completed (including report_tracking, deep_monitoring, domain_analysis, site_notes, site_languages, top30_illegal_count, system_settings, keyword_history tables)')
   } catch (error) {
     console.error('DB migration error:', error)
   }
@@ -1884,6 +1940,39 @@ app.post('/api/titles', async (c) => {
   try {
     const { title, manta_url } = await c.req.json()
     if (!title) return c.json({ success: false, error: 'Missing title' }, 400)
+    
+    // 모니터링 작품 수 제한 확인
+    await ensureDbMigration()
+    const settingsRows = await query`
+      SELECT value FROM system_settings WHERE key = 'max_monitoring_titles'
+    `
+    const maxTitles = settingsRows.length > 0 ? parseInt(settingsRows[0].value) : 20
+    
+    // 현재 모니터링 중인 메인 타이틀 수 (비공식 타이틀 제외)
+    const currentCountRows = await query`
+      SELECT COUNT(*) as count FROM titles WHERE is_current = true
+    `
+    const currentCount = parseInt(currentCountRows[0]?.count || '0')
+    
+    // 기존 복원인 경우 제한 체크 건너뛰기 (이미 titles 테이블에 is_current=false로 존재)
+    const normalizedName = normalizeTitle(title)
+    const existing = await query`SELECT id, name, is_current FROM titles`
+    const duplicateEntry = existing.find((t: any) => normalizeTitle(t.name) === normalizedName)
+    
+    // 신규 추가이거나, 복원 시 is_current=false인 경우만 제한 체크
+    if (!duplicateEntry || !duplicateEntry.is_current) {
+      // 복원이 아닌 신규 추가일 때만 제한 체크 (복원은 이미 카운트에 포함되지 않으므로)
+      if (currentCount >= maxTitles) {
+        return c.json({ 
+          success: false, 
+          error: `모니터링 작품 수 제한(${maxTitles}개)에 도달했습니다. 관리자 설정에서 제한을 변경하거나 기존 작품을 제외해주세요.`,
+          limitReached: true,
+          currentCount,
+          maxTitles
+        }, 400)
+      }
+    }
+    
     const result = await addTitle(title, manta_url)
     
     // 중복 감지 시 메시지 포함
@@ -3180,7 +3269,8 @@ app.get('/api/manta-rankings', async (c) => {
     
     const rankings = await query`
       SELECT title, manta_rank, first_rank_domain, search_query, session_id, 
-             COALESCE(page1_illegal_count, 0) as page1_illegal_count, updated_at 
+             COALESCE(page1_illegal_count, 0) as page1_illegal_count,
+             COALESCE(top30_illegal_count, 0) as top30_illegal_count, updated_at 
       FROM manta_rankings 
       ORDER BY title ASC
     `
@@ -3200,7 +3290,8 @@ app.get('/api/manta-rankings', async (c) => {
         firstDomain: r.first_rank_domain,
         searchQuery: r.search_query,
         sessionId: r.session_id,
-        page1IllegalCount: r.page1_illegal_count || 0
+        page1IllegalCount: r.page1_illegal_count || 0,
+        top30IllegalCount: r.top30_illegal_count || 0
       })),
       lastUpdated
     })
@@ -3217,7 +3308,7 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
     
     // 먼저 히스토리 테이블에서 조회
     let history = await query`
-      SELECT manta_rank, first_rank_domain, session_id, COALESCE(page1_illegal_count, 0) as page1_illegal_count, recorded_at
+      SELECT manta_rank, first_rank_domain, session_id, COALESCE(page1_illegal_count, 0) as page1_illegal_count, COALESCE(top30_illegal_count, 0) as top30_illegal_count, recorded_at
       FROM manta_ranking_history
       WHERE title = ${title}
       ORDER BY recorded_at ASC
@@ -3226,7 +3317,7 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
     // 히스토리가 없으면 현재 manta_rankings에서 가져오기
     if (history.length === 0) {
       const current = await query`
-        SELECT manta_rank, first_rank_domain, session_id, COALESCE(page1_illegal_count, 0) as page1_illegal_count, updated_at as recorded_at
+        SELECT manta_rank, first_rank_domain, session_id, COALESCE(page1_illegal_count, 0) as page1_illegal_count, COALESCE(top30_illegal_count, 0) as top30_illegal_count, updated_at as recorded_at
         FROM manta_rankings
         WHERE title = ${title}
       `
@@ -3241,6 +3332,7 @@ app.get('/api/titles/:title/ranking-history', async (c) => {
         firstDomain: h.first_rank_domain,
         sessionId: h.session_id,
         page1IllegalCount: h.page1_illegal_count,
+        top30IllegalCount: h.top30_illegal_count,
         recordedAt: h.recorded_at
       }))
     })
@@ -3858,6 +3950,47 @@ app.post('/api/site-languages', async (c) => {
   } catch (error) {
     console.error('Site language create error:', error)
     return c.json({ success: false, error: 'Failed to create site language' }, 500)
+  }
+})
+
+// 언어 삭제 (보호 언어 제외)
+app.delete('/api/site-languages/:id', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const id = parseInt(c.req.param('id'))
+    
+    // 해당 언어 조회
+    const langRows = await query`SELECT * FROM site_languages WHERE id = ${id}`
+    if (langRows.length === 0) {
+      return c.json({ success: false, error: '언어를 찾을 수 없습니다.' }, 404)
+    }
+    
+    const lang = langRows[0]
+    
+    // 보호 언어 체크 (영어, 한국어, 스페인어, 다국어)
+    const protectedLanguages = ['영어', '한국어', '스페인어', '다국어']
+    if (protectedLanguages.includes(lang.name)) {
+      return c.json({ success: false, error: `"${lang.name}"은(는) 기본 언어로 삭제할 수 없습니다.` }, 400)
+    }
+    
+    // 해당 언어를 사용 중인 사이트 수 확인
+    const usageCount = await query`
+      SELECT COUNT(*) as count FROM sites WHERE language = ${lang.name}
+    `
+    const count = parseInt(usageCount[0]?.count || '0')
+    
+    // 사용 중인 사이트의 언어를 'unset'으로 변경
+    if (count > 0) {
+      await query`UPDATE sites SET language = 'unset' WHERE language = ${lang.name}`
+    }
+    
+    // 언어 삭제
+    await query`DELETE FROM site_languages WHERE id = ${id}`
+    
+    return c.json({ success: true, deleted: lang.name, affected_sites: count })
+  } catch (error) {
+    console.error('Site language delete error:', error)
+    return c.json({ success: false, error: 'Failed to delete site language' }, 500)
   }
 })
 
@@ -4536,6 +4669,257 @@ import {
   type DomainWithType,
   type ManusTaskStatus,
 } from '../scripts/domain-analysis.js'
+
+// ============================================
+// API - System Settings (관리자 설정)
+// ============================================
+
+// 설정 목록 조회
+app.get('/api/settings', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const settings = await query`
+      SELECT key, value, updated_at FROM system_settings ORDER BY key ASC
+    `
+    return c.json({ success: true, settings })
+  } catch (error) {
+    console.error('Settings list error:', error)
+    return c.json({ success: false, error: 'Failed to load settings' }, 500)
+  }
+})
+
+// 설정 값 변경 (admin only)
+app.put('/api/settings/:key', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const key = c.req.param('key')
+    const { value } = await c.req.json()
+    
+    if (value === undefined || value === null) {
+      return c.json({ success: false, error: '값을 입력해주세요.' }, 400)
+    }
+    
+    const result = await query`
+      UPDATE system_settings 
+      SET value = ${String(value)}, updated_at = NOW()
+      WHERE key = ${key}
+      RETURNING *
+    `
+    
+    if (result.length === 0) {
+      return c.json({ success: false, error: '설정 키를 찾을 수 없습니다.' }, 404)
+    }
+    
+    return c.json({ success: true, setting: result[0] })
+  } catch (error) {
+    console.error('Settings update error:', error)
+    return c.json({ success: false, error: 'Failed to update setting' }, 500)
+  }
+})
+
+// ============================================
+// API - Monitoring Keywords (모니터링 키워드 관리)
+// ============================================
+
+// 활성 키워드 목록 조회
+app.get('/api/settings/keywords', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const rows = await query`
+      SELECT value FROM system_settings WHERE key = 'monitoring_keyword_suffixes'
+    `
+    let suffixes: string[] = ['', 'manga', 'chapter']
+    if (rows.length > 0) {
+      try {
+        suffixes = JSON.parse(rows[0].value)
+      } catch {}
+    }
+    return c.json({ success: true, suffixes })
+  } catch (error) {
+    console.error('Keywords list error:', error)
+    return c.json({ success: false, error: 'Failed to load keywords' }, 500)
+  }
+})
+
+// 삭제된 키워드 히스토리 조회 (/:suffix 보다 먼저 등록)
+app.get('/api/settings/keywords/history', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const history = await query`
+      SELECT id, suffix, deleted_at FROM keyword_history 
+      WHERE is_permanent_deleted = false 
+      ORDER BY deleted_at DESC
+    `
+    return c.json({ success: true, history })
+  } catch (error) {
+    console.error('Keyword history error:', error)
+    return c.json({ success: false, error: 'Failed to load keyword history' }, 500)
+  }
+})
+
+// 삭제된 키워드 복원 (/:suffix 보다 먼저 등록)
+app.post('/api/settings/keywords/restore', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const { id } = await c.req.json()
+    
+    if (!id) {
+      return c.json({ success: false, error: 'ID를 입력해주세요.' }, 400)
+    }
+    
+    // 히스토리에서 조회
+    const historyRows = await query`
+      SELECT suffix FROM keyword_history WHERE id = ${id} AND is_permanent_deleted = false
+    `
+    if (historyRows.length === 0) {
+      return c.json({ success: false, error: '히스토리를 찾을 수 없습니다.' }, 404)
+    }
+    
+    const suffix = historyRows[0].suffix
+    
+    // 현재 활성 목록에 추가
+    const rows = await query`
+      SELECT value FROM system_settings WHERE key = 'monitoring_keyword_suffixes'
+    `
+    let suffixes: string[] = ['', 'manga', 'chapter']
+    if (rows.length > 0) {
+      try { suffixes = JSON.parse(rows[0].value) } catch {}
+    }
+    
+    // 이미 있으면 중복 추가 안 함
+    if (!suffixes.includes(suffix)) {
+      suffixes.push(suffix)
+      await query`
+        UPDATE system_settings SET value = ${JSON.stringify(suffixes)}, updated_at = NOW()
+        WHERE key = 'monitoring_keyword_suffixes'
+      `
+    }
+    
+    // 히스토리에서 제거
+    await query`
+      DELETE FROM keyword_history WHERE id = ${id}
+    `
+    
+    return c.json({ success: true, suffixes })
+  } catch (error) {
+    console.error('Keyword restore error:', error)
+    return c.json({ success: false, error: 'Failed to restore keyword' }, 500)
+  }
+})
+
+// 삭제된 키워드 영구 삭제 (/:suffix 보다 먼저 등록)
+app.delete('/api/settings/keywords/history/:id', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const id = parseInt(c.req.param('id'))
+    
+    if (isNaN(id)) {
+      return c.json({ success: false, error: '유효하지 않은 ID입니다.' }, 400)
+    }
+    
+    const result = await query`
+      UPDATE keyword_history SET is_permanent_deleted = true WHERE id = ${id} AND is_permanent_deleted = false
+      RETURNING *
+    `
+    
+    if (result.length === 0) {
+      return c.json({ success: false, error: '히스토리를 찾을 수 없습니다.' }, 404)
+    }
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Keyword permanent delete error:', error)
+    return c.json({ success: false, error: 'Failed to permanently delete keyword' }, 500)
+  }
+})
+
+// 키워드 추가
+app.post('/api/settings/keywords', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const { suffix } = await c.req.json()
+    
+    if (suffix === undefined || suffix === null) {
+      return c.json({ success: false, error: '키워드 접미사를 입력해주세요.' }, 400)
+    }
+    
+    // 빈 문자열은 [작품명] 키워드를 의미 - trim 하되 빈 문자열 허용
+    const trimmedSuffix = String(suffix).trim()
+    
+    // 현재 목록 로드
+    const rows = await query`
+      SELECT value FROM system_settings WHERE key = 'monitoring_keyword_suffixes'
+    `
+    let suffixes: string[] = ['', 'manga', 'chapter']
+    if (rows.length > 0) {
+      try { suffixes = JSON.parse(rows[0].value) } catch {}
+    }
+    
+    // 중복 체크
+    if (suffixes.includes(trimmedSuffix)) {
+      return c.json({ success: false, error: '이미 존재하는 키워드입니다.' }, 400)
+    }
+    
+    // 추가
+    suffixes.push(trimmedSuffix)
+    await query`
+      UPDATE system_settings SET value = ${JSON.stringify(suffixes)}, updated_at = NOW()
+      WHERE key = 'monitoring_keyword_suffixes'
+    `
+    
+    // 히스토리에서 복원된 경우 영구삭제 처리 (히스토리에서 제거)
+    await query`
+      DELETE FROM keyword_history WHERE suffix = ${trimmedSuffix} AND is_permanent_deleted = false
+    `
+    
+    return c.json({ success: true, suffixes })
+  } catch (error) {
+    console.error('Keyword add error:', error)
+    return c.json({ success: false, error: 'Failed to add keyword' }, 500)
+  }
+})
+
+// 키워드 삭제 (히스토리로 이동) - 와일드카드 라우트는 마지막에 등록
+app.delete('/api/settings/keywords/:suffix', requireAdmin(), async (c) => {
+  try {
+    await ensureDbMigration()
+    const rawSuffix = decodeURIComponent(c.req.param('suffix'))
+    // __empty__ 는 빈 문자열(작품명만 검색)을 의미
+    const suffix = rawSuffix === '__empty__' ? '' : rawSuffix
+    
+    // 현재 목록 로드
+    const rows = await query`
+      SELECT value FROM system_settings WHERE key = 'monitoring_keyword_suffixes'
+    `
+    let suffixes: string[] = ['', 'manga', 'chapter']
+    if (rows.length > 0) {
+      try { suffixes = JSON.parse(rows[0].value) } catch {}
+    }
+    
+    // 존재 여부 확인
+    if (!suffixes.includes(suffix)) {
+      return c.json({ success: false, error: '키워드를 찾을 수 없습니다.' }, 404)
+    }
+    
+    // 삭제
+    suffixes = suffixes.filter(s => s !== suffix)
+    await query`
+      UPDATE system_settings SET value = ${JSON.stringify(suffixes)}, updated_at = NOW()
+      WHERE key = 'monitoring_keyword_suffixes'
+    `
+    
+    // 히스토리에 기록
+    await query`
+      INSERT INTO keyword_history (suffix, deleted_at, is_permanent_deleted) 
+      VALUES (${suffix}, NOW(), false)
+    `
+    
+    return c.json({ success: true, suffixes })
+  } catch (error) {
+    console.error('Keyword delete error:', error)
+    return c.json({ success: false, error: 'Failed to delete keyword' }, 500)
+  }
+})
 
 // 실행 중 상태 관리 (메모리, 중복 실행 방지)
 const domainAnalysisRunning: Record<string, boolean> = {}

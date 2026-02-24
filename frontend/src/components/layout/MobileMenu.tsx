@@ -11,7 +11,7 @@ import {
   DocumentTextIcon,
   ChartPieIcon,
   GlobeAltIcon,
-  UsersIcon,
+  Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
   XMarkIcon,
   MagnifyingGlassIcon,
@@ -42,7 +42,7 @@ const mainMenuItems: MenuItem[] = [
 ];
 
 const adminMenuItems: MenuItem[] = [
-  { name: '계정 관리', href: '/users', icon: UsersIcon, adminOnly: true },
+  { name: '관리자 설정', href: '/admin-settings', icon: Cog6ToothIcon, adminOnly: true },
 ];
 
 export default function MobileMenu({ isOpen, onClose }: MobileMenuProps) {

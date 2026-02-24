@@ -15,6 +15,7 @@ interface MantaRanking {
   searchQuery: string;
   sessionId: string;
   page1IllegalCount: number;
+  top30IllegalCount: number;
 }
 
 interface RankHistoryPoint {
@@ -23,6 +24,7 @@ interface RankHistoryPoint {
   sessionId: string;
   rank: number | null;
   page1IllegalCount: number;
+  top30IllegalCount: number;
 }
 
 export default function MantaRankingsPage() {
@@ -118,7 +120,7 @@ export default function MantaRankingsPage() {
       const res = await mantaRankingsApi.getRankingHistory(title);
       
       if (res.success && res.history && res.history.length > 0) {
-        const history: RankHistoryPoint[] = res.history.map((h: { rank: number | null; sessionId: string; recordedAt: string; page1IllegalCount?: number }) => {
+        const history: RankHistoryPoint[] = res.history.map((h: { rank: number | null; sessionId: string; recordedAt: string; page1IllegalCount?: number; top30IllegalCount?: number }) => {
           const date = new Date(h.recordedAt);
           return {
             date: `${date.getMonth() + 1}/${date.getDate()}`,
@@ -126,6 +128,7 @@ export default function MantaRankingsPage() {
             sessionId: h.sessionId,
             rank: h.rank,
             page1IllegalCount: h.page1IllegalCount ?? 0,
+            top30IllegalCount: h.top30IllegalCount ?? 0,
           };
         });
         
@@ -139,6 +142,7 @@ export default function MantaRankingsPage() {
             sessionId: currentRanking.sessionId,
             rank: currentRanking.mantaRank,
             page1IllegalCount: currentRanking.page1IllegalCount ?? 0,
+            top30IllegalCount: currentRanking.top30IllegalCount ?? 0,
           }]);
         } else {
           setRankHistory([]);
@@ -154,6 +158,7 @@ export default function MantaRankingsPage() {
           sessionId: currentRanking.sessionId,
           rank: currentRanking.mantaRank,
           page1IllegalCount: currentRanking.page1IllegalCount ?? 0,
+          top30IllegalCount: currentRanking.top30IllegalCount ?? 0,
         }]);
       } else {
         setRankHistory([]);
@@ -208,7 +213,7 @@ export default function MantaRankingsPage() {
         ? padding.top + ((point.rank - minRank) / (maxRank - minRank)) * chartHeight
         : null;
       // 불법 URL 꺾은선 Y 좌표 (우측 Y축, 위가 30, 아래가 0)
-      const illegalY = padding.top + chartHeight - (point.page1IllegalCount / illegalYMax) * chartHeight;
+      const illegalY = padding.top + chartHeight - (point.top30IllegalCount / illegalYMax) * chartHeight;
       return { x, y, illegalY, ...point, index };
     });
 
@@ -355,7 +360,7 @@ export default function MantaRankingsPage() {
         )}
         {/* 불법 URL 데이터 포인트 */}
         {allPoints.map((point, index) => {
-          if (point.page1IllegalCount === 0) return null;
+          if (point.top30IllegalCount === 0) return null;
           const isHovered = hoveredPoint === index;
           return (
             <circle
@@ -481,8 +486,8 @@ export default function MantaRankingsPage() {
                         }
                       </p>
                       <p className="mt-0.5">
-                        불법 URL: <span className={`font-bold ${point.page1IllegalCount > 0 ? 'text-red-300' : 'text-green-300'}`}>
-                          {point.page1IllegalCount}건
+                        불법 URL: <span className={`font-bold ${point.top30IllegalCount > 0 ? 'text-red-300' : 'text-green-300'}`}>
+                          {point.top30IllegalCount}건
                         </span>
                         <span className="text-gray-400 ml-1">(30위 내)</span>
                       </p>

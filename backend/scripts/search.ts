@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { SearchResult, Config, TitleSearchConfig } from './types/index.js';
+import { SearchResult, SearchRunResult, Config, TitleSearchConfig } from './types/index.js';
 import {
   getRandomDelay,
   sleep,
@@ -136,7 +136,7 @@ export async function executeSearch(
 // 메인 검색 함수
 // ============================================
 
-export async function runSearch(): Promise<SearchResult[]> {
+export async function runSearch(): Promise<SearchRunResult> {
   console.log('🚀 구글 검색 모듈 시작 (Serper.dev API)\n');
 
   // API 키 확인
@@ -161,8 +161,8 @@ export async function runSearch(): Promise<SearchResult[]> {
     console.log(`🔍 총 검색어 수: ${totalSearchTerms}개 (공식 + 비공식)`);
   }
 
-  // 키워드 로드 (빈 문자열도 포함 - 작품명만 검색)
-  const rawKeywords = loadKeywords(config.paths.keywordsFile);
+  // 키워드 로드 (DB 우선, 파일 폴백 - 빈 문자열도 포함 = 작품명만 검색)
+  const rawKeywords = await loadKeywords(config.paths.keywordsFile);
   // 빈 줄을 빈 문자열로 처리 (작품명만 검색)
   const keywords = rawKeywords.length > 0 ? rawKeywords : [''];
   const keywordDisplay = keywords.map(k => k || '[작품명만]').join(', ');
@@ -224,7 +224,7 @@ export async function runSearch(): Promise<SearchResult[]> {
   console.log(`\n\n✅ 검색 완료!`);
   console.log(`📊 총 수집 결과: ${allResults.length}개 (중복 URL 제거됨)`);
 
-  return allResults;
+  return { results: allResults, keywordsCount: keywords.length };
 }
 
 // ============================================
@@ -233,7 +233,7 @@ export async function runSearch(): Promise<SearchResult[]> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   runSearch()
-    .then(results => {
+    .then(({ results }) => {
       const timestamp = getTimestamp();
       saveJson(results, `output/search-results-${timestamp}.json`);
     })

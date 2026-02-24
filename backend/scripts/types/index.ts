@@ -153,6 +153,14 @@ export interface TitleSearchConfig {
   searchTerms: string[];   // 검색할 모든 타이틀 (공식 + 비공식)
 }
 
+/**
+ * 검색 실행 결과 (runSearch 반환값)
+ */
+export interface SearchRunResult {
+  results: SearchResult[];   // 검색 결과 목록
+  keywordsCount: number;     // 사용된 키워드 수
+}
+
 // ============================================
 // 사이트 집중 모니터링 (Deep Monitoring) 타입
 // ============================================

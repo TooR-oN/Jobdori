@@ -329,6 +329,65 @@ export const siteLanguageApi = {
     const res = await api.post('/api/site-languages', { name });
     return res.data;
   },
+
+  delete: async (id: number) => {
+    const res = await api.delete(`/api/site-languages/${id}`);
+    return res.data;
+  },
+};
+
+// ============================================
+// System Settings API (Admin only)
+// ============================================
+
+export const settingsApi = {
+  getAll: async () => {
+    const res = await api.get('/api/settings');
+    return res.data;
+  },
+
+  update: async (key: string, value: string) => {
+    const res = await api.put(`/api/settings/${encodeURIComponent(key)}`, { value });
+    return res.data;
+  },
+};
+
+// ============================================
+// Monitoring Keywords API (Admin only)
+// ============================================
+
+export const keywordApi = {
+  getList: async () => {
+    const res = await api.get('/api/settings/keywords');
+    return res.data;
+  },
+
+  add: async (suffix: string) => {
+    const res = await api.post('/api/settings/keywords', { suffix });
+    return res.data;
+  },
+
+  remove: async (suffix: string) => {
+    // 빈 문자열(작품명만 검색)은 __empty__ 로 인코딩
+    const encodedSuffix = suffix === '' ? '__empty__' : encodeURIComponent(suffix);
+    const res = await api.delete(`/api/settings/keywords/${encodedSuffix}`);
+    return res.data;
+  },
+
+  getHistory: async () => {
+    const res = await api.get('/api/settings/keywords/history');
+    return res.data;
+  },
+
+  restore: async (id: number) => {
+    const res = await api.post('/api/settings/keywords/restore', { id });
+    return res.data;
+  },
+
+  permanentDelete: async (id: number) => {
+    const res = await api.delete(`/api/settings/keywords/history/${id}`);
+    return res.data;
+  },
 };
 
 // ============================================

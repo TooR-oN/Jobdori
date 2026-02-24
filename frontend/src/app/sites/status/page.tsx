@@ -12,6 +12,9 @@ import {
   ChevronUpIcon,
   PlusIcon,
   TrashIcon,
+  Cog6ToothIcon,
+  LockClosedIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 // ============================================
@@ -100,6 +103,10 @@ export default function SiteStatusPage() {
   const [showAddLanguage, setShowAddLanguage] = useState(false);
   const [newLanguageName, setNewLanguageName] = useState('');
   const [languageChangingDomain, setLanguageChangingDomain] = useState<string | null>(null);
+
+  // 언어 관리 팝오버
+  const [showLanguageManagement, setShowLanguageManagement] = useState(false);
+  const [deletingLanguageId, setDeletingLanguageId] = useState<number | null>(null);
 
   // 검색
   const [search, setSearch] = useState('');
@@ -415,6 +422,47 @@ export default function SiteStatusPage() {
       setShowAddLanguage(false);
       setNewLanguageName('');
       setDirectInputDomain(null);
+    }
+  };
+
+  // ============================================
+  // 언어 삭제 핸들러
+  // ============================================
+
+  const protectedLanguages = ['영어', '한국어', '스페인어', '다국어'];
+
+  const handleDeleteLanguage = async (lang: SiteLanguage) => {
+    // 보호 언어 체크
+    if (protectedLanguages.includes(lang.name)) return;
+    
+    // 사용 중인 사이트 수 확인
+    const usingSites = sites.filter(s => s.language === lang.name).length;
+    const confirmMsg = usingSites > 0
+      ? `"${lang.name}" 언어를 삭제하면 ${usingSites}개 사이트의 언어가 '미설정'으로 변경됩니다. 삭제하시겠습니까?`
+      : `"${lang.name}" 언어를 삭제하시겠습니까?`;
+    
+    if (!confirm(confirmMsg)) return;
+    
+    setDeletingLanguageId(lang.id);
+    try {
+      const res = await siteLanguageApi.delete(lang.id);
+      if (res.success) {
+        // 로컬 상태 업데이트
+        setLanguages(prev => prev.filter(l => l.id !== lang.id));
+        // 사이트의 언어도 로컬 업데이트
+        if (res.affected_sites > 0) {
+          setSites(prev => prev.map(s => 
+            s.language === lang.name ? { ...s, language: 'unset' } : s
+          ));
+        }
+      } else {
+        setError(res.error || '언어 삭제에 실패했습니다.');
+      }
+    } catch (err) {
+      console.error('Failed to delete language:', err);
+      setError('언어 삭제에 실패했습니다.');
+    } finally {
+      setDeletingLanguageId(null);
     }
   };
 
@@ -822,10 +870,67 @@ export default function SiteStatusPage() {
                     상태 {getSortIcon('site_status')}
                   </th>
                   <th 
-                    className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100"
-                    onClick={() => handleSort('language')}
+                    className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-24 cursor-pointer hover:bg-gray-100 relative"
                   >
-                    언어 {getSortIcon('language')}
+                    <div className="flex items-center gap-1">
+                      <span onClick={() => handleSort('language')} className="cursor-pointer">
+                        언어 {getSortIcon('language')}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShowLanguageManagement(prev => !prev); }}
+                        className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition"
+                        title="언어 관리"
+                      >
+                        <Cog6ToothIcon className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    {/* 언어 관리 팝오버 */}
+                    {showLanguageManagement && (
+                      <div 
+                        className="absolute top-full left-0 z-50 mt-1 w-64 bg-white rounded-lg shadow-xl border border-gray-200 p-3"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-xs font-semibold text-gray-700">언어 관리</h4>
+                          <button
+                            onClick={() => setShowLanguageManagement(false)}
+                            className="p-0.5 text-gray-400 hover:text-gray-600 rounded"
+                          >
+                            <XMarkIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                          {languages.map(lang => {
+                            const isProtected = protectedLanguages.includes(lang.name);
+                            const usingSitesCount = sites.filter(s => s.language === lang.name).length;
+                            return (
+                              <div key={lang.id} className="flex items-center gap-1.5 py-1 px-1.5 rounded hover:bg-gray-50 group">
+                                {/* 왼쪽 아이콘: 보호 언어는 자물쇠, 비보호 언어는 쓰레기통 */}
+                                {isProtected ? (
+                                  <LockClosedIcon className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                                ) : (
+                                  <button
+                                    onClick={() => handleDeleteLanguage(lang)}
+                                    disabled={deletingLanguageId === lang.id}
+                                    className="p-0 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-50 flex-shrink-0"
+                                    title="삭제"
+                                  >
+                                    <TrashIcon className="w-3 h-3" />
+                                  </button>
+                                )}
+                                <span className="text-xs text-gray-700 truncate flex-1">{lang.name}</span>
+                                {usingSitesCount > 0 && (
+                                  <span className="text-[10px] text-gray-400 flex-shrink-0">({usingSitesCount})</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="mt-2 text-[10px] text-gray-400 border-t border-gray-100 pt-1.5">
+                          🔒 영어, 한국어, 스페인어, 다국어는 삭제 불가
+                        </p>
+                      </div>
+                    )}
                   </th>
                   <th className="px-2 py-3 text-left text-xs font-medium text-gray-600 w-44">변경 URL</th>
                   <th 
