@@ -127,15 +127,21 @@ export default function PendingPage() {
     return <ChevronDownIcon className="w-4 h-4 text-blue-600" />;
   };
 
-  // 개별 승인/거부
+  // 개별 승인/거부 (로컬 상태 즉시 업데이트, 리프레시 없음)
   const handleReview = async (id: number, action: 'approve' | 'reject') => {
     setProcessingIds(prev => new Set(prev).add(id));
     
     try {
       const res = await pendingApi.review(id, action);
       if (res.success) {
+        // 로컬에서 즉시 제거 (리프레시 없이)
+        setItems(prev => prev.filter(item => item.id !== id));
+        setSelectedIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(id);
+          return newSet;
+        });
         setSuccessMessage(action === 'approve' ? '불법 사이트로 등록되었습니다.' : '합법 사이트로 처리되었습니다.');
-        loadPending();
       } else {
         setError(res.error || '처리에 실패했습니다.');
       }
