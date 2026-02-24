@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout';
-import { titlesApi } from '@/lib/api';
+import { titlesApi, settingsApi } from '@/lib/api';
 import { 
   PlusIcon, 
   TrashIcon, 
@@ -37,18 +37,31 @@ export default function TitlesPage() {
   const [newUnofficialTitle, setNewUnofficialTitle] = useState('');
   const [isSavingUnofficial, setIsSavingUnofficial] = useState(false);
 
+  // 모니터링 제한
+  const [maxTitles, setMaxTitles] = useState<number>(20);
+  const [isLimitReached, setIsLimitReached] = useState(false);
+
   // 데이터 로드
   const loadTitles = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const res = await titlesApi.getList();
+      const [res, settingsRes] = await Promise.all([
+        titlesApi.getList(),
+        settingsApi.getAll().catch(() => ({ success: false })),
+      ]);
       if (res.success) {
         setCurrentTitles(res.current || []);
         setHistoryTitles(res.history || []);
       } else {
         setError('작품 목록을 불러오는데 실패했습니다.');
+      }
+      if (settingsRes.success) {
+        const maxSetting = (settingsRes.settings || []).find((s: { key: string; value: string }) => s.key === 'max_monitoring_titles');
+        if (maxSetting) {
+          setMaxTitles(parseInt(maxSetting.value));
+        }
       }
     } catch (err) {
       console.error('Failed to load titles:', err);
@@ -61,6 +74,11 @@ export default function TitlesPage() {
   useEffect(() => {
     loadTitles();
   }, []);
+
+  // 제한 도달 여부 계산
+  useEffect(() => {
+    setIsLimitReached(currentTitles.length >= maxTitles);
+  }, [currentTitles.length, maxTitles]);
 
   // 작품 추가
   const handleAdd = async (e: React.FormEvent) => {
@@ -218,7 +236,15 @@ export default function TitlesPage() {
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-gray-800">현재 모니터링 대상</h3>
-              <p className="text-sm text-gray-500">{currentTitles.length}개 작품</p>
+              <p className="text-sm text-gray-500">
+                <span className={currentTitles.length >= maxTitles ? 'text-amber-600 font-medium' : ''}>
+                  {currentTitles.length}
+                </span>
+                <span className="text-gray-400"> / {maxTitles}개</span>
+                {currentTitles.length >= maxTitles && (
+                  <span className="text-amber-600 ml-1 text-xs">(제한 도달)</span>
+                )}
+              </p>
             </div>
           </div>
           
@@ -248,11 +274,11 @@ export default function TitlesPage() {
               )}
               <button
                 type="submit"
-                disabled={isAdding}
+                disabled={isAdding || isLimitReached}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <PlusIcon className="w-4 h-4" />
-                {isAdding ? '추가 중...' : '작품 추가'}
+                {isAdding ? '추가 중...' : isLimitReached ? `제한 도달 (${maxTitles}개)` : '작품 추가'}
               </button>
             </form>
           </div>

@@ -438,12 +438,15 @@ async function updateMonthlyStats(finalResults: FinalResult[]) {
 async function updateMantaRankings(searchResults: SearchResult[], sessionId: string, illegalDomains: Set<string>) {
   const sql = getDb();
   
-  // 작품별로 "[작품명]만" 검색한 결과에서 manta.net 순위 및 상위 3페이지(30위) 불법 URL 수 계산
+  // 작품별로 "[작품명]만" 검색한 결과에서 manta.net 순위 및 불법 URL 수 계산
+  // page1IllegalCount: 1페이지(1~10위) 불법 URL 수 (대시보드용)
+  // top30IllegalCount: 30위 내 전체 불법 URL 수 (Manta 순위 변화 차트용)
   const titleRankings = new Map<string, { 
     mantaRank: number | null; 
     firstDomain: string; 
     query: string;
     page1IllegalCount: number;
+    top30IllegalCount: number;
   }>();
   
   for (const result of searchResults) {
@@ -452,14 +455,21 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
       const title = result.title;
       
       if (!titleRankings.has(title)) {
-        titleRankings.set(title, { mantaRank: null, firstDomain: '', query: result.search_query, page1IllegalCount: 0 });
+        titleRankings.set(title, { mantaRank: null, firstDomain: '', query: result.search_query, page1IllegalCount: 0, top30IllegalCount: 0 });
       }
       
       const ranking = titleRankings.get(title)!;
       
-      // 상위 3페이지(1~30위) 내 불법 사이트 URL 수 계산
-      if (result.rank <= 30 && illegalDomains.has(result.domain.toLowerCase())) {
-        ranking.page1IllegalCount++;
+      // 불법 사이트 URL 수 계산
+      if (illegalDomains.has(result.domain.toLowerCase())) {
+        // 1페이지(1~10위) 불법 URL (대시보드용)
+        if (result.rank <= 10) {
+          ranking.page1IllegalCount++;
+        }
+        // 30위 내 전체 불법 URL (Manta 순위 변화 차트용)
+        if (result.rank <= 30) {
+          ranking.top30IllegalCount++;
+        }
       }
       
       // 1위 도메인 기록
@@ -480,23 +490,24 @@ async function updateMantaRankings(searchResults: SearchResult[], sessionId: str
   let savedCount = 0;
   for (const [title, ranking] of Array.from(titleRankings.entries())) {
     try {
-      // 현재 순위 업데이트 (page1_illegal_count 포함)
+      // 현재 순위 업데이트 (page1_illegal_count + top30_illegal_count 포함)
       await sql`
-        INSERT INTO manta_rankings (title, manta_rank, first_rank_domain, search_query, session_id, page1_illegal_count, updated_at)
-        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${ranking.query}, ${sessionId}, ${ranking.page1IllegalCount}, NOW())
+        INSERT INTO manta_rankings (title, manta_rank, first_rank_domain, search_query, session_id, page1_illegal_count, top30_illegal_count, updated_at)
+        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${ranking.query}, ${sessionId}, ${ranking.page1IllegalCount}, ${ranking.top30IllegalCount}, NOW())
         ON CONFLICT (title) DO UPDATE SET
           manta_rank = EXCLUDED.manta_rank,
           first_rank_domain = EXCLUDED.first_rank_domain,
           search_query = EXCLUDED.search_query,
           session_id = EXCLUDED.session_id,
           page1_illegal_count = EXCLUDED.page1_illegal_count,
+          top30_illegal_count = EXCLUDED.top30_illegal_count,
           updated_at = NOW()
       `;
       
-      // 히스토리에도 저장 (page1_illegal_count 포함)
+      // 히스토리에도 저장
       await sql`
-        INSERT INTO manta_ranking_history (title, manta_rank, first_rank_domain, session_id, page1_illegal_count, recorded_at)
-        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${sessionId}, ${ranking.page1IllegalCount}, NOW())
+        INSERT INTO manta_ranking_history (title, manta_rank, first_rank_domain, session_id, page1_illegal_count, top30_illegal_count, recorded_at)
+        VALUES (${title}, ${ranking.mantaRank}, ${ranking.firstDomain}, ${sessionId}, ${ranking.page1IllegalCount}, ${ranking.top30IllegalCount}, NOW())
       `;
       
       savedCount++;
@@ -741,7 +752,9 @@ async function runPipeline() {
     console.log('📌 Step 1: 구글 검색 (Serper.dev API)');
     console.log('─'.repeat(60));
     
-    const searchResults = await runSearch();
+    const searchRun = await runSearch();
+    const searchResults = searchRun.results;
+    const keywordsCount = searchRun.keywordsCount;
     saveJson(searchResults, `output/1_search-results-${timestamp}.json`);
     
     console.log(`\n✅ Step 1 완료: ${searchResults.length}개 결과 수집`);
@@ -835,7 +848,7 @@ async function runPipeline() {
         status = 'completed',
         completed_at = NOW(),
         titles_count = ${new Set(searchResults.map(r => r.title)).size},
-        keywords_count = 3,
+        keywords_count = ${keywordsCount},
         total_searches = ${new Set(searchResults.map(r => r.search_query)).size},
         results_total = ${finalResults.length},
         results_illegal = ${illegal},

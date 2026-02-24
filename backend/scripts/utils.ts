@@ -161,8 +161,36 @@ export function loadTextFile(filePath: string): string[] {
 
 /**
  * 키워드 파일 로드 (빈 줄 = 작품명만 검색)
+ * DB 우선 로드: system_settings에서 monitoring_keyword_suffixes 조회
+ * DB 로드 실패 시 파일 폴백
  */
-export function loadKeywords(filePath: string): string[] {
+export async function loadKeywords(filePath: string): Promise<string[]> {
+  // 1순위: DB에서 키워드 접미사 로드
+  try {
+    const sql = getDb();
+    const rows = await sql`
+      SELECT value FROM system_settings WHERE key = 'monitoring_keyword_suffixes'
+    ` as any[];
+    if (rows.length > 0) {
+      const suffixes: string[] = JSON.parse((rows[0] as any).value);
+      if (Array.isArray(suffixes) && suffixes.length > 0) {
+        console.log(`📖 DB에서 키워드 ${suffixes.length}개 로드됨: ${suffixes.map(s => s || '[작품명만]').join(', ')}`);
+        return suffixes;
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️ DB 키워드 로드 실패, 파일로 폴백:', error);
+  }
+
+  // 2순위: 파일 폴백 (기존 로직)
+  console.log('📖 파일에서 키워드 로드 중 (DB 폴백)...');
+  return loadKeywordsFromFile(filePath);
+}
+
+/**
+ * 키워드 파일에서 직접 로드 (폴백용)
+ */
+export function loadKeywordsFromFile(filePath: string): string[] {
   const absolutePath = path.join(process.cwd(), filePath);
   const content = fs.readFileSync(absolutePath, 'utf-8');
   const lines = content.split('\n');
