@@ -4,7 +4,7 @@ on:
   workflow_dispatch:  # 수동 실행
   schedule:
     # 평일(월-금) 아침 9시 (KST) = UTC 0시
-    - cron: '0 0 * * 1-5'
+    - cron: '0 23 * * 0-4'
 
 jobs:
   monitoring:
